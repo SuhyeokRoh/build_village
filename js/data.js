@@ -32,7 +32,7 @@ const REALMS = ['삼류', '이류', '일류', '절정', '초절정', '화경', '
 function realmOf(m) { return REALMS[clamp(Math.floor(m), 0, REALMS.length - 1)]; }
 
 // 건물 정의
-// light: [x, y, 반경(타일), 색] — 발판 좌상단 기준 타일 단위
+// light: [x, y, 반경(타일), 색, 높이?] — 발판 좌상단 기준 타일 단위. 높이(월드 px)가 없으면 lightLift(기본 16)만큼 땅에서 띄운다
 // walkRows: 발판 아래쪽에서 사람이 드나들 수 있는 줄 수 (마당/밭)
 const BUILD_CATS = [
   { id: 'home', name: '주거' },
@@ -48,7 +48,7 @@ const BDEF = {
     name: '영주관', hanja: '領', w: 3, h: 3, top: 1.4, cost: {}, hp: 900, time: 0, housing: 6,
     cat: null, unique: true, storage: 200,
     desc: '마을의 심장. 이곳이 무너지면 마을은 다른 세력의 손에 넘어간다.',
-    light: [[0.45, 2.75, 3.2, '#ffb25a'], [2.55, 2.75, 3.2, '#ffb25a']],
+    light: [[0.45, 2.75, 3.2, '#ffb25a'], [2.55, 2.75, 3.2, '#ffb25a']], lightLift: 22,
   },
   house: {
     name: '초가', hanja: '家', w: 2, h: 2, top: 0.6, cost: { wood: 20 }, hp: 140, time: 5, housing: 5,
@@ -81,34 +81,34 @@ const BDEF = {
   smithy: {
     name: '대장간', hanja: '鐵', w: 2, h: 2, top: 0.8, cost: { wood: 30, stone: 30, silver: 50 }, hp: 200, time: 9, workers: 2,
     cat: 'prod', rank: 1, desc: '석재와 목재로 병장기를 만든다. 병장기를 갖춘 무사는 훨씬 강하다.',
-    light: [[1.0, 1.7, 2.2, '#ff7a2a']],
+    light: [[1.0, 1.7, 2.2, '#ff7a2a']], lightLift: 8,
   },
   market: {
     name: '시장', hanja: '市', w: 3, h: 2, top: 0.6, cost: { wood: 40, silver: 40 }, hp: 180, time: 9, workers: 2,
     cat: 'trade', rank: 1, happy: 5, desc: '장이 서면 은자가 돈다. 인구가 많을수록 수입이 늘고 민심이 오른다.',
-    light: [[1.5, 1.8, 2.4, '#ffbe6a']],
+    light: [[1.5, 1.8, 2.4, '#ffbe6a']], lightLift: 14,
   },
   inn: {
     name: '객잔', hanja: '客', w: 3, h: 2, top: 1.3, cost: { wood: 60, stone: 20, silver: 80 }, hp: 260, time: 12, workers: 2,
     cat: 'trade', rank: 1, happy: 3, indoor: true,
     desc: '떠돌이 무인과 나그네가 머무는 곳. 은자와 명성을 벌고, 이따금 고수가 찾아온다.',
-    light: [[0.4, 1.9, 2.6, '#ff9a4a'], [2.6, 1.9, 2.6, '#ff9a4a']],
+    light: [[0.4, 1.9, 2.6, '#ff9a4a'], [2.6, 1.9, 2.6, '#ff9a4a']], lightLift: 20,
   },
   escort: {
     name: '표국', hanja: '鏢', w: 3, h: 3, top: 1.0, cost: { wood: 80, stone: 60, silver: 200 }, hp: 380, time: 18, workers: 4,
     cat: 'trade', rank: 2, fighter: true, walkRows: 1,
     desc: '표사들이 상단의 짐을 호위해 큰 은자를 번다. 습격 때는 표사들도 칼을 든다. 관도와 길로 이어져야 제값을 한다.',
-    light: [[0.3, 2.9, 2.4, '#ffb25a'], [2.7, 2.9, 2.4, '#ffb25a']],
+    light: [[0.3, 2.9, 2.4, '#ffb25a'], [2.7, 2.9, 2.4, '#ffb25a']], lightLift: 18,
   },
   clinic: {
     name: '의원', hanja: '藥', w: 2, h: 2, top: 0.7, cost: { wood: 40, silver: 60 }, hp: 160, time: 9, workers: 1,
     cat: 'civic', rank: 1, indoor: true, desc: '다친 이를 돌보고 역병을 막는다. 부상자 회복이 빨라진다.',
-    light: [[1.0, 1.9, 1.8, '#ffd27a']],
+    light: [[1.0, 1.9, 1.8, '#ffd27a']], lightLift: 14,
   },
   shrine: {
     name: '사당', hanja: '祠', w: 2, h: 2, top: 0.9, cost: { wood: 30, stone: 30, silver: 30 }, hp: 200, time: 9,
     cat: 'civic', happy: 8, fame: 0.4, desc: '조상과 산신께 제를 올리는 곳. 민심과 명성이 오른다.',
-    light: [[1.0, 1.8, 2.0, '#ffcf6a']],
+    light: [[1.0, 1.8, 2.0, '#ffcf6a']], lightLift: 10,
   },
   well: {
     name: '우물', hanja: '井', w: 1, h: 1, top: 0.4, cost: { stone: 10 }, hp: 120, time: 3,
@@ -117,19 +117,19 @@ const BDEF = {
   pavilion: {
     name: '정자', hanja: '亭', w: 2, h: 2, top: 0.8, cost: { wood: 30, stone: 10, silver: 30 }, hp: 140, time: 7,
     cat: 'civic', rank: 1, happy: 4, desc: '연못가의 정자. 저녁이면 사람들이 모여 담소를 나눈다.',
-    light: [[1.0, 1.2, 1.8, '#ffcf8a']],
+    light: [[1.0, 1.2, 1.8, '#ffcf8a']], lightLift: 20,
   },
   dojo: {
     name: '무관', hanja: '武', w: 3, h: 3, top: 1.1, cost: { wood: 60, stone: 40, silver: 100 }, hp: 420, time: 14, workers: 4,
     cat: 'martial', fighter: true, walkRows: 2, upkeep: 1,
     desc: '장정들이 무공을 익히는 곳. 여기서 일하는 이는 마을을 지키는 무사가 된다. 무사 한 명당 매일 은자 1냥.',
-    light: [[0.25, 1.05, 2.4, '#ffa04a'], [2.75, 1.05, 2.4, '#ffa04a']],
+    light: [[0.25, 1.05, 2.4, '#ffa04a'], [2.75, 1.05, 2.4, '#ffa04a']], lightLift: 18,
   },
   tower: {
     name: '망루', hanja: '望', w: 1, h: 1, top: 2.0, cost: { wood: 25 }, hp: 200, time: 5, workers: 1,
     cat: 'martial', fighter: true, indoor: true, range: 6.5, upkeep: 0.5,
     desc: '궁수 한 명이 올라 멀리서 다가오는 적에게 화살을 쏜다.',
-    light: [[0.5, -1.2, 2.6, '#ffa04a']],
+    light: [[0.5, 0.5, 2.6, '#ffa04a', 64]],
   },
   wall: {
     name: '목책', hanja: '柵', w: 1, h: 1, top: 0.4, cost: { wood: 3 }, hp: 160, time: 0.6,
@@ -142,7 +142,7 @@ const BDEF = {
   gate: {
     name: '성문', hanja: '門', w: 1, h: 1, top: 0.9, cost: { wood: 15 }, hp: 380, time: 2,
     cat: 'martial', desc: '마을 사람은 지나다니지만 적은 부숴야 들어온다.',
-    light: [[0.5, 0.6, 1.8, '#ffa04a']],
+    light: [[0.5, 0.6, 1.8, '#ffa04a']], lightLift: 24,
   },
 };
 const BUILD_ORDER = ['house', 'house2', 'farm', 'fishery', 'lumber', 'quarry', 'warehouse', 'smithy', 'market', 'inn', 'escort',
