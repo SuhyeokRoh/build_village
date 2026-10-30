@@ -6,8 +6,9 @@
 .stw-text .hj { border-bottom: 1px dotted rgba(181, 51, 42, 0.55); color: #7a231c; }
 
 /* ── 멈춤 막 ───────────────────────────── */
+/* 멈춤 대화는 큰 창(30) 위, 사건 두루마리(35) 아래 */
 #story-scrim {
-  position: absolute; inset: 0; z-index: 21;
+  position: absolute; inset: 0; z-index: 31;
   background: radial-gradient(ellipse at 25% 85%, rgba(8, 6, 5, 0.38), rgba(8, 6, 5, 0.66));
   animation: st-fade 0.3s ease-out;
 }
@@ -24,7 +25,7 @@
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(214, 170, 82, 0.12);
   animation: stw-in 0.28s ease-out;
 }
-#steward.pausing { z-index: 22; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(214, 170, 82, 0.35); }
+#steward.pausing { z-index: 32; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(214, 170, 82, 0.35); }
 @keyframes stw-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 /* 금박 모서리 장식 */
 #steward::before, #steward::after {
