@@ -88,11 +88,13 @@ function clampCamera() {
 // 건물은 보이는 모습 그대로(그림의 불투명한 픽셀) 앞에 있는 것부터 고른다.
 function pickAt(sx, sy) {
   if (!S) return null;
-  let best = null, bd = 13 * REN_FIG * Cam.zoom;
+  // 사람은 몸통 모양(세로로 긴 타원)으로 고른다. 일꾼이 선 논밭도 눌러지도록 너무 넓게 잡지 않는다.
+  const fz = REN_FIG * Cam.zoom, rx = Math.max(6, 8 * fz), ry = Math.max(9, 14 * fz);
+  let best = null, bd = 1;
   for (const arr of [S.enemies, S.allies, S.villagers]) for (const u of arr) {
     if (u.dead || u.inside) continue;
     const p = worldToScreen((u.x - u.y) * 32 + renJx(u), (u.x + u.y) * 16 + renJy(u));
-    const d = Math.hypot(p.x - sx, p.y - 10 * REN_FIG * Cam.zoom - sy);
+    const d = Math.hypot((p.x - sx) / rx, (p.y - 11 * fz - sy) / ry);
     if (d < bd) { bd = d; best = u; }
   }
   if (best) return { u: best };
@@ -782,7 +784,7 @@ function renSpriteOf(b, season) {
   const def = BDEF[b.type];
   if (b.ruined) return buildingSprite(b.type, b.w, b.h, season, 'ruin');
   if (!b.done) return buildingSprite(b.type, b.w, b.h, season, 'build', (Math.floor(clamp(b.progress / Math.max(0.01, def.time), 0, 1) * 4) / 4).toFixed(2));
-  return buildingSprite(b.type, b.w, b.h, season, 'done', def.line ? String(wallMask(b)) : '');
+  return buildingSprite(b.type, b.w, b.h, season, 'done', def.line || b.type === 'gate' ? String(wallMask(b)) : '');
 }
 // 점 (px, py)가 건물 b의 앞(1)인가 뒤(-1)인가. 마당(walkRows)은 앞으로 친다.
 function renRelation(px, py, b) {
@@ -867,7 +869,7 @@ function renRockOverlay(c, tx, ty) {
 // ── 메인 그리기 ───────────────────────────
 function render(nowMs) {
   const now = nowMs / 1000;
-  const rdt = Math.min(0.1, now - (R.lastT || now));
+  const rdt = clamp(now - (R.lastT || now), 0, 0.1);
   R.lastT = now; R.now = now;
   const c = R.ctx;
   c.setTransform(1, 0, 0, 1, 0, 0);

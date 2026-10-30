@@ -520,7 +520,7 @@ function hourlyTick() {
   if (rank > S.rank) {
     S.rank = rank;
     addFame(15 * rank);
-    logMsg(`마을이 ${RANKS[rank].name}${pp(RANKS[rank].name, '으로/로')} 커졌다! 새 건물을 지을 수 있다.`, 'good');
+    logMsg(`${S.name}${pp(S.name, '이/가')} ${RANKS[rank].name}${pp(RANKS[rank].name, '으로/로')} 커졌다! 새 건물을 지을 수 있다.`, 'good');
     UI.toast(`${RANKS[rank].name} 승격! 명성 +${15 * rank}`, 'good');
     UI.buildMenuDirty = true;
     Bus.emit('rankUp', rank);
@@ -573,7 +573,7 @@ function dailyTick() {
   // 점령 수탈
   if (S.occupation) {
     const f = S.occupation.faction;
-    const s = Math.max(8, Math.floor(S.res.silver * 0.25)), fo = Math.floor(S.res.food * 0.15);
+    const s = Math.min(Math.max(0, Math.floor(S.res.silver)), Math.max(8, Math.floor(S.res.silver * 0.25))), fo = Math.floor(S.res.food * 0.15);
     S.res.silver -= s; S.res.food -= fo;
     changeRel(f, -2); addFame(-1);
     logMsg(`${FACTIONS[f].name} 점령군이 은자 ${s}냥, 식량 ${fo}섬을 수탈해 갔다.`, 'bad');
@@ -770,7 +770,7 @@ function towersStep(dtH) {
     archer.dir = best.x > b.x + 0.5 ? 1 : -1;
     b.cd = 0.16;
     const dmg = (5 + archer.martial * 2.6) * (S.res.weapons > 0 ? 1.3 : 1);
-    G.projectiles.push({ x0: b.x + 0.5, y0: b.y + 0.5, z0: 48, x1: best.x, y1: best.y, z1: 8, t: 0, dur: 0.02 + bd * 0.006, target: best.id, dmg, src: archer.id });
+    G.projectiles.push({ x0: b.x + 0.5, y0: b.y + 0.5, z0: 70, x1: best.x, y1: best.y, z1: 8, t: 0, dur: 0.02 + bd * 0.006, target: best.id, dmg, src: archer.id });
   }
 }
 function projectilesStep(dtH) {
