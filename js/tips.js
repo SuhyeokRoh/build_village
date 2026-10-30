@@ -95,6 +95,14 @@ const Tips = {
     if (g) lines.push(`${def.hanja} (${g[0]})`);
     const sign = SIGN_OF[b.type];
     if (sign) { const sg = glossOf(sign); if (sg) lines.push(`현판 ${sign}: ${HANJA_GLOSS[sign] ? HANJA_GLOSS[sign][1] : sg.body}`); }
+    // 지붕 위 깃발의 글자: 객잔의 술 깃발, 영주관 깃발(마을 등급·주군·점령군)
+    const up = b.done && !b.ruined;
+    if (b.type === 'inn' && up && HANJA_GLOSS['酒']) lines.push(`酒 (${HANJA_GLOSS['酒'][0]}): ${HANJA_GLOSS['酒'][1]}`);
+    if (b.type === 'manor' && up) {
+      const f = manorFlagOf(), fg = HANJA_GLOSS[f.ch];
+      const why = f.k ? `${FACTIONS[f.k].name} ${f.occupied ? '점령군의 깃발' : '산하 마을의 깃발'}` : (fg ? fg[1] : RANKS[S.rank].name);
+      lines.push(`깃발 ${f.ch}${fg ? ` (${fg[0]})` : ''}: ${why}`);
+    }
     if (b.ruined) lines.push('폐허 — 눌러서 다시 지을 수 있다');
     else if (!b.done) lines.push(`공사 중 ${Math.floor(b.progress / def.time * 100)}%`);
     else {
@@ -111,7 +119,7 @@ const Tips = {
       let doing = u.down ? '쓰러져 있다' : u.act === 'work' ? (WORK_TEXT[u.jobType] || '일하는 중') : (ACT_TEXT[u.act] || '');
       const lines = [`${role} · ${u.age}세`, doing];
       if (u.role === 'guard' || u.hero) lines.push(`무공 ${realmOf(u.martial)}`);
-      if (u.petition) lines.push('상소를 올리러 가는 중');
+      if (u.petition) lines.push('상소를 올리고 처결을 기다리는 중');
       return { title: u.hero ? `${u.hero.epithet} ${u.name}` : u.name, body: lines.filter(Boolean).join('\n') };
     }
     const F = FACTIONS[u.faction];

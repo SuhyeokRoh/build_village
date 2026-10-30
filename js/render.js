@@ -107,8 +107,10 @@ function pickAt(sx, sy) {
     const lx = w.x - (nx + s.ox), ly = w.y - (ny + s.oy);
     const inBox = lx >= 0 && ly >= 0 && lx < s.w && ly < s.h;
     const onFoot = t.x >= b.x && t.x < b.x + b.w && t.y >= b.y && t.y < b.y + b.h;
-    if (!inBox && !onFoot) continue;
-    let hit = onFoot;
+    // 영주관 깃발은 그림 밖에 따로 그리니 깃폭·깃대도 영주관으로 친다
+    const onFlag = b.type === 'manor' && b.done && !b.ruined && renFlagHit(b, w.x, w.y);
+    if (!inBox && !onFoot && !onFlag) continue;
+    let hit = onFoot || onFlag;
     if (!hit) {
       const a = renSpriteAlpha(s, lx, ly);
       hit = a < 0 ? renPrismHit(b, w.x, w.y, Math.max(10, -s.oy - 6)) : a > 30;
@@ -1021,12 +1023,11 @@ function drawBuilding(c, b, s, season, now) {
   const topY = ny + s.oy;
   const cy = (b.x + b.y + (b.w + b.h) / 2) * 16;
   const H = Math.max(12, cy - topY);
-  if (Math.random() < 0.06) {
-    if (b.type === 'smithy' && b.done && !b.ruined && b._working) emitSmoke((b.x + b.w * 0.72 - b.y - b.h * 0.3) * 32, topY + 10, 'rgba(90,90,96,', 1);
-    if (b.type === 'shrine' && b.done && !b.ruined) {
-      const tx = b.x + b.w / 2, ty = b.y + b.h - 0.15;
-      emitSmoke((tx - ty) * 32, (tx + ty) * 16 - 8, 'rgba(220,220,230,', 0.4);
-    }
+  // 굴뚝·향로 연기는 그림이 알려 준 자리(SPRITE_META smoke, 북쪽 꼭짓점 기준)에서
+  const sm = (SPRITE_META[b.type] || {}).smoke;
+  if (sm && b.done && !b.ruined && Math.random() < 0.06) {
+    if (b.type === 'smithy' && b._working) emitSmoke(nx + sm[0], ny + sm[1], 'rgba(90,90,96,', 1);
+    if (b.type === 'shrine') emitSmoke(nx + sm[0], ny + sm[1] - 4, 'rgba(220,220,230,', 0.4);
   }
   if (b.ruined && Math.random() < 0.08) {
     const tx = b.x + rnd(0.2, b.w - 0.2), ty = b.y + rnd(0.2, b.h - 0.2);
@@ -1037,16 +1038,28 @@ function drawBuilding(c, b, s, season, now) {
     emitFire((tx - ty) * 32, (tx + ty) * 16 - rnd(4, H * 0.7));
   }
 }
-// 영주관 깃발: 발판 동쪽 모서리 안쪽에 세운 깃대
+// 영주관 깃발: 기단 동쪽 모서리(SPRITE_META.manor.flag)에 세운 깃대. 처마 모서리(58)보다 높이 솟는다
+const REN_FLAG_H = 70;
+function renFlagPos(b) {
+  const f = (SPRITE_META.manor || {}).flag || [94, 41];
+  const px = (b.x - b.y) * 32 + f[0], base = (b.x + b.y) * 16 + f[1];
+  return { px, base, py: base - REN_FLAG_H };
+}
+// 깃폭(깃대 오른쪽 26×20)이나 깃대 위인가 (월드 픽셀)
+function renFlagHit(b, wx, wy) {
+  const f = renFlagPos(b);
+  if (wx >= f.px - 2 && wx <= f.px + 27 && wy >= f.py - 3 && wy <= f.py + 22) return true;
+  return Math.abs(wx - f.px) <= 2 && wy >= f.py && wy <= f.base;
+}
+// 깃발의 글자와 빛깔: 점령군 > 주군 > 마을 등급 (지도 풀이도 이것을 쓴다)
+function manorFlagOf() {
+  if (S.occupation) { const k = S.occupation.faction; return { ch: FACTIONS[k].hanja, col: FACTIONS[k].color, k, occupied: true }; }
+  if (S.vassal) return { ch: FACTIONS[S.vassal].hanja, col: FACTIONS[S.vassal].color, k: S.vassal, occupied: false };
+  return { ch: RANKS[S.rank].short, col: '#2f6f58', k: null, occupied: false };
+}
 function drawManorFlag(c, b, s, now) {
-  const gx = b.x + b.w - 0.3, gy = b.y + 0.3;
-  const px = (gx - gy) * 32, base = (gx + gy) * 16;
-  const topY = (b.x + b.y) * 16 + s.oy;
-  const ph = clamp((base - topY) * 0.85, 48, 96);
-  const py = base - ph;
-  let col = '#2f6f58', ch = RANKS[S.rank].short;
-  if (S.occupation) { col = FACTIONS[S.occupation.faction].color; ch = FACTIONS[S.occupation.faction].hanja; }
-  else if (S.vassal) { col = FACTIONS[S.vassal].color; ch = FACTIONS[S.vassal].hanja; }
+  const { px, base, py } = renFlagPos(b);
+  const { ch, col } = manorFlagOf();
   c.strokeStyle = '#3b2414'; c.lineWidth = 1.8; c.beginPath(); c.moveTo(px, py); c.lineTo(px, base); c.stroke();
   renEll(c, REN_GOLD, px, py - 1.2, 1.9, 1.9);
   c.fillStyle = col;
@@ -1457,7 +1470,8 @@ function drawToolGhost(c, now, season) {
     const res = canPlace(tool.key, bx, by);
     c.fillStyle = res.ok ? 'rgba(140,220,120,0.34)' : 'rgba(230,80,60,0.40)';
     renFootPath(c, bx, by, def.w, def.h, 0); c.fill();
-    const s = buildingSprite(tool.key, def.w, def.h, season, 'done', def.line ? '10' : '');
+    // 성문은 놓일 자리의 담장 방향대로 돌려 보여 준다 (놓은 뒤와 같게)
+    const s = buildingSprite(tool.key, def.w, def.h, season, 'done', tool.key === 'gate' ? String(wallMask({ x: bx, y: by })) : '');
     c.globalAlpha = 0.7;
     c.drawImage(s.c, (bx - by) * 32 + s.ox, (bx + by) * 16 + s.oy, s.w, s.h);
     c.globalAlpha = 1;

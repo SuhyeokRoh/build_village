@@ -694,10 +694,11 @@ function pickExit(k) {
   return World.exits[pick(ids)] || World.exits[0];
 }
 function startRaid(k, goal, size, opts = {}) {
-  const ex = opts.exit || pickExit(k);
+  // exit 는 저장 때 버려지므로 길목 번호(exitIdx)를 함께 둔다
+  const ex = opts.exit || World.exits[opts.exitIdx] || pickExit(k);
   S.raid = {
     faction: k, goal, active: true, phase: 'fight', start: S.time, total: size, toSpawn: goal === 'uprising' ? 0 : size,
-    spawnT: 0, killed: 0, dead: 0, injured: 0, destroyed: 0, loot: {}, exit: ex,
+    spawnT: 0, killed: 0, dead: 0, injured: 0, destroyed: 0, loot: {}, exit: ex, exitIdx: World.exits.indexOf(ex),
     lootGoal: 40 + size * 12, leaderSpawned: goal === 'uprising',
   };
   if (goal === 'uprising') {
@@ -969,6 +970,9 @@ function deserialize(str) {
   genWorld(st.seed);
   for (let i = 0; i < World.tiles.length; i++) { World.tiles[i] = data.tiles.charCodeAt(i) - 48; World.road[i] = data.roads[i] === '1' ? 1 : 0; }
   S = st;
+  // 습격 길목은 'exit' 로 버려졌으니 번호로 되살린다 (옛 저장은 세력에 맞는 길목)
+  if (S.raid && !S.raid.exit) S.raid.exit = World.exits[S.raid.exitIdx] || pickExit(S.raid.faction);
+  for (const s of S.scheduled) if (s.kind === 'raid' && !s.exit && World.exits[s.exitIdx]) s.exit = World.exits[s.exitIdx];
   S.bmap = new Map();
   for (const b of S.buildings) S.bmap.set(b.id, b);
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) { u.path = null; u.moving = false; }
@@ -977,6 +981,7 @@ function deserialize(str) {
   World.terrainDirty = true;
   for (const b of S.buildings) updateSiteFactors(b);
   refreshAssign();
+  refreshLive();  // 멈춘 채 불러와도 망루 궁수·불빛·연기가 보이게
   hook(Admin, 'onLoad');
   hook(Petitions, 'onLoad');
   hook(Story, 'onLoad');

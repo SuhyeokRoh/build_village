@@ -2,7 +2,7 @@
 // ───────────────────────────────────────────────
 // 시작, 입력, 게임 루프
 // ───────────────────────────────────────────────
-const Input = { pointers: new Map(), down: false, btn: 0, sx: 0, sy: 0, lx: 0, ly: 0, moved: false, paint: false, paintStart: null, pinch: null, keys: new Set(), prevSpeed: 1 };
+const Input = { pointers: new Map(), down: false, btn: 0, sx: 0, sy: 0, lx: 0, ly: 0, moved: false, paint: false, paintStart: null, paintKey: null, pinch: null, keys: new Set(), prevSpeed: 1 };
 
 // 화면 좌표 → 타일 (정수 x, y와 실수 fx, fy). 투영은 render.js 의 screenToTile 이 맡는다.
 function tileAtScreen(sx, sy) {
@@ -44,7 +44,13 @@ function onClick(btn, sx, sy) {
     } else if (World.isRoad(t.x, t.y)) removeRoad(t.x, t.y);
   }
 }
+// 끌기를 시작한 그 길·담 도구가 아직 들려 있는가 (도중에 내려놓거나 바꾸면 그만둔다)
+function paintToolOk() {
+  const tool = UI.tool;
+  return !!tool && (tool.kind === 'road' || tool.kind === 'line') && tool.key === Input.paintKey;
+}
 function applyPaint() {
+  if (!paintToolOk()) { UI.dragTiles = null; UI.buildMenuDirty = true; return; }
   const tool = UI.tool, tiles = UI.dragTiles || [];
   let placed = 0, why = null;
   for (const p of tiles) {
@@ -85,7 +91,7 @@ function initInput() {
     Input.sx = Input.lx = e.clientX; Input.sy = Input.ly = e.clientY;
     const t = tileAtScreen(e.clientX, e.clientY);
     if (e.button === 0 && UI.tool && (UI.tool.kind === 'road' || UI.tool.kind === 'line')) {
-      Input.paint = true; Input.paintStart = t; UI.dragTiles = [{ x: t.x, y: t.y }];
+      Input.paint = true; Input.paintStart = t; Input.paintKey = UI.tool.key; UI.dragTiles = [{ x: t.x, y: t.y }];
     }
   });
   cv.addEventListener('pointermove', e => {
@@ -112,6 +118,8 @@ function initInput() {
     const dx = e.clientX - Input.lx, dy = e.clientY - Input.ly;
     if (!Input.moved && Math.hypot(e.clientX - Input.sx, e.clientY - Input.sy) > 7) Input.moved = true;
     if (Input.paint) {
+      // 도구가 바뀌었으면 이번 끌기는 버린다 (손을 뗄 때까지 지도도 움직이지 않는다)
+      if (!paintToolOk()) { Input.paint = false; Input.down = false; UI.dragTiles = null; return; }
       UI.dragTiles = lPath(Input.paintStart, t);
     } else if (Input.moved) {
       Cam.x -= dx / Cam.zoom; Cam.y -= dy / Cam.zoom;
@@ -152,7 +160,7 @@ function initInput() {
     else if (k === '2') UI.setSpeed(2);
     else if (k === '3') UI.setSpeed(4);
     else if (k === 'Escape') {
-      if (UI.tool) UI.setTool(null);
+      if (UI.tool) { if (Input.paint) { Input.paint = false; Input.down = false; } UI.setTool(null); }
       else if (UI.sheet) UI.closeSheet();
       else if (!$('log').hidden) $('log').hidden = true;
       else UI.select(null);

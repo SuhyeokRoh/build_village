@@ -1,7 +1,7 @@
 'use strict';
 // ───────────────────────────────────────────────
 // 사건: 강호의 일들이 마을을 찾아온다
-// 각 사건은 cond(조건), weight(빈도), cd(재발 대기 일수), init(자료 준비),
+// 각 사건은 cond(조건), weight(빈도), cd(재발 대기 일수), init(자료 준비. false 면 사건을 버린다),
 // text(본문), choices(선택지: label, sub, ok(가능 여부), run(결과 문장 반환))
 // ───────────────────────────────────────────────
 const VN = () => escapeHtml(S.name);
@@ -27,6 +27,12 @@ function spawnHero(h, at) {
   markDirty();
   return v;
 }
+
+// 사건 본문에 나오는 한자 낱말 (풀이 말풍선)
+const EV_HJ = {
+  guest: '<span data-tip-title="客卿 · 객경" data-tip="손님으로 모셔 높이 대접하는 고수.\n客 (손 객) · 卿 (벼슬 경)">客卿</span>',
+  manual: '<span data-tip-title="淸河劍訣 · 청하검결" data-tip="맑은 강물 같은 검법의 구결을 적은 비급.\n淸 (맑을 청) · 河 (물 하) · 劍 (칼 검) · 訣 (비결 결)">淸河劍訣</span>',
+};
 
 const EV = {
   bandit_toll: {
@@ -124,7 +130,7 @@ const EV = {
     title: '객잔의 떠돌이 고수', stamp: '客', weight: 1.5, cd: 5,
     cond: () => hasUsable('inn') && S.villagers.filter(v => v.hero && !v.dead).length < 6,
     init: d => { d.h = makeHero(); d.cost = Math.round(70 + d.h.martial * 55); },
-    text: d => `객잔에 삿갓을 깊이 눌러쓴 ${d.h.hero.title}가 묵고 있다. 사람들은 그를 '${d.h.hero.epithet}'라 부른다. 기도로 보아 경지는 <em>${realmOf(d.h.martial)}</em>쯤.\n<q>머물 곳을 찾고 있소. 대접만 섭섭지 않다면 이 마을의 객경(客卿)이 되어 드리리다.</q>`,
+    text: d => `객잔에 삿갓을 깊이 눌러쓴 ${d.h.hero.title}${pp(d.h.hero.title, '이/가')} 묵고 있다. 사람들은 그를 '${d.h.hero.epithet}'${pp(d.h.hero.epithet, '이라/라')} 부른다. 기도로 보아 경지는 <em>${realmOf(d.h.martial)}</em>쯤.\n<q>머물 곳을 찾고 있소. 대접만 섭섭지 않다면 이 마을의 객경(${EV_HJ.guest})이 되어 드리리다.</q>`,
     choices: d => [
       { label: `${d.h.hero.epithet} ${d.h.name}${pp(d.h.name, '을/를')} 객경으로 모신다`, sub: `은자 -${d.cost} · 매일 은자 ${d.h.hero.upkeep}냥`, ok: () => S.res.silver >= d.cost,
         run: () => { S.res.silver -= d.cost; const inn = S.buildings.find(b => b.type === 'inn' && usable(b)); spawnHero(d.h, inn ? doorOf(inn) : null);
@@ -142,7 +148,7 @@ const EV = {
         run: () => { S.res.food -= 15; S.res.silver -= 15;
           const r = Math.random();
           if (r < 0.5) { const h = makeHero({ martial: rnd(1.5, 2.6), upkeepMul: 0.5 }); h.hero.title = '은혜 갚는 ' + h.hero.title; spawnHero(h);
-            return `깨어난 무인은 ${h.name}이라 했다. <q>목숨을 구해 주셨으니 이 몸으로 갚겠소.</q> 그가 마을의 객경이 되었다.`; }
+            return `깨어난 무인은 ${h.name}${pp(h.name, '이라/라')} 했다. <q>목숨을 구해 주셨으니 이 몸으로 갚겠소.</q> 그가 마을의 객경이 되었다.`; }
           if (r < 0.8) { S.martialCap = Math.min(6, S.martialCap + 0.5); addMod('manual', 6);
             return '무인은 몸을 추스르자 말없이 떠났다. 그가 누웠던 자리에 낡은 무공 구결 한 장이 남아 있었다. 무사들의 수련이 한층 깊어진다.'; }
           changeRel('cheongun', -15); changeRel('hyeolwol', 10);
@@ -154,7 +160,7 @@ const EV = {
   manual: {
     title: '석함 속의 비급', stamp: '秘', weight: 0.5, cd: 30,
     cond: () => (hasUsable('quarry') || hasUsable('lumber')) && dayOf() >= 4,
-    text: () => '일꾼이 땅을 파다가 이끼 낀 석함을 발견했다. 안에는 빛바랜 무공 비급이 들어 있었다. 표지에는 <em>「청하검결(淸河劍訣)」</em>이라 적혀 있다.',
+    text: () => `일꾼이 땅을 파다가 이끼 낀 석함을 발견했다. 안에는 빛바랜 무공 비급이 들어 있었다. 표지에는 <em>「청하검결(${EV_HJ.manual})」</em>이라 적혀 있다.`,
     choices: () => [
       { label: '무사들에게 익히게 한다', sub: '무사가 오를 수 있는 경지 +1 · 무사 전원 무공 상승', run: () => {
         S.martialCap = Math.min(6, S.martialCap + 1); addMod('manual', 10);
@@ -239,7 +245,7 @@ const EV = {
   tournament: {
     title: '무림대회', stamp: '武', weight: 0.7, cd: 20,
     cond: () => S.fame >= 25 && fighters().length > 0,
-    init: d => { const c = bestFighter(); d.champ = c.id; d.cname = c.name; d.p = clamp(0.12 + c.martial * 0.16, 0.1, 0.88);
+    init: d => { const c = bestFighter(); if (!c) return false; d.champ = c.id; d.cname = c.name; d.p = clamp(0.12 + c.martial * 0.16, 0.1, 0.88);
       d.who = `${c.hero ? c.hero.epithet + ' ' : '무사 '}${c.name}(${realmOf(c.martial)})`; },
     text: d => `인근 성에서 무림대회가 열린다. 우승자에게는 은자 200냥과 강호의 명성이 주어진다.\n마을에서 가장 강한 이는 ${d.who}.`,
     choices: d => [
@@ -270,6 +276,7 @@ const EV = {
     cond: () => isNight() && S.buildings.some(b => usable(b) && ['house', 'house2', 'inn', 'market', 'warehouse'].includes(b.type)),
     init: d => {
       const cands = S.buildings.filter(b => usable(b) && ['house', 'house2', 'inn', 'market', 'warehouse'].includes(b.type));
+      if (!cands.length) return false;
       d.b = pick(cands).id;
     },
     text: d => { const b = getB(d.b); return `${b ? BDEF[b.type].name : '건물'}에서 불길이 솟았다! 밤하늘이 붉게 물든다.`; },
@@ -299,7 +306,7 @@ const EV = {
   spy: {
     title: '붙잡힌 첩자', stamp: '諜', weight: 0.8, cd: 12,
     cond: () => FACTION_ORDER.some(k => FACTIONS[k].military && rel(k) < -20),
-    init: d => { d.k = pick(FACTION_ORDER.filter(k => FACTIONS[k].military && rel(k) < -20)); },
+    init: d => { const ks = FACTION_ORDER.filter(k => FACTIONS[k].military && rel(k) < -20); if (!ks.length) return false; d.k = pick(ks); },
     text: d => `야경을 돌던 사람들이 담을 넘던 수상한 자를 붙잡았다. 품에서 ${fName(d.k)}의 영패가 나왔다.`,
     choices: d => [
       { label: '심문한다', sub: `${fName(d.k)}의 습격 계획을 늦춘다`, run: () => { S.factions[d.k].threat = Math.max(0, S.factions[d.k].threat - 45); changeRel(d.k, -5);
@@ -352,7 +359,7 @@ const EV = {
   prodigy: {
     title: '타고난 근골', stamp: '才', weight: 0.5, cd: 25,
     cond: () => civilians().some(v => v.age < 26),
-    init: d => { d.v = pick(civilians().filter(v => v.age < 26)).id; },
+    init: d => { const vs = civilians().filter(v => v.age < 26); if (!vs.length) return false; d.v = pick(vs).id; },
     text: d => { const v = unitById(d.v) || S.villagers.find(o => o.id === d.v); return `${v ? v.name : '어떤 아이'}${pp(v ? v.name : '어떤 아이', '이/가')} 놀라운 근골을 지녔다는 소문이 돈다. 나무 지게를 지고 산을 뛰어오른다고 한다.`; },
     choices: d => [
       { label: '무관에서 가르친다', sub: '무공 재능이 크게 오른다', ok: () => hasUsable('dojo'),
@@ -477,36 +484,39 @@ const Events = {
     };
     const e = EV[id];
     if (!e) return null;
-    if (e.init && !data._init) { e.init(data); data._init = true; }
+    // 사건을 고른 뒤 사정이 바뀌어 준비할 수 없으면(대상이 없어짐) 버린다
+    if (e.init && !data._init) { if (e.init(data) === false) return null; data._init = true; }
     S.stats.events++;
     return { title: e.title, stamp: e.stamp, text: e.text(data), choices: e.choices(data) };
   },
   buildRaid(d) {
     const F = FACTIONS[d.k];
     const ex = World.exits[d.exitIdx] || World.exits[0];
+    // 저장하면 exit 는 버려지므로 길목 번호도 함께 넘긴다 (불러올 때 되살린다)
+    const exitOpt = { exit: ex, exitIdx: World.exits.indexOf(ex) };
     const tribute = Math.round(d.size * 14 + dayOf() * 2);
     const helpers = FACTION_ORDER.filter(m => m !== d.k && FACTIONS[m].military && rel(m) >= 35 && m !== S.vassal);
     const lordNote = S.vassal && S.vassal !== d.k && FACTIONS[S.vassal].military ? `\n\n주군인 <em>${fName(S.vassal)}</em>에서 원군을 보낼 것이다.` : '';
     const choices = [
       { label: '맞서 싸운다!', sub: `${d.delay}시진(${d.delay * 2}시간) 뒤 들이닥친다`, run: () => {
-        scheduleRaid(d.k, d.delay * 2, d.goal, d.size, { exit: ex });
+        scheduleRaid(d.k, d.delay * 2, d.goal, d.size, exitOpt);
         logMsg(`${F.name}의 습격이 다가온다. 무사들이 창을 고쳐 잡는다.`, 'war');
         return '종이 울렸다. 아낙들은 아이들을 집 안으로 들이고, 장정들은 무기를 챙긴다.'; } },
       { label: '은자를 바쳐 화친한다', sub: `은자 -${tribute} · ${F.name} 관계 +6`, ok: () => S.res.silver >= tribute, run: () => {
         S.res.silver -= tribute; changeRel(d.k, 6);
         logMsg(`${F.name}에 은자 ${tribute}냥을 바쳐 습격을 피했다.`, '');
-        return `${F.leader.title}가 은자 상자를 받아 들고 무리를 돌렸다. 굴욕적이지만 피는 흐르지 않았다.`; } },
+        return `${F.leader.title}${pp(F.leader.title, '이/가')} 은자 상자를 받아 들고 무리를 돌렸다. 굴욕적이지만 피는 흐르지 않았다.`; } },
     ];
     for (const m of helpers.slice(0, 2)) {
       choices.push({ label: `${fName(m)}에 구원을 청한다`, sub: `은자 -60 · ${fName(m)}의 무인들이 함께 싸운다`, ok: () => S.res.silver >= 60, run: () => {
         S.res.silver -= 60; changeRel(m, -3);
-        scheduleRaid(d.k, d.delay * 2, d.goal, d.size, { exit: ex });
+        scheduleRaid(d.k, d.delay * 2, d.goal, d.size, exitOpt);
         S.scheduled.push({ at: S.time + d.delay * 2 + 0.6, kind: 'allies', faction: m, n: 4 + Math.floor(dayOf() / 8) });
         return `${fName(m)}${pp(fName(m), '이/가')} 무인들을 보내겠다고 답했다.`; } });
     }
     return {
       title: `${F.name} 습격 경보`, stamp: F.hanja,
-      text: `척후가 숨을 헐떡이며 달려왔다!\n<em>${F.name}</em>의 ${F.leader.title}가 무리 <em>${d.size}명</em>을 이끌고 ${ex.name}${pp(ex.name, '으로/로')} 다가오고 있다. ${GOAL_TEXT[d.goal]}\n\n약 ${d.delay}시진 뒤 들이닥칠 것이다. 무사 ${fighters().length}명, 망루 ${countType('tower')}개가 마을을 지킨다.${lordNote}`,
+      text: `척후가 숨을 헐떡이며 달려왔다!\n<em>${F.name}</em>의 ${F.leader.title}${pp(F.leader.title, '이/가')} 무리 <em>${d.size}명</em>을 이끌고 ${ex.name}${pp(ex.name, '으로/로')} 다가오고 있다. ${GOAL_TEXT[d.goal]}\n\n약 ${d.delay}시진 뒤 들이닥칠 것이다. 무사 ${fighters().length}명, 망루 ${countType('tower')}개가 마을을 지킨다.${lordNote}`,
       choices,
     };
   },
