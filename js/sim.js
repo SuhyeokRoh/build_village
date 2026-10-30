@@ -360,6 +360,7 @@ function economyStep(dtH) {
   const harvest = hasMod('harvest') ? 1.4 : 1;
   const quarantine = hasMod('quarantine') ? 0.6 : 1;
   const occ = S.occupation ? 0.85 : 1;
+  let trade = 0;   // 장사로 번 은자 (육방 장부가 상금·하사금과 가려 본다)
   for (const v of S.villagers) {
     if (!isWorking(v)) continue;
     const b = getB(v.job);
@@ -375,9 +376,9 @@ function economyStep(dtH) {
           S.res.stone -= 0.3 * dtH; S.res.wood -= 0.15 * dtH; addRes('weapons', 0.22 * m);
         }
         break;
-      case 'market': addRes('silver', (0.36 + pop * 0.007) * tradeMul() * m); break;
-      case 'inn': addRes('silver', (0.4 + S.fame * 0.0006) * tradeMul() * m); addFame(0.012 * dtH); break;
-      case 'escort': addRes('silver', (b._connected ? 0.95 : 0.3) * tradeMul() * m); addFame(0.006 * dtH); break;
+      case 'market': trade += (0.36 + pop * 0.007) * tradeMul() * m; break;
+      case 'inn': trade += (0.4 + S.fame * 0.0006) * tradeMul() * m; addFame(0.012 * dtH); break;
+      case 'escort': trade += (b._connected ? 0.95 : 0.3) * tradeMul() * m; addFame(0.006 * dtH); break;
       case 'dojo': {
         const train = (S.vassal === 'cheongun' ? 1.5 : 1) * (hasMod('manual') ? 1.4 : 1);
         if (v.martial < S.martialCap) { v.martial = Math.min(S.martialCap, v.martial + 0.013 * v.talent * train * dtH); }
@@ -386,6 +387,7 @@ function economyStep(dtH) {
       default: break;
     }
   }
+  if (trade > 0) { addRes('silver', trade); if (S.dayAcc) S.dayAcc.trade = (S.dayAcc.trade || 0) + trade; }
   S.res.food -= pop * dtH / 12;
   if (S.res.food < 0) { S.res.food = 0; S.starving += dtH; }
   const cap = storageCap();
