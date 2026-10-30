@@ -1099,8 +1099,8 @@ const Admin = {
         for (const b of work) {
           if (isT(b) || !open(b) || (JOB_PRIORITY[b.type] || 0) < pr) continue;
           if (isFood(b) && hungry) continue;
-          // 망루는 닫지 않는다 (닫힌 채 습격을 맞는다)
-          if (b.type === 'tower' || (b.type === 'dojo' && raid)) continue;
+          // 습격이 다가오면 망루·무관은 닫지 않는다 (경보가 오면 닫아 둔 망루도 다시 연다)
+          if ((b.type === 'tower' || b.type === 'dojo') && raid) continue;
           b.want = staffed(b); lower(b); froze++;
         }
         if (froze) markDirty();
@@ -1750,6 +1750,8 @@ Bus.on('raidWarning', () => {
   // 이방이 내려 두었던 망루 일손은 경보가 오면 바로 되돌린다
   Admin.restoreLowered(b => b.type === 'tower');
 });
+// 경보 없이 쳐들어와도(봉기 등) 닫아 둔 망루·무관을 연다
+Bus.on('raidStart', () => { if (S.admin) Admin.restoreLowered(b => b.type === 'tower' || b.type === 'dojo'); });
 Bus.on('built', b => {
   if (!S || !S.admin) return;
   for (const id of ADM_IDS) {
