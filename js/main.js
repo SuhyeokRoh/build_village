@@ -56,6 +56,18 @@ function applyPaint() {
   UI.buildMenuDirty = true;
 }
 
+// 화면 한 점(sx, sy)을 붙잡은 채로 배율을 바꾼다
+function zoomAt(zoom, sx, sy) {
+  const before = screenToWorld(sx, sy);
+  Cam.zoom = clamp(zoom, REN_ZMIN, REN_ZMAX);
+  clampCamera();
+  const after = screenToWorld(sx, sy);
+  Cam.x += before.x - after.x; Cam.y += before.y - after.y;
+  clampCamera();
+  UI.camTarget = null;
+  Bus.emit('camMoved');
+}
+
 function initInput() {
   const cv = R.canvas;
   cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -85,7 +97,7 @@ function initInput() {
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2;
       const before = screenToWorld(cx, cy);
-      Cam.zoom = clamp(Input.pinch.zoom * d / Input.pinch.d, 0.45, 2.6);
+      Cam.zoom = clamp(Input.pinch.zoom * d / Input.pinch.d, REN_ZMIN, REN_ZMAX);
       clampCamera();
       const after = screenToWorld(cx, cy);
       Cam.x += before.x - after.x; Cam.y += before.y - after.y;
@@ -123,14 +135,7 @@ function initInput() {
   cv.addEventListener('pointerleave', () => { if (!Input.down) UI.hover = null; });
   cv.addEventListener('wheel', e => {
     e.preventDefault();
-    const before = screenToWorld(e.clientX, e.clientY);
-    Cam.zoom = clamp(Cam.zoom * Math.exp(-e.deltaY * 0.0015), 0.45, 2.6);
-    clampCamera();
-    const after = screenToWorld(e.clientX, e.clientY);
-    Cam.x += before.x - after.x; Cam.y += before.y - after.y;
-    clampCamera();
-    UI.camTarget = null;
-    Bus.emit('camMoved');
+    zoomAt(Cam.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
   }, { passive: false });
 
   window.addEventListener('keydown', e => {
@@ -140,6 +145,9 @@ function initInput() {
     if (k === ' ') {
       e.preventDefault();
       if (S.speed > 0) { Input.prevSpeed = S.speed; UI.setSpeed(0); } else UI.setSpeed(Input.prevSpeed || 1);
+    } else if (k === '+' || k === '=' || k === '-' || k === '_') {
+      // 화면 가운데를 기준으로 확대·축소
+      zoomAt(Cam.zoom * (k === '-' || k === '_' ? 1 / 1.2 : 1.2), Cam.vw / 2, Cam.vh / 2);
     } else if (k === '1') UI.setSpeed(1);
     else if (k === '2') UI.setSpeed(2);
     else if (k === '3') UI.setSpeed(4);
@@ -169,9 +177,10 @@ function enterGame(isNew) {
   }
   $('title-screen').hidden = true;
   G.fx = []; G.particles = []; G.projectiles = [];
-  Cam.zoom = window.innerWidth < 700 ? 1.05 : 1.4;
+  // 등각 마름모(64×32)에 맞춘 처음 배율. 영주관이 화면 가운데 조금 위에 오게 한다
+  Cam.zoom = window.innerWidth < 700 ? 0.7 : 0.85;
   const m = getB(S.manorId);
-  centerOnTile(m ? m.x + 1.5 : World.center.x, m ? m.y + 3 : World.center.y);
+  centerOnTile(m ? m.x + 2.6 : World.center.x, m ? m.y + 2.6 : World.center.y);
   UI.camTarget = null;
   UI.select(null); UI.setTool(null);
   UI.closeSheet();
@@ -189,7 +198,7 @@ function loop(t) {
   lastFrame = t;
   if (!S || !$('title-screen').hidden) return;
   PF.budget = 40;
-  // 키보드 이동
+  // 키보드 이동 (화면 방향 그대로: W = 화면 위)
   if (Input.keys.size) {
     const sp = 700 * dt / Cam.zoom;
     if (Input.keys.has('w') || Input.keys.has('arrowup')) Cam.y -= sp;
