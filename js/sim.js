@@ -52,8 +52,9 @@ function logMsg(text, kind = '') {
 function markDirty() { if (S) S._dirty = true; }
 
 // ── 새 게임 ──────────────────────────────
-function newGame(name) {
-  const seed = Math.floor(Math.random() * 1e9);
+// 순서: S → 고을 땅 생김으로 지형 → 천하(S.jh·이웃·세력 스물여섯·길목 toward) → 기본 마을 → 모듈 init → setupNewGame → refreshAssign
+function newGame(name, siteKey = 'henan_field', seed = Math.floor(Math.random() * 1e9)) {
+  if (!SITES[siteKey]) siteKey = 'henan_field';
   S = {
     v: 1, name, seed, time: 7, speed: 1,
     res: { silver: 260, food: 140, wood: 180, stone: 50, weapons: 6 },
@@ -66,8 +67,8 @@ function newGame(name) {
     log: [], nextEventAt: 30, martialCap: 3, rain: false, starving: 0,
     eventQueue: [], dayAcc: {}, lastFlow: {}, victory: false, ended: false,
   };
-  for (const k of FACTION_ORDER) S.factions[k] = { rel: FACTIONS[k].startRel, threat: k === 'heukpung' ? 35 : 0 };
-  genWorld(seed);
+  genWorld(seed, SITES[siteKey].biome);
+  JH.newWorld(siteKey, seed);
   const cx = World.center.x, cy = World.center.y;
   const manor = placeBuilding('manor', cx - 1, cy - 1, true);
   S.manorId = manor.id;
@@ -88,8 +89,9 @@ function newGame(name) {
   hook(Story, 'setupNewGame');
   refreshAssign();
   S.stats.maxPop = popCount();
-  logMsg(`${S.name}${pp(S.name, '이/가')} 강호의 지도 위에 처음 이름을 올렸다. 영주의 시대가 시작된다.`, 'good');
+  logMsg(`${S.name}${pp(S.name, '이/가')} ${SITES[siteKey].name}에 터를 잡고 강호의 지도 위에 처음 이름을 올렸다. 영주의 시대가 시작된다.`, 'good');
   World.terrainDirty = true;
+  Bus.emit('siteChosen', siteKey);
 }
 
 // ── 건물 배치 ────────────────────────────
@@ -150,6 +152,9 @@ function roadConnected(b) {
 function canPlace(type, x, y) {
   const def = BDEF[type];
   if (def.rank && S.rank < def.rank) return { ok: false, why: `마을이 ${RANKS[def.rank].name} 이상이어야 한다` };
+  // 갈래 건물은 그 갈래를 걸을 때만, 하나씩만
+  if (def.route && (!S.jh || S.jh.route !== def.route)) return { ok: false, why: `갈래가 다르다 (${def.route === 'free' ? '홀로 서는' : CAMPS[def.route].name + '의'} 길에서만 짓는다)` };
+  if (def.unique && S.buildings.some(b => b.type === type)) return { ok: false, why: '하나만 지을 수 있다' };
   for (let yy = y; yy < y + def.h; yy++) for (let xx = x; xx < x + def.w; xx++) {
     if (xx < 1 || yy < 1 || xx >= MW - 1 || yy >= MH - 1) return { ok: false, why: '지도 가장자리에는 지을 수 없다' };
     const i = yy * MW + xx;
@@ -278,7 +283,8 @@ function buildingDestroyed(b, by) {
 }
 
 // ── 배치(집·일자리) ───────────────────────
-const JOB_PRIORITY = { farm: 6, fishery: 5.5, clinic: 5, tower: 5, lumber: 4.5, quarry: 4, dojo: 3.8, smithy: 3.2, market: 3, inn: 3, escort: 2.8 };
+const JOB_PRIORITY = { farm: 6, fishery: 5.5, clinic: 5, tower: 5, lumber: 4.5, quarry: 4, dojo: 3.8, hall_jeong: 3.6, smithy: 3.2, yamen: 3.1, market: 3, inn: 3,
+  blackmarket: 2.9, gambling: 2.9, horsemarket: 2.9, escort: 2.8, ancestral: 2.6, altar_ma: 2.5, stage: 2.5 };
 function refreshAssign() {
   for (const b of S.buildings) { b._workers = []; b._residents = []; }
   for (const v of S.villagers) {
@@ -310,7 +316,7 @@ function refreshAssign() {
   const foodLow = S.res.food < popCount() * 4;
   const slots = S.buildings.filter(b => usable(b) && b.active && BDEF[b.type].workers && b._workers.length < Math.min(BDEF[b.type].workers, b.want))
     .sort((a, b) => (JOB_PRIORITY[b.type] + (foodLow && (b.type === 'farm' || b.type === 'fishery') ? 5 : 0)) - (JOB_PRIORITY[a.type] + (foodLow && (a.type === 'farm' || a.type === 'fishery') ? 5 : 0)));
-  const jobless = S.villagers.filter(v => !v.dead && !v.leaving && !v.arriving && !v.job && !v.hero && v.age >= 14 && !v.down);
+  const jobless = S.villagers.filter(v => !v.dead && !v.leaving && !v.arriving && !v.job && !v.hero && v.age >= 14 && !v.down && !v.away);
   for (const b of slots) {
     while (b._workers.length < Math.min(BDEF[b.type].workers, b.want) && jobless.length) {
       let bi = 0, bd = Infinity;
@@ -354,10 +360,14 @@ function refreshLive() {
 
 // ── 경제 ─────────────────────────────────
 const SEASON_FARM = [1.0, 1.25, 1.5, 0.35];
-function tradeMul() { return S.vassal === 'geumryong' ? 1.3 : 1; }
+function tradeMul() { return JH.perk('trade'); }
 function economyStep(dtH) {
   const season = seasonIdx();
   const pop = popCount();
+  // 고을 땅 생김: 기름진 들은 수확을, 추위는 겨울 논밭과 겨울 식량을 바꾼다 (모두 0.5면 예전 그대로)
+  const bio = JH.biome(), winter = season === 3 && !JH.trait().noWinter;
+  const farmMul = (winter ? SEASON_FARM[3] * (1 - 0.6 * (bio.cold - 0.5)) : SEASON_FARM[season === 3 ? 0 : season]) * (1 + 0.4 * (bio.fertile - 0.5));
+  const tm = tradeMul(), shop = 0.36 + pop * 0.007;
   const drought = hasMod('drought') ? (hasMod('well_dug') ? 0.7 : 0.4) : 1;
   const harvest = hasMod('harvest') ? 1.4 : 1;
   const quarantine = hasMod('quarantine') ? 0.6 : 1;
@@ -369,8 +379,8 @@ function economyStep(dtH) {
     if (!b || !b.active) continue;
     const m = quarantine * occ * dtH;
     switch (b.type) {
-      case 'farm': addRes('food', 0.66 * SEASON_FARM[season] * drought * harvest * m); break;
-      case 'fishery': addRes('food', 0.56 * (season === 3 ? 0.6 : 1) * m); break;
+      case 'farm': addRes('food', 0.66 * farmMul * drought * harvest * m); break;
+      case 'fishery': addRes('food', 0.56 * (winter ? 0.6 : 1) * JH.perk('fish') * m); break;
       case 'lumber': addRes('wood', 0.9 * (b._forest || 0.5) * m); break;
       case 'quarry': addRes('stone', 0.62 * (b._rock || 0.5) * m); break;
       case 'smithy':
@@ -378,11 +388,15 @@ function economyStep(dtH) {
           S.res.stone -= 0.3 * dtH; S.res.wood -= 0.15 * dtH; addRes('weapons', 0.22 * m);
         }
         break;
-      case 'market': trade += (0.36 + pop * 0.007) * tradeMul() * m; break;
-      case 'inn': trade += (0.4 + S.fame * 0.0006) * tradeMul() * m; addFame(0.012 * dtH); break;
-      case 'escort': trade += (b._connected ? 0.95 : 0.3) * tradeMul() * m; addFame(0.006 * dtH); break;
-      case 'dojo': {
-        const train = (S.vassal === 'cheongun' ? 1.5 : 1) * (hasMod('manual') ? 1.4 : 1);
+      case 'market': trade += shop * tm * m; break;
+      case 'inn': trade += (0.4 + S.fame * 0.0006) * tm * m; addFame(0.012 * dtH); break;
+      case 'escort': trade += (b._connected ? 0.95 : 0.3) * tm * JH.perk('escort') * m; addFame(0.006 * dtH); break;
+      // 갈래 건물: 흑시는 시장의 1.2배, 도박장은 1.5배, 호시는 시장처럼
+      case 'blackmarket': trade += shop * 1.2 * tm * m; break;
+      case 'gambling': trade += shop * 1.5 * tm * m; break;
+      case 'horsemarket': trade += shop * tm * m; break;
+      case 'dojo': case 'hall_jeong': {
+        const train = JH.perk('train') * (hasMod('manual') ? 1.4 : 1);
         if (v.martial < S.martialCap) { v.martial = Math.min(S.martialCap, v.martial + 0.013 * v.talent * train * dtH); }
         break;
       }
@@ -390,7 +404,7 @@ function economyStep(dtH) {
     }
   }
   if (trade > 0) { addRes('silver', trade); if (S.dayAcc) S.dayAcc.trade = (S.dayAcc.trade || 0) + trade; }
-  S.res.food -= pop * dtH / 12;
+  S.res.food -= pop * dtH / 12 * (winter ? 1 + 0.4 * (bio.cold - 0.5) : 1);
   if (S.res.food < 0) { S.res.food = 0; S.starving += dtH; }
   const cap = storageCap();
   for (const k of ['food', 'wood', 'stone', 'weapons']) S.res[k] = Math.min(S.res[k], cap);
@@ -447,24 +461,22 @@ function happinessFactors() {
     else if (def > pop * 3) f.push(['든든한 무사들', 4]);
   }
   if (S.occupation) f.push(['점령의 굴욕', -20]);
-  if (S.vassal === 'hyeolwol') f.push(['혈월교의 그늘', -10]);
-  if (S.vassal === 'cheolhyeol') f.push(['철혈방의 횡포', -3]);
-  if (S.vassal === 'cheongun') f.push(['정파의 비호', 3]);
   if (hasMod('festival')) f.push(['잔치의 여운', 12]);
   if (hasMod('wedding')) f.push(['혼례 경사', 5]);
   if (hasMod('grief')) f.push(['습격의 상처', -8]);
   if (hasMod('plague')) f.push(['역병', -10]);
   if (hasMod('tiger')) f.push(['호환의 공포', -8]);
   if (hasMod('victory')) f.push(['승전의 기쁨', 6]);
-  // 모듈이 더하는 요인: [이름, 값] 배열
-  for (const m of [Admin, Petitions, Story]) { const extra = hook(m, 'happinessFactors'); if (Array.isArray(extra)) f.push(...extra); }
+  // 모듈이 더하는 요인: [이름, 값] 배열 (주군·동맹·갈래 건물의 민심은 JH 가 줄마다 따로 준다)
+  for (const m of [Admin, Petitions, Story, JH]) { const extra = hook(m, 'happinessFactors'); if (Array.isArray(extra)) f.push(...extra); }
   return f;
 }
 function happinessTarget() { return clamp(happinessFactors().reduce((a, [, v]) => a + v, 0), 0, 100); }
-function defensePower() {
+// 의뢰로 떠난 사람은 빼고 센다. excl: 더 뺄 사람 id 의 Set (파견 창의 '남는 무력')
+function defensePower(excl) {
   let p = 0;
   for (const v of S.villagers) {
-    if (v.dead || v.leaving) continue;
+    if (v.dead || v.leaving || v.away || (excl && excl.has(v.id))) continue;
     if (v.hero) p += 6 + v.martial * 5;
     else if (v.role === 'guard') p += 2 + v.martial * 2.4;
   }
@@ -529,6 +541,7 @@ function hourlyTick() {
     UI.buildMenuDirty = true;
     Bus.emit('rankUp', rank);
   }
+  hook(JH, 'hourly');
   hook(Admin, 'hourly');
   hook(Petitions, 'hourly');
   hook(Story, 'hourly');
@@ -539,8 +552,8 @@ function hourlyTick() {
   // 여름 비
   if (seasonIdx() === 1 && Math.random() < 0.06) S.rain = !S.rain;
   if (seasonIdx() !== 1) S.rain = false;
-  // 승리
-  if (!S.victory && S.rank >= 4 && S.fame >= 400) { S.victory = true; Events.victory(); }
+  // 승리 (이야기 모듈이 승리를 맡으면 그쪽이 정한다)
+  if (!S.victory && S.rank >= 4 && S.fame >= 400 && hook(Story, 'ownsVictory') !== true) { S.victory = true; Events.victory(); }
 }
 function dailyTick() {
   const pop = popCount();
@@ -549,7 +562,7 @@ function dailyTick() {
   S.dayAcc = {};
   // 세금
   let tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100);
-  if (S.vassal === 'gwanbu') tax *= 1.15;
+  tax *= JH.perk('tax');
   tax *= hook(Admin, 'taxMul') || 1;
   addRes('silver', tax);
   // 무사 품삯
@@ -563,16 +576,15 @@ function dailyTick() {
   if (S.res.silver < 0) {
     S.res.silver = 0;
     // 품삯을 못 주면 객경이 떠난다
-    const hero = S.villagers.find(v => v.hero && !v.leaving);
+    const hero = S.villagers.find(v => v.hero && !v.leaving && !v.away);
     if (hero) { hero.leaving = true; logMsg(`품삯을 받지 못한 ${hero.hero.epithet} ${hero.name}${pp(hero.name, '이/가')} 마을을 떠났다.`, 'bad'); }
   }
-  // 주군에게 공물
+  // 주군에게 공물 (계열의 공물 배수). 계열 혜택의 날마다 몫(은자·명성·관부의 눈총)은 JH.daily 가 준다
   if (S.vassal) {
-    const trib = Math.round(4 + pop * 0.25);
+    const C = FACTIONS[S.vassal] && CAMPS[FACTIONS[S.vassal].camp];
+    const trib = Math.round((4 + pop * 0.25) * (C ? C.tribute : 1));
     S.res.silver = Math.max(0, S.res.silver - trib);
     changeRel(S.vassal, 1);
-    if (S.vassal === 'cheolhyeol') { addRes('silver', pop * 0.35); changeRel('gwanbu', -1); }
-    if (S.vassal === 'hyeolwol') { changeRel('cheongun', -2); changeRel('gwanbu', -2); }
   }
   // 점령 수탈
   if (S.occupation) {
@@ -594,7 +606,7 @@ function dailyTick() {
   }
   // 굶주림
   if (S.starving > 10 && pop > 0) {
-    const v = pick(livingVillagers());
+    const v = pick(livingVillagers().filter(v => !v.away));
     if (v) { v.leaving = true; v.act = null; logMsg(`굶주림을 견디지 못한 ${v.name}${pp(v.name, '이/가')} 마을을 떠났다.`, 'bad'); }
   }
   S.starving = 0;
@@ -602,14 +614,16 @@ function dailyTick() {
   for (const v of S.villagers) if (!v.dead) updateStats(v);
   // 위협
   threatTick();
-  // 관계는 천천히 제자리로
-  for (const k of FACTION_ORDER) {
+  // 관계는 천천히 제자리로 (주군과 동맹은 빼고)
+  const pacts = S.jh ? S.jh.pacts : [];
+  for (const k in S.factions) {
     const f = S.factions[k];
-    if (k === S.vassal) continue;
+    if (k === S.vassal || pacts.includes(k)) continue;
     if (f.rel > 30) f.rel -= 0.5; else if (f.rel < -40) f.rel += 0.5;
   }
   growthCheck(true);
-  // 육방 예산 집행 → 상소 → 이야기 순서
+  // 천하(힘·전쟁·의뢰·혜택) → 육방 예산 집행 → 상소 → 이야기 순서. 자동 저장에 담긴다
+  hook(JH, 'daily');
   hook(Admin, 'daily');
   hook(Petitions, 'daily');
   hook(Story, 'daily');
@@ -621,7 +635,7 @@ function dailyTick() {
     logMsg(`${SEASONS[seasonIdx()]}${pp(SEASONS[seasonIdx()], '이/가')} 왔다.`, '');
     UI.toast(`${yearOf()}년 ${SEASONS[seasonIdx()]}`, '');
   }
-  if (seasonIdx() === 2 && day % DAYS_PER_SEASON === 6) {
+  if (seasonIdx() === 2 && day % DAYS_PER_SEASON === 6 && !JH.trait().noWinter) {
     logMsg('나흘 뒤면 겨울이다. 겨울에는 논밭 수확이 크게 준다. 곳간을 채워 두자.', 'war');
     UI.toast('겨울이 다가온다. 식량을 비축하라.', 'bad');
   }
@@ -643,28 +657,41 @@ function growthCheck(morning) {
     }
   }
   if (S.happy < 25 && pop > 3 && morning) {
-    const civs = livingVillagers().filter(v => !v.hero);
+    const civs = livingVillagers().filter(v => !v.hero && !v.away);
     const n = Math.min(civs.length, rndi(1, 2));
     for (let i = 0; i < n; i++) { const v = civs.splice(rndi(0, civs.length - 1), 1)[0]; v.leaving = true; v.act = null; }
     if (n) logMsg(`민심이 흉흉하여 ${n}명이 마을을 등졌다.`, 'bad');
     markDirty();
   }
 }
+// 하루 위협 증가 (굴림 전). 힘·전쟁·원한·흑도 혜택을 곱한다 (§4.3). 첩자 정보(JH.intel)도 이것을 쓴다
+function threatGain(k) {
+  const F = FACTIONS[k], f = S.factions[k];
+  const wealth = S.res.silver / 60 + popCount() / 4 + S.fame / 40;
+  let gain = 0;
+  if (k === 'heukpung') gain = 8 + wealth + Math.max(0, -f.rel) / 6;
+  else if (f.rel < -20) gain = (-f.rel - 20) / 2.4 + wealth * 0.5;
+  if (!gain || !S.jh) return gain;
+  gain *= clamp((S.jh.power[k] || 0) / 100, 0.5, 1.5);
+  const w = JH.warOf(k);
+  if (w) gain *= w[JH.sideOf(w, k) === 'a' ? 'b' : 'a'].some(id => id === S.vassal || S.jh.pacts.includes(id)) ? 1.5 : 0.5;
+  if (S.jh.grudge[k] > dayOf()) gain *= 1.3;
+  if (F.camp === 'heuk') gain *= JH.perk('bandit');
+  return gain;
+}
+// 위협은 이웃만 쌓는다. 상한 100
 function threatTick() {
   if (dayOf() < 3) return;
   if (hook(Story, 'allowThreat') === false) return;
   const calm = S.lastRaidEnd !== undefined && S.time - S.lastRaidEnd < 60;
-  const pop = popCount();
-  const wealth = S.res.silver / 60 + pop / 4 + S.fame / 40;
-  for (const k of FACTION_ORDER) {
+  const near = JH.near(), pacts = S.jh ? S.jh.pacts : [];
+  // 이웃이 아닌 세력의 위협은 가라앉는다
+  for (const k in S.factions) if (!near.includes(k) && S.factions[k].threat > 0) S.factions[k].threat = Math.max(0, S.factions[k].threat - 10);
+  for (const k of near) {
     const F = FACTIONS[k], f = S.factions[k];
-    if (!F.military) continue;
-    if (S.vassal === k || (S.occupation && S.occupation.faction === k)) { f.threat = 0; continue; }
-    let gain = 0;
-    if (k === 'heukpung') gain = 8 + wealth + Math.max(0, -f.rel) / 6;
-    else if (f.rel < -20) gain = (-f.rel - 20) / 2.4 + wealth * 0.5;
-    if (k === 'heukpung' && (S.vassal === 'gwanbu' || S.vassal === 'cheolhyeol')) gain *= 0.5;
-    f.threat += gain * rnd(0.6, 1.4);
+    if (!F || !f || !F.military) continue;
+    if (S.vassal === k || pacts.includes(k) || (S.occupation && S.occupation.faction === k)) { f.threat = 0; continue; }
+    f.threat = Math.min(100, f.threat + threatGain(k) * rnd(0.6, 1.4));
     if (f.threat >= 100 && !calm && !Events.raidPending() && !S.occupation) {
       f.threat = rnd(0, 20);
       Events.raidWarning(k);
@@ -687,15 +714,15 @@ function processScheduled() {
 // ── 습격 ─────────────────────────────────
 function raidSize(k, mul = 1) {
   const F = FACTIONS[k];
-  return Math.round(clamp((F.baseSize + dayOf() * F.growth + popCount() / 9) * mul, 3, 34));
+  const pw = S.jh ? clamp((S.jh.power[k] || 0) / 100, 0.6, 1.5) : 1;   // 세력의 힘
+  return Math.round(clamp((F.baseSize + dayOf() * F.growth + popCount() / 9) * mul * pw, 3, 34));
 }
 function scheduleRaid(k, delayH, goal, size, extra = {}) {
   S.scheduled.push(Object.assign({ at: S.time + delayH, kind: 'raid', faction: k, goal, size }, extra));
 }
+// 습격은 그 세력 본산 쪽 길목으로 온다 (JH.exitFor: 좋은 순서 둘. 천하가 없으면 아무 길목)
 function pickExit(k) {
-  const prefs = { heukpung: [2, 0], hyeolwol: [2, 1], cheolhyeol: [1, 3], gwanbu: [0, 3], cheongun: [0, 2] };
-  const ids = prefs[k] || [0, 1, 2, 3];
-  return World.exits[pick(ids)] || World.exits[0];
+  return World.exits[pick(S.jh ? JH.exitFor(k) : [0, 1, 2, 3])] || World.exits[0];
 }
 function startRaid(k, goal, size, opts = {}) {
   // exit 는 저장 때 버려지므로 길목 번호(exitIdx)를 함께 둔다
@@ -712,10 +739,16 @@ function startRaid(k, goal, size, opts = {}) {
   } else {
     logMsg(`${FACTIONS[k].name}의 무리 ${size}명이 ${ex.name}${pp(ex.name, '으로/로')} 쳐들어왔다!`, 'war');
     UI.toast(`⚔ ${FACTIONS[k].name} 습격!`, 'bad');
-    if (S.vassal && S.vassal !== k && FACTIONS[S.vassal].military) {
-      const n = 3 + Math.floor(dayOf() / 6);
-      S.scheduled.push({ at: S.time + 0.8, kind: 'allies', faction: S.vassal, n: Math.min(n, 10) });
-      logMsg(`주군인 ${FACTIONS[S.vassal].name}에서 원군을 보낸다는 전갈이 왔다.`, 'good');
+    // 원군은 한 무리: 주군이 먼저, 없으면 동맹이 절반 규모로. 고을 성질로 오는 원군은 따로
+    const aid = JH.aidFor(k);
+    if (aid) {
+      S.scheduled.push({ at: S.time + 0.8, kind: 'allies', faction: aid.id, n: aid.n });
+      logMsg(`${aid.id === S.vassal ? '주군' : '동맹'}인 ${FACTIONS[aid.id].name}에서 원군을 보낸다는 전갈이 왔다.`, 'good');
+    }
+    const sa = JH.siteAid(k);
+    if (sa) {
+      S.scheduled.push({ at: S.time + 1.2, kind: 'allies', faction: sa.id, n: sa.n });
+      logMsg(`국경을 지키는 ${FACTIONS[sa.id].name}에서 원군을 보낸다.`, 'good');
     }
   }
   if (S.speed > 1) S.speed = 1;
@@ -724,7 +757,8 @@ function startRaid(k, goal, size, opts = {}) {
   Bus.emit('raidStart', S.raid);
 }
 function spawnAllies(k, n, stayDays) {
-  const ex = World.exits[rndi(0, World.exits.length - 1)];
+  // 원군은 그 세력 본산 쪽 길목으로 들어온다
+  const ex = World.exits[S.jh ? JH.exitFor(k)[0] : rndi(0, World.exits.length - 1)] || World.exits[0];
   for (let i = 0; i < n; i++) {
     const a = newAlly(k, ex.x + 0.5 + rnd(-0.3, 0.3), ex.y + 0.5 + rnd(-0.3, 0.3), { leader: i === 0 && n >= 4, stayUntil: stayDays ? dayOf() + stayDays : 0 });
     a.spawnDelay = i * 0.05;
@@ -808,7 +842,7 @@ function updateRaid(dtH) {
   const elapsed = S.time - r.start;
   if (r.goal === 'uprising') {
     if (!alive.length) { endRaid('liberated'); return; }
-    const defenders = S.villagers.filter(v => !v.dead && !v.down && (v.role === 'guard' || v.hero) && v.jobType !== 'tower').length
+    const defenders = S.villagers.filter(v => !v.dead && !v.down && !v.away && (v.role === 'guard' || v.hero) && v.jobType !== 'tower').length
       + S.allies.filter(a => !a.dead).length;
     if (!defenders) { endRaid('uprising_failed'); return; }
     return;
@@ -841,7 +875,6 @@ function endRaid(result) {
     addFame(fame);
     changeRel(r.faction, -6);
     if (r.faction === 'heukpung') changeRel('gwanbu', 3);
-    if (F.rivals) for (const k of FACTION_ORDER) if (FACTIONS[k].rivals && FACTIONS[k].rivals.includes(r.faction)) changeRel(k, 4);
     addMod('victory', 2);
     title = `${F.name} 격퇴`;
     body = `마을이 ${F.name}의 습격을 막아냈다! 적 ${r.killed}명을 쓰러뜨렸다.\n강호에 마을의 이름이 퍼진다. 명성 +${fame}.`;
@@ -882,6 +915,8 @@ function endRaid(result) {
   if (lines.length) body += '\n\n' + lines.join('\n');
   S.raid = null;
   S.lastRaidEnd = S.time;
+  // 습격 하나가 끝나면 다른 이웃의 위협이 모두 −20
+  for (const k of JH.near()) if (k !== r.faction && S.factions[k]) S.factions[k].threat = Math.max(0, S.factions[k].threat - 20);
   for (const e of S.enemies) if (!e.garrison) { e.flee = true; e.path = null; }
   markDirty();
   Bus.emit('raidEnd', result, r);
@@ -931,19 +966,20 @@ function payRansom() {
 }
 function startUprising(withAllyFaction) {
   if (!S.occupation || S.raid) return false;
-  if (!withAllyFaction && !fighters().some(v => v.jobType !== 'tower')) { UI.toast('봉기할 무사가 없다. 무관을 지어 무사를 길러라.', 'bad'); return false; }
+  if (!withAllyFaction && !fighters().some(v => v.jobType !== 'tower' && !v.away)) { UI.toast('봉기할 무사가 없다. 무관을 지어 무사를 길러라.', 'bad'); return false; }
   if (withAllyFaction) spawnAllies(withAllyFaction, 5 + Math.floor(dayOf() / 8), 0);
   startRaid(S.occupation.faction, 'uprising', 0);
   return true;
 }
+// 산하에 들면 그 계열과 가까운 세력은 기뻐하고 원수 계열은 등을 돌린다 (관계 번짐 Δ +40)
 function becomeVassal(k) {
   const prev = S.vassal;
   if (prev && prev !== k) breakVassal(true);
   S.vassal = k;
   changeRel(k, 20);
   S.factions[k].threat = 0;
-  for (const r of (FACTIONS[k].rivals || [])) changeRel(r, -25);
-  for (const o of FACTION_ORDER) if ((FACTIONS[o].rivals || []).includes(k)) changeRel(o, -15);
+  if (S.jh && S.jh.pacts.includes(k)) { S.jh.pacts = S.jh.pacts.filter(x => x !== k); Bus.emit('pactChanged', k, false); }
+  JH.relSpread(k, 40);
   logMsg(`${josa(S.name, '이/가')} ${FACTIONS[k].name}의 산하 마을이 되었다.`, 'war');
   Bus.emit('vassal', k);
 }
@@ -952,6 +988,7 @@ function breakVassal(silent) {
   if (!k) return;
   S.vassal = null;
   changeRel(k, -40);
+  JH.relSpread(k, -40);
   S.factions[k].threat = 50;
   if (!silent) logMsg(`${FACTIONS[k].name}${pp(FACTIONS[k].name, '과/와')}의 주종 관계를 끊었다. 그들의 분노가 하늘을 찌른다.`, 'bad');
   Bus.emit('vassal', null);
@@ -970,18 +1007,20 @@ function deserialize(str) {
   const data = JSON.parse(str);
   if (!data || data.v !== 1) throw new Error('알 수 없는 저장 형식');
   const st = JSON.parse(data.state);
-  // 지형: 시드로 변화값을 되살리고 저장된 타일을 덮는다
-  genWorld(st.seed);
+  // 지형: 시드(와 고을 땅 생김)로 변화값·길목을 되살리고 저장된 타일을 덮는다
+  genWorld(st.seed, (st.jh && SITES[st.jh.site] || {}).biome);
   for (let i = 0; i < World.tiles.length; i++) { World.tiles[i] = data.tiles.charCodeAt(i) - 48; World.road[i] = data.roads[i] === '1' ? 1 : 0; }
   S = st;
+  S.bmap = new Map();
+  for (const b of S.buildings) S.bmap.set(b.id, b);
+  World.rebuildOcc();
+  // 천하: 옛 저장이면 만들고(이웃은 옛 여섯), 길목 toward 를 다시 붙인다
+  hook(JH, 'onLoad');
   // 습격 길목은 'exit' 로 버려졌으니 번호로 되살린다 (옛 저장은 세력에 맞는 길목)
   if (S.raid && !S.raid.exit) S.raid.exit = World.exits[S.raid.exitIdx] || pickExit(S.raid.faction);
   for (const s of S.scheduled) if (s.kind === 'raid' && !s.exit && World.exits[s.exitIdx]) s.exit = World.exits[s.exitIdx];
-  S.bmap = new Map();
-  for (const b of S.buildings) S.bmap.set(b.id, b);
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) { u.path = null; u.moving = false; }
   for (const v of S.villagers) { if (v.inside) v.act = null; }
-  World.rebuildOcc();
   World.terrainDirty = true;
   for (const b of S.buildings) updateSiteFactors(b);
   refreshAssign();

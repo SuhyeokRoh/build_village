@@ -148,8 +148,13 @@ function initInput() {
 
   window.addEventListener('keydown', e => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-    if (!S || !$('title-screen').hidden) return;
+    if (!S || !$('title-screen').hidden || e.defaultPrevented) return;   // 천하도가 먼저 써 버린 키는 넘긴다
     const k = e.key;
+    // 천하도가 열려 있으면 지도 이동·확대 키는 마을에 보내지 않는다. Esc 는 시트를 먼저 닫고, 천하도는 worldmap.js 가 닫는다
+    if (worldMapOpen()) {
+      if (k === 'Escape' && UI.sheet) { UI.closeSheet(); e.preventDefault(); }   // 써 버렸음을 천하도에 알린다
+      if (k === 'Escape' || k === '+' || k === '=' || k === '-' || k === '_' || /^(w|a|s|d|W|A|S|D|Arrow.+)$/.test(k)) return;
+    }
     if (k === ' ') {
       e.preventDefault();
       if (S.speed > 0) { Input.prevSpeed = S.speed; UI.setSpeed(0); } else UI.setSpeed(Input.prevSpeed || 1);
@@ -174,10 +179,17 @@ function initInput() {
 }
 
 // ── 게임 시작 ─────────────────────────────
-function enterGame(isNew) {
+const worldMapOpen = () => typeof WorldMap !== 'undefined' && WorldMap.isOpen();
+// [새로 시작]: 씨앗을 정하고 천하도에서 부임할 고을을 고른다 (미리 본 천하가 실제 게임과 같다)
+function startNew() {
+  const seed = Math.floor(Math.random() * 1e9);
+  if (typeof WorldMap === 'undefined') { enterGame(true, 'henan_field', seed); return; }
+  WorldMap.open('pick', { seed, world: JH.makeWorld(seed), onPick: k => enterGame(true, k, seed), onCancel: () => {} });
+}
+function enterGame(isNew, siteKey, seed) {
   if (isNew) {
     const name = ($('input-name').value || '').trim().slice(0, 8) || pick(VILLAGE_NAMES);
-    newGame(name);
+    newGame(name, siteKey, seed);
   } else if (!loadGame()) {
     UI.toast('저장된 마을을 불러오지 못했다. 새 마을을 세운다.', 'bad');
     newGame(pick(VILLAGE_NAMES));
@@ -207,6 +219,7 @@ function loop(t) {
   if (!S || !$('title-screen').hidden) return;
   PF.budget = 40;
   // 키보드 이동 (화면 방향 그대로: W = 화면 위)
+  if (Input.keys.size && worldMapOpen()) Input.keys.clear();
   if (Input.keys.size) {
     const sp = 700 * dt / Cam.zoom;
     if (Input.keys.has('w') || Input.keys.has('arrowup')) Cam.y -= sp;
@@ -224,8 +237,8 @@ function loop(t) {
     if (Math.hypot(Cam.x - w.x, Cam.y - w.y) < 2) UI.camTarget = null;
     clampCamera();
   }
-  // 사건 두루마리가 열렸거나 이야기 모듈이 멈춰 달라고 하면 시간이 멈춘다
-  const paused = UI.modalOpen || hook(Story, 'isPausing') === true;
+  // 사건 두루마리가 열렸거나, 천하도를 보고 있거나, 이야기 모듈이 멈춰 달라고 하면 시간이 멈춘다
+  const paused = UI.modalOpen || worldMapOpen() || hook(Story, 'isPausing') === true;
   if (!paused && S.speed > 0) {
     const dtH = dt * S.speed / SEC_PER_HOUR;
     const steps = Math.max(1, Math.ceil(dtH / 0.02));
@@ -242,9 +255,11 @@ function boot(hotData) {
   initInput();
   window.addEventListener('resize', () => { resizeCanvas(); if (S) clampCamera(); });
   $('input-name').value = pick(VILLAGE_NAMES);
-  $('btn-new').onclick = () => enterGame(true);
+  $('btn-new').onclick = startNew;
   $('btn-continue').onclick = () => enterGame(false);
-  $('input-name').addEventListener('keydown', e => { if (e.key === 'Enter') enterGame(true); });
+  $('input-name').addEventListener('keydown', e => { if (e.key === 'Enter') startNew(); });
+  // 데스크톱 메뉴의 [천하도] (폰에서는 세력 창 맨 위 단추로 연다)
+  if ($('btn-worldmap')) $('btn-worldmap').onclick = () => { if (S && typeof WorldMap !== 'undefined') WorldMap.open('view', {}); };
   $('btn-continue').hidden = !Store.get(SAVE_KEY);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { SpriteCache.clear(); UI.buildMenuDirty = true; });
   // 열린 화면이 새 판으로 갈아끼워질 때 진행 상황을 이어받는다

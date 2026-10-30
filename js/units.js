@@ -38,9 +38,10 @@ function newVillager(opts = {}) {
   S.villagers.push(v);
   return v;
 }
+// 무사·객경의 체력에는 주군·동맹·갈래 건물의 혜택(JH.perk('hp'))이 붙는다
 function updateStats(v) {
-  if (v.hero) { v.maxHp = 70 + v.martial * 38; v.atk = 6 + v.martial * 4.8; }
-  else if (v.role === 'guard') { v.maxHp = 34 + v.martial * 18; v.atk = 3 + v.martial * 3; }
+  if (v.hero) { v.maxHp = (70 + v.martial * 38) * JH.perk('hp'); v.atk = 6 + v.martial * 4.8; }
+  else if (v.role === 'guard') { v.maxHp = (34 + v.martial * 18) * JH.perk('hp'); v.atk = 3 + v.martial * 3; }
   else { v.maxHp = 24 + v.martial * 6; v.atk = 1.5 + v.martial; }
   v.hp = Math.min(v.hp, v.maxHp);
 }
@@ -138,6 +139,7 @@ function say(u, list) { u.chat = { text: pick(list), until: R.now + 2.6 }; }
 
 // ── 마을 사람의 하루 ───────────────────────
 function desiredAct(v) {
+  if (v.away) return 'away';   // 의뢰로 길을 떠남 (일자리·역할은 그대로 둔다)
   if (v.leaving) return 'leave';
   if (v.arriving) return 'arrive';
   const h = (hourOf() + v.sched + 24) % 24;
@@ -184,6 +186,7 @@ function updateVillager(v, dtH) {
     case 'fight': fighterAI(v, dtH); break;
     case 'leave': actLeave(v); break;
     case 'arrive': actArrive(v); break;
+    case 'away': actAway(v); break;
     default: actWander(v, dtH); break;
   }
   if (!v.inside) moveUnit(v, dtH);
@@ -227,7 +230,9 @@ function workSpot(v, b) {
   const d = doorOf(b);
   return { p: d, goal: buildingApproachGoal(b) };
 }
-const TOOL_OF = { farm: 'hoe', lumber: 'axe', quarry: 'pick', fishery: 'rod', smithy: 'hammer', dojo: null, escort: null, market: null };
+const TOOL_OF = { farm: 'hoe', lumber: 'axe', quarry: 'pick', fishery: 'rod', smithy: 'hammer', dojo: null, escort: null, market: null,
+  hall_jeong: null, altar_ma: null, ancestral: null, blackmarket: null, gambling: null, horsemarket: null, yamen: null, stage: null };
+const SPAR = new Set(['dojo', 'hall_jeong', 'stage']);   // 일하며 무기를 휘두르는 곳
 function actWork(v, dtH) {
   const b = getB(v.job);
   if (!usable(b)) { v.job = 0; v.jobType = null; v.act = null; return; }
@@ -243,13 +248,12 @@ function actWork(v, dtH) {
       v.phase = 'stay';
       v.stayT = def.indoor ? rnd(3, 6) : rnd(0.8, 2.2);
       if (def.indoor) enter(v, b);
-      v.workAnim = b.type === 'dojo' ? (v.look.weapon || 'fist') : TOOL_OF[b.type] || null;
-      if (b.type === 'dojo' || b.type === 'escort') v.workAnim = v.look.weapon || 'fist';
+      v.workAnim = SPAR.has(b.type) ? (v.look.weapon || 'fist') : TOOL_OF[b.type] || null;
       if (b.type === 'market' || b.type === 'escort') v.workAnim = null;
     }
   } else if (v.phase === 'stay') {
     v.stayT -= dtH;
-    if (b.type === 'dojo' && Math.random() < dtH * 0.15) say(v, CHATS.train);
+    if ((b.type === 'dojo' || b.type === 'hall_jeong') && Math.random() < dtH * 0.15) say(v, CHATS.train);
     if (v.stayT <= 0) {
       if (def.indoor) v.stayT = rnd(3, 6);
       else { v.phase = 'plan'; v.workAnim = null; }
@@ -356,6 +360,33 @@ function actLeave(v) {
     v.phase = 'go';
   } else if (v.phase === 'go' && !v.path) { v.dead = true; v.gone = true; }
 }
+// 의뢰로 떠남: 그 세력 쪽 길목으로 걸어가 닿으면 숨긴다(inside, 건물 없음). 돌아오는 것은 JH.hourly 가 정한다
+function actAway(v) {
+  const a = v.away;
+  if (a.gone) { v.inside = true; v.insideB = 0; v.moving = false; v.path = null; return; }
+  const ex = World.exits[a.exitIdx] || World.exits[0];
+  const gone = () => { a.gone = true; v.inside = true; v.insideB = 0; v.moving = false; v.path = null; };
+  if (v.phase === 'plan') {
+    if (dist(v.x, v.y, ex.x + 0.5, ex.y + 0.5) < 1.2) { gone(); return; }
+    const r = goTo(v, ex.x, ex.y, 0);
+    if (r === 'wait') return;
+    if (r === 'fail') { gone(); return; }
+    v.phase = 'go';
+  } else if (v.phase === 'go' && !v.path) {
+    if (dist(v.x, v.y, ex.x + 0.5, ex.y + 0.5) < 1.6) gone(); else v.phase = 'plan';
+  }
+}
+// 의뢰에서 돌아옴: 길목 칸에 놓고 다시 마을 사람으로
+function unitsReturn(v) {
+  const a = v.away;
+  if (a && a.gone) {
+    const ex = World.exits[a.exitIdx] || World.exits[0];
+    const p = nearestWalkable(ex.x, ex.y, 0, 4) || ex;
+    v.x = p.x + 0.5; v.y = p.y + 0.5;
+  }
+  delete v.away;
+  v.inside = false; v.insideB = 0; v.act = null; v.phase = 'plan'; v.path = null; v.moving = false;
+}
 function actArrive(v) {
   if (v.phase === 'plan') {
     const p = plazaTile();
@@ -420,7 +451,7 @@ function strike(u, t) {
   let dmg = u.atk * rnd(0.8, 1.2);
   if (u.kind === 'v') {
     if (u.role === 'guard' && S.res.weapons >= 1) dmg *= 1.4;
-    if (S.vassal === 'hyeolwol') dmg *= 1.3;
+    dmg *= JH.perk('atk');   // 주군·동맹·갈래 건물의 혜택
   }
   let big = false;
   u.strikes = (u.strikes || 0) + 1;

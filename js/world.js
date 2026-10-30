@@ -32,7 +32,10 @@ const World = {
   },
 };
 
-function genWorld(seed) {
+// biome: 고을의 땅 생김 (0.2..0.8, 없으면 모두 0.5 = 예전 그대로). 분류 문턱만 옮기고 주 난수 r() 를 뽑는 횟수는 바꾸지 않는다.
+// 그래서 길·길목·tvar·광장은 땅 생김과 상관없이 같다 (docs/jianghu.md §11)
+function genWorld(seed, biome) {
+  const bio = Object.assign({ forest: 0.5, water: 0.5, hills: 0.5, fertile: 0.5, cold: 0.5 }, biome || {});
   const r = mulberry32(seed);
   const nRock = makeNoise(seed + 11), nWood = makeNoise(seed + 23), nDirt = makeNoise(seed + 37);
   const { tiles, road, tvar } = World;
@@ -40,6 +43,8 @@ function genWorld(seed) {
   for (let i = 0; i < tvar.length; i++) tvar[i] = Math.floor(r() * 256);
 
   const cx = World.center.x, cy = World.center.y;
+  // 광장 반경 10 안은 예전 문턱 그대로
+  const thRock = 0.66 - (bio.hills - 0.5) * 0.16, thWood = 0.55 - (bio.forest - 0.5) * 0.14, thDirt = 0.68 - (bio.fertile - 0.5) * 0.1;
   for (let y = 0; y < MH; y++) {
     for (let x = 0; x < MW; x++) {
       const edge = Math.min(x, y, MW - 1 - x, MH - 1 - y);
@@ -49,9 +54,10 @@ function genWorld(seed) {
       const w = fbm(nWood, x / 6, y / 6, 3);
       const d = fbm(nDirt, x / 5, y / 5, 2);
       const i = y * MW + x;
-      if (m > 0.66 && dc > 11) tiles[i] = T.ROCK;
-      else if (w > 0.55 && dc > 9) tiles[i] = T.FOREST;
-      else if (d > 0.68) tiles[i] = T.DIRT;
+      const home = Math.hypot(x - cx, y - cy) < 10;
+      if (m > (home ? 0.66 : thRock) && dc > 11) tiles[i] = T.ROCK;
+      else if (w > (home ? 0.55 : thWood) && dc > 9) tiles[i] = T.FOREST;
+      else if (d > (home ? 0.68 : thDirt)) tiles[i] = T.DIRT;
     }
   }
 
@@ -60,7 +66,9 @@ function genWorld(seed) {
   for (let y = 0; y < MH; y++) {
     rx += (r() - 0.5) * 1.4 + Math.sin(y * 0.22 + seed) * 0.45;
     rx = clamp(rx, 42, 56);
-    const width = 2 + (r() < 0.35 ? 1 : 0);
+    // 강폭: 물이 많으면 넓고 적으면 좁다 (한 번 뽑은 수로 정한다)
+    const u = r();
+    const width = u < (bio.water - 0.5) * 0.6 ? 4 : u < 0.35 + (bio.water - 0.5) ? 3 : u > 1 - (0.5 - bio.water) * 1.6 ? 1 : 2;
     const x0 = Math.floor(rx);
     for (let x = x0 - 1; x <= x0 + width; x++) {
       if (!World.inb(x, y)) continue;
@@ -125,6 +133,7 @@ function genWorld(seed) {
   // 서쪽 끝 / 동쪽 끝 출입구의 실제 y
   let westY = roadY, eastY = roadY;
   for (let y = 0; y < MH; y++) { if (road[y * MW]) westY = y; if (road[y * MW + MW - 1]) eastY = y; }
+  addBiomeFeatures(seed, bio, cx, cy);
   World.exits = [
     { x: 0, y: westY, name: '서쪽 관도' },
     { x: MW - 1, y: eastY, name: '동쪽 관도' },
@@ -132,6 +141,37 @@ function genWorld(seed) {
     { x: southExit.x, y: MH - 1, name: '남쪽 길' },
   ];
   World.terrainDirty = true;
+}
+
+// 땅 생김의 덧붙임: 물이 많으면 호수, 메마르면 모래땅. 따로 뽑는 난수(seed ^ 0x5bd1)를 쓰고, 광장 12칸 안과 길 위에는 두지 않는다
+function addBiomeFeatures(seed, bio, cx, cy) {
+  const r = mulberry32(seed ^ 0x5bd1);
+  const { tiles, road } = World;
+  const free = (x, y) => World.inb(x, y) && x > 0 && y > 0 && x < MW - 1 && y < MH - 1 && !road[y * MW + x] && Math.hypot(x - cx, y - cy) >= 12;
+  const blob = (n, rMin, rMax, paint) => {
+    for (let k = 0; k < n; k++) {
+      const ox = 3 + Math.floor(r() * (MW - 6)), oy = 3 + Math.floor(r() * (MH - 6)), rad = rMin + r() * (rMax - rMin);
+      if (!free(ox, oy)) continue;
+      for (let y = Math.floor(oy - rad - 1); y <= oy + rad + 1; y++) for (let x = Math.floor(ox - rad - 1); x <= ox + rad + 1; x++) {
+        if (!free(x, y)) continue;
+        const dd = Math.hypot((x - ox) / 1.25, y - oy) + (r() - 0.5) * 0.8;
+        paint(x, y, dd, rad);
+      }
+    }
+  };
+  if (bio.water > 0.55) {
+    blob(Math.round((bio.water - 0.5) * 8), 1.6, 3.2, (x, y, dd, rad) => {
+      const i = y * MW + x;
+      if (dd < rad) tiles[i] = T.WATER;
+      else if (dd < rad + 1 && tiles[i] !== T.WATER) tiles[i] = T.SAND;
+    });
+  }
+  if (bio.water < 0.4) {
+    blob(Math.round((0.4 - bio.water) * 40), 2, 4.5, (x, y, dd, rad) => {
+      const i = y * MW + x;
+      if (dd < rad && (tiles[i] === T.GRASS || tiles[i] === T.DIRT)) tiles[i] = T.SAND;
+    });
+  }
 }
 
 // 걷기 비용. mode: 0 = 마을 사람·아군, 1 = 적
