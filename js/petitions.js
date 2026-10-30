@@ -67,7 +67,14 @@ function petHomeless() { let n = 0; for (const v of S.villagers) if (!v.dead && 
 function petCount(type) { let n = 0; for (const b of S.buildings) if (b.type === type && !b.ruined) n++; return n; }
 function petHomes() { let n = 0; for (const b of S.buildings) if (!b.ruined && BDEF[b.type].housing) n++; return n; }
 function petInjured() { return S.villagers.filter(v => !v.dead && !v.leaving && (v.down || v.hp < v.maxHp * 0.7)).length; }
-function petHasDojo() { return S.buildings.some(b => usable(b) && b.type === 'dojo'); }
+function petHasDojo() { return S.buildings.some(b => usable(b) && b.type === 'dojo' && b.active); }
+// 짝이 살아 있어야 지아비·지어미가 있는 것
+function petHasSpouse(v) { return !!v.spouse && !!petLiving(v.spouse); }
+// 이미 더 길게 걸려 있는 효과는 줄이지 않는다
+function petMod(id, days) {
+  const m = S.mods.find(o => o.id === id);
+  if (!m || m.until < dayOf() + days) addMod(id, days);
+}
 function petSay(v, list, secs) {
   if (!v || !list || !list.length) return;
   v.chat = { text: pick(list), until: (typeof R !== 'undefined' ? R.now : 0) + (secs || 4) };
@@ -200,7 +207,8 @@ function petBuild(type, dept) {
     return { ok: true, b };
   }
   if (!canAfford(def.cost)) return { ok: false, why: '재료가 모자라다' };
-  const r = hook(Admin, 'orderBuild', type, { reason: '상소' });
+  // 길 값은 단추에 적히지 않으니 깔지 않는다 (공방이 나중에 잇는다)
+  const r = hook(Admin, 'orderBuild', type, { reason: '상소', road: false });
   if (r && r.ok && r.b) return { ok: true, b: r.b };
   const site = petFindSite(type);
   if (!site) return { ok: false, why: (r && r.why) || '지을 만한 빈 터가 없다' };
@@ -355,14 +363,15 @@ function petFestName() {
   return null;
 }
 const petYouth = v => v.age >= 14 && v.age <= 26 && v.role === 'civ' && v.jobType !== 'dojo' && (v.martial || 0) < 1.2;
-const petSingle = sex => v => v.sex === sex && v.age >= 18 && v.age <= 34 && !v.spouse;
+const petSingle = sex => v => v.sex === sex && v.age >= 18 && v.age <= 34 && !petHasSpouse(v);
 
 // ───────────────────────────────────────────────
 // 상소의 종류
 // cond(): 지금 이런 상소가 올 만한가 / weight(): 얼마나 급한가
 // make(p, o): 올린 사람·제목·글·자료를 채운다 (false 면 만들지 못함)
-// choices(p): [{ id, kind: 'grant'|'deny', label, sub, ok(), run(p) → 글 | { text, b, mood, fail } }]
-// moot(p): 영주가 따로 처결하기 전에 바라던 일이 이루어졌는가 / withdraw(p): 얽힌 사람이 사라졌는가
+// choices(p): [{ id, kind: 'grant'|'deny', label, sub, ok(), run(p) → 글 | { text, b, mood, fail, outcome } }]
+//   outcome: kind 와 달리 끝났을 때 ('denied' 등)
+// moot(p): 영주가 따로 처결하기 전에 바라던 일이 이루어졌는가 / withdraw(p): 얽힌 사람·건물이 사라졌는가
 // ───────────────────────────────────────────────
 const PET_TYPES = {
   housing: {
@@ -520,7 +529,9 @@ const PET_TYPES = {
       }
       return false;
     },
-    moot: p => { const b = getB(p.data.bid); return !usable(b) || petConnected(b); },
+    // 건물이 무너지거나 헐리면 바람이 이루어진 것이 아니라 상소가 거두어진 것
+    withdraw: p => !usable(getB(p.data.bid)),
+    moot: p => { const b = getB(p.data.bid); return !!b && petConnected(b); },
     choices(p) {
       const b = getB(p.data.bid);
       const bn = b ? BDEF[b.type].name : '그곳';
@@ -533,8 +544,7 @@ const PET_TYPES = {
           run: () => {
             const bb = getB(p.data.bid);
             if (!usable(bb)) return { fail: '그 건물은 이제 쓸 수 없다' };
-            const r = hook(Admin, 'orderRoadTo', bb);
-            if (r && r.ok) return { text: done(r.n), b: bb };
+            // 단추에 적힌 그 길을 깔고 그 값만 낸다 (영주관 쪽 큰길과는 공방이 나중에 잇는다)
             const pl = petRoadPlan(bb);
             if (!pl) return { fail: '길을 낼 수 있는 곳이 없다' };
             if (!canAfford({ silver: pl.silver, wood: pl.wood })) return { fail: '재료가 모자라다' };
@@ -680,10 +690,10 @@ const PET_TYPES = {
       return [
         { id: 'feast', kind: 'grant', label: '크게 잔치를 연다', sub: '은자 60 · 식량 30 · 사흘간 민심 크게 상승 · 명성 +4', mood: 3,
           ok: () => S.res.silver >= 60 && S.res.food >= 30,
-          run: () => { S.res.silver -= 60; S.res.food -= 30; addMod('festival', 3); addFame(4); return '그네가 하늘 높이 오르고 씨름판에 함성이 터졌다. 이웃 마을 사람들까지 구경을 왔다. 명성 +4.'; } },
+          run: () => { S.res.silver -= 60; S.res.food -= 30; petMod('festival', 3); addFame(4); return '그네가 하늘 높이 오르고 씨름판에 함성이 터졌다. 이웃 마을 사람들까지 구경을 왔다. 명성 +4.'; } },
         { id: 'small', kind: 'grant', label: '떡과 술을 조금 내린다', sub: '식량 15 · 하루 민심 상승', mood: 2, ok: () => S.res.food >= 15,
-          run: () => { S.res.food -= 15; addMod('festival', 1); return '집집마다 떡 한 접시와 막걸리 한 동이가 돌았다. 조촐하지만 웃음이 넘쳤다.'; } },
-        petDept('ye', 40, '사흘간 민심 크게 상승', () => { addMod('festival', 3); return '예방이 앞장서 풍물패를 부르고 잔칫상을 차렸다. 사흘 내내 마을이 들썩였다.'; }, { mood: 3 }),
+          run: () => { S.res.food -= 15; petMod('festival', 1); return '집집마다 떡 한 접시와 막걸리 한 동이가 돌았다. 조촐하지만 웃음이 넘쳤다.'; } },
+        petDept('ye', 40, '사흘간 민심 크게 상승', () => { petMod('festival', 3); return '예방이 앞장서 풍물패를 부르고 잔칫상을 차렸다. 사흘 내내 마을이 들썩였다.'; }, { mood: 3 }),
         { id: 'deny', kind: 'deny', label: '올해는 건너뛴다', sub: '민심 하락',
           run: () => '여느 날과 다름없이 지나갔다. 아이들이 실망한 얼굴로 빈 마당을 서성인다.' },
       ];
@@ -791,7 +801,8 @@ const PET_TYPES = {
         ];
       }
       return [
-        { id: 'admit', kind: 'grant', label: '무관에 들인다', sub: '하던 일을 그만두고 무사가 된다 · 재능 상승',
+        // 가동 중인 무관이 있어야 들인다 (병방 예산은 ok 를 거친 뒤에야 쓴다)
+        { id: 'admit', kind: 'grant', label: '무관에 들인다', sub: '하던 일을 그만두고 무사가 된다 · 재능 상승', ok: petHasDojo,
           run: () => {
             const v = petLiving(p.data.vid);
             if (v) petAdmitDojo(v, 0.25, 0.35);
@@ -801,7 +812,7 @@ const PET_TYPES = {
           const v = petLiving(p.data.vid);
           if (v) petAdmitDojo(v, 0.45, 0.6);
           return `병방이 이름난 사범을 모셔 와 ${n}${pp(n, '을/를')} 따로 가르치게 했다. 몇 달이면 제몫을 하는 무사가 될 것이다.`;
-        }, { mood: 3, label: '병방에 맡겨 사범을 붙인다' }),
+        }, { mood: 3, label: '병방에 맡겨 사범을 붙인다', ok: petHasDojo }),
         deny,
       ];
     },
@@ -833,10 +844,10 @@ const PET_TYPES = {
       };
       return [
         { id: 'gift', kind: 'grant', label: '혼례 비용을 대 준다', sub: '은자 25 · 사흘간 민심 상승', ok: () => S.res.silver >= 25,
-          run: () => { S.res.silver -= 25; addMod('wedding', 3); wed(); return `${a}${pp(a, '과/와')} ${b}${pp(b, '이/가')} 영주관 마당에서 맞절을 올렸다. 잔치 국수 냄새가 온 마을에 퍼진다.`; } },
+          run: () => { S.res.silver -= 25; petMod('wedding', 3); wed(); return `${a}${pp(a, '과/와')} ${b}${pp(b, '이/가')} 영주관 마당에서 맞절을 올렸다. 잔치 국수 냄새가 온 마을에 퍼진다.`; } },
         { id: 'bless', kind: 'grant', label: '허락하고 축하만 한다', sub: '하루 민심 상승', mood: 1,
-          run: () => { addMod('wedding', 1); wed(); return '영주의 허락이 떨어지자 두 사람은 정화수 한 그릇을 떠 놓고 조촐하게 혼례를 올렸다.'; } },
-        petDept('ye', 20, '사흘간 민심 상승', () => { addMod('wedding', 3); wed(); return `예방이 혼례를 도맡아 차려 주었다. ${a}${pp(a, '과/와')} ${b}${pp(b, '이/가')} 꽃가마 앞에서 연신 웃는다.`; }),
+          run: () => { petMod('wedding', 1); wed(); return '영주의 허락이 떨어지자 두 사람은 정화수 한 그릇을 떠 놓고 조촐하게 혼례를 올렸다.'; } },
+        petDept('ye', 20, '사흘간 민심 상승', () => { petMod('wedding', 3); wed(); return `예방이 혼례를 도맡아 차려 주었다. ${a}${pp(a, '과/와')} ${b}${pp(b, '이/가')} 꽃가마 앞에서 연신 웃는다.`; }),
         { id: 'deny', kind: 'deny', label: '혼례를 미루라 한다', sub: '민심 조금 하락', mood: -1.5,
           run: () => `${a}${pp(a, '은/는')} 고개를 떨군 채 물러갔다. 멀리서 ${b}${pp(b, '이/가')} 눈물을 훔친다.` },
       ];
@@ -883,11 +894,11 @@ const PET_TYPES = {
   widow: {
     name: '홀로 된 이', hanja: '寡', tip: '지아비를 잃고 홀로 된 이가 도움을 청하는 상소.', cd: 5, days: [2, 4],
     say: ['살길이 막막해요', '아이들 끼니가…'],
-    cond: () => petFree(v => v.sex === 'f' && v.age >= 28 && !v.spouse).length > 0
+    cond: () => petFree(v => v.sex === 'f' && v.age >= 28 && !petHasSpouse(v)).length > 0
       && (S.stats.died > (S.petitions.died || 0) || popCount() >= 14),
     weight: () => (S.stats.died > (S.petitions.died || 0) ? 1.4 : 0.35),
     make(p) {
-      const v = petPick(x => x.sex === 'f' && x.age >= 28 && !x.spouse) || petPick(x => x.sex === 'f');
+      const v = petPick(x => x.sex === 'f' && x.age >= 28 && !petHasSpouse(x)) || petPick(x => x.sex === 'f');
       p.petitioner = v ? petWho(v) : petGroup(makeName('f', true), '홀어미');
       const hus = makeName('m');
       const loss = S.stats.died > (S.petitions.died || 0);
@@ -992,7 +1003,7 @@ const PET_TYPES = {
           run: () => {
             if (chance(0.6)) { addRes('silver', hi); changeRel('geumryong', 1); addMod('pet_stall', 8); return `상인은 한참 주판을 튕기더니 은자 ${hi}냥을 내놓았다.`; }
             changeRel('geumryong', -3);
-            return { text: '「장사를 하자는 게 아니라 털어 가시겠다는 말씀이군요.」 상인은 혀를 차며 떠났다.', mood: 0 };
+            return { text: '「장사를 하자는 게 아니라 털어 가시겠다는 말씀이군요.」 상인은 혀를 차며 떠났다.', mood: 0, outcome: 'denied' };
           } },
         { id: 'deny', kind: 'deny', label: '마을 장사꾼들을 지킨다', sub: '금룡상회 관계 -4', mood: -0.5,
           run: () => { changeRel('geumryong', -4); return '상인은 정중히 인사하고 물러갔다. 마을 장사꾼들은 내심 반기는 눈치다.'; } },
@@ -1100,7 +1111,7 @@ const Petitions = {
     let r = c.run(p);
     if (typeof r === 'string' || !r) r = { text: r || '' };
     if (r.fail) { UI.toast(r.fail, 'bad'); return { ok: false, why: r.fail }; }
-    const outcome = c.kind === 'deny' ? 'denied' : 'granted';
+    const outcome = r.outcome || (c.kind === 'deny' ? 'denied' : 'granted');
     const mood = r.mood !== undefined ? r.mood : c.mood !== undefined ? c.mood : outcome === 'granted' ? 2.5 : -2;
     this.finish(p, outcome, mood, c.label, r.text, c.id, r.b || null);
     if (r.b) UI.focusOn(r.b.x + r.b.w / 2, r.b.y + r.b.h / 2);
