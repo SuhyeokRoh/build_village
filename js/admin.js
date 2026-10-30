@@ -26,7 +26,7 @@ const ADM_DEPTS = [
   { id: 'byeong', name: '병방', hanja: '兵房', seal: '兵', hun: '군사 병', role: '군사·방어',
     duty: '무관을 세워 무사를 기르고, 적이 넘어오는 길목에 망루를 올리며, 대장간을 짓는다. 습격 경보가 오면 방비를 서두른다.' },
   { id: 'hyeong', name: '형방', hanja: '刑房', seal: '刑', hun: '형벌 형', role: '치안·재판',
-    duty: '순라꾼을 부려 마을을 편안하게 한다(민심 최대 +5). 송사와 도둑 상소를 맡기면 기금으로 처리한다.' },
+    duty: '순라꾼을 부려 마을을 편안하게 한다(민심 최대 +6). 송사와 도둑 상소를 맡기면 기금으로 처리한다.' },
   { id: 'gong', name: '공방', hanja: '工房', seal: '工', hun: '장인 공', role: '건설·길',
     duty: '빈집이 모자라면 집을 짓고, 폐허를 다시 세우고, 목재·석재가 달리면 벌목장·채석장을 짓는다. 건물마다 길을 이어 준다.' },
 ];
@@ -442,19 +442,19 @@ const Admin = {
   DEPTS: ADM_DEPTS,
   ORDER: ADM_IDS,
   TRAITS: ADM_TRAITS,
-  _dirty: true, _html: '', _confirm: null, _roadFail: {}, _noSite: {}, _claims: {},
+  _dirty: true, _html: '', _confirm: null, _roadFail: {}, _noSite: {}, _claims: {}, _need: {},
 
   // ── 상태 ──
   init() {
     S.admin = { v: 1, depts: {}, taxPrev: 0, taxSeen: false, trade: 0, short: null, lastFest: -99 };
     this.normalize();
-    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._dirty = true;
+    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._need = {}; this._dirty = true;
     if (typeof UI !== 'undefined' && !(UI.sheets && UI.sheets.admin)) admRegisterSheet();
   },
   onLoad() {
     if (!S.admin || typeof S.admin !== 'object') this.init();
     this.normalize();
-    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._dirty = true;
+    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._need = {}; this._dirty = true;
     if (typeof UI !== 'undefined' && !(UI.sheets && UI.sheets.admin)) admRegisterSheet();
   },
   newHead() {
@@ -485,7 +485,8 @@ const Admin = {
   cap(id) {
     const d = this.dept(id);
     if (!d || !d.budget) return d ? d.fund : 0;
-    return Math.max(d.budget * 10, ADM_MINCAP[id]);
+    // 상한보다 큰 공사를 기다리는 동안에는 그 값까지 모은다
+    return Math.max(d.budget * 10, ADM_MINCAP[id], this._need[id] || 0);
   },
   // 부서 기록에 남긴다. tell 이면 마을 기록에도 "공방이 …했다." 로 남긴다
   note(id, text, tell) {
@@ -523,12 +524,30 @@ const Admin = {
     d.auto = !!on;
     d.status = on ? '다시 일을 살피기 시작한다.' : '영주의 명으로 손을 놓고 있다.';
     if (on) d.next = 0;
+    else if (id === 'ri') this.restoreLowered();
     this._dirty = true;
   },
+  // 이방이 내려 두었던 일손을 제자리로 (only 가 있으면 그 일터만). 이방이 손을 놓으면 아무도 되돌리지 않으므로
+  restoreLowered(only) {
+    const d = this.dept('ri');
+    if (!d || !d.lowered.length) return 0;
+    let n = 0;
+    d.lowered = d.lowered.filter(bid => {
+      const b = getB(bid);
+      if (!b) return false;
+      if (only && !only(b)) return true;
+      if (b.want < BDEF[b.type].workers) { b.want = BDEF[b.type].workers; n++; }
+      return false;
+    });
+    if (n) { markDirty(); this.note('ri', `내려 두었던 일터 ${n}곳의 일손을 되돌렸다`); }
+    return n;
+  },
+  // 예산의 하루는 묘시(6시)에 바뀐다 (dailyTick 과 같은 날짜)
+  budgetDay() { return Math.floor((S.time - 6) / 24); },
   // 하루 예산을 곳간에서 기금으로 (오늘 받은 만큼은 빼고)
   transfer(id, availRef) {
     const d = this.dept(id);
-    const day = dayOf();
+    const day = this.budgetDay();
     if (d.gotDay !== day) { d.gotDay = day; d.got = 0; }
     const want = Math.max(0, Math.min(d.budget - d.got, this.cap(id) - d.fund));
     let avail = availRef ? availRef.n : Math.max(0, S.res.silver - Math.min(S.res.silver, this.upkeepEstimate()));
@@ -588,11 +607,9 @@ const Admin = {
     if (!S.admin) this.init();
     this.normalize();
     const A = S.admin;
-    const day = dayOf();
-    // 어제 장사로 번 돈 = 어제 거둔 은자 - 어제 아침 세금
-    const taxNow = (S.dayAcc && S.dayAcc.silver) || 0;
-    if (A.taxSeen) A.trade = Math.max(0, Math.round(((S.lastFlow && S.lastFlow.silver) || 0) - A.taxPrev));
-    A.taxPrev = taxNow;
+    const day = dayOf(), bday = this.budgetDay();
+    // 어제 장사로 번 돈: 시장·객잔·표국이 번 은자만 (상금·하사금은 빼고). 옛 저장에는 없으면 0
+    A.trade = Math.max(0, Math.round((S.lastFlow && S.lastFlow.trade) || 0));
     A.taxSeen = true;
     this.prune();
     // 예산 내려보내기: 품삯만큼은 곳간에 남기고, 먹을 것·지킬 것부터
@@ -601,7 +618,7 @@ const Admin = {
     const shortIds = [];
     for (const id of ADM_FUND_ORDER) {
       const d = this.dept(id);
-      d.gotDay = day; d.got = 0;
+      d.gotDay = bday; d.got = 0;
       if (!d.budget) continue;
       const lack = this.transfer(id, avail);
       if (lack > 0.5) { short += lack; shortIds.push(id); }
@@ -635,8 +652,8 @@ const Admin = {
     const order = raid ? ['byeong', 'ho', 'gong', 'ye', 'ri', 'hyeong'] : ['ho', 'gong', 'byeong', 'ye', 'ri', 'hyeong'];
     for (const id of order) {
       const d = this.dept(id);
-      if (!d.auto) { d.status = '영주의 명으로 손을 놓고 있다.'; continue; }
-      if (d.fund < 1 && !d.budget) { d.status = '예산이 없어 아전이 붓을 놓고 있다.'; continue; }
+      if (!d.auto) { d.status = '영주의 명으로 손을 놓고 있다.'; if (id === 'ri') this.restoreLowered(); continue; }
+      if (d.fund < 1 && !d.budget) { d.status = '예산이 없어 아전이 붓을 놓고 있다.'; if (id === 'ri') this.restoreLowered(); continue; }
       if (fighting) { d.status = '습격이 벌어져 모두 몸을 피했다.'; continue; }
       const urgent = (id === 'byeong' && !!raid) || (id === 'ho' && this.foodEmergency());
       if (!work && !urgent) continue;
@@ -645,6 +662,8 @@ const Admin = {
       let r = { did: false, status: '' };
       try { r = this.act[id].call(this, d, raid) || r; } catch (e) { console.error('Admin', id, e); }
       if (r.status) d.status = r.status;
+      // 기금을 모으는 중이면 기금 상한이 그 값을 따라간다
+      if (r.need) this._need[id] = r.need; else delete this._need[id];
       // 점령군의 눈을 피해 일하느라 더디다
       if (S.occupation && r.status) d.status = r.status + ' (점령군 눈치를 보며)';
       if (r.did) {
@@ -739,8 +758,8 @@ const Admin = {
     if (q && q.data) return { k: q.data.k, exitIdx: q.data.exitIdx === undefined ? -1 : q.data.exitIdx };
     const s = S.scheduled.find(x => x.kind === 'raid');
     if (s) {
-      let idx = -1;
-      if (s.exit) idx = World.exits.findIndex(e => e.x === s.exit.x && e.y === s.exit.y);
+      let idx = Number.isInteger(s.exitIdx) && World.exits[s.exitIdx] ? s.exitIdx : -1;
+      if (idx < 0 && s.exit) idx = World.exits.findIndex(e => e.x === s.exit.x && e.y === s.exit.y);
       if (idx < 0 && ADM_EXIT_PREF[s.faction]) idx = ADM_EXIT_PREF[s.faction][0];
       return { k: s.faction, exitIdx: idx };
     }
@@ -915,10 +934,17 @@ const Admin = {
       if (d.fund + 1e-6 >= plan.silver && !opts.noClaim) this.claim(id, def.cost);
       return { did: false, status: this.shortText(def.cost, def, id), wait: true };
     }
-    if (d.fund + 1e-6 < plan.total) return { did: false, status: `${def.name} 지을 기금을 모으는 중 (${fmt(d.fund)}/${plan.total}냥)`, wait: true };
+    if (d.fund + 1e-6 < plan.total) return this.waitFund(id, def.name, plan.total, false);
     const r = this.orderBuild(type, Object.assign({ payFrom: id, buy: allowBuy }, opts));
     if (!r.ok) return { did: false, status: r.nosite ? `${def.name}${pp(def.name, '을/를')} 지을 마땅한 터가 없다` : `${def.name}: ${r.why}`, nosite: !!r.nosite };
     return { did: true, site: true, status: `${def.name} 터를 닦기 시작했다.` };
+  },
+  // 기금이 모자랄 때의 상태. 예산이 끊겼으면 더 들어올 돈이 없다고, 상한을 넘는 일이면 예산을 늘리라고 알린다
+  waitFund(id, name, total, redo) {
+    const d = this.dept(id);
+    if (!d.budget) return { did: false, status: `예산이 끊겨 남은 기금 ${fmt(d.fund)}냥으로는 ${name}${pp(name, '을/를')} ${redo ? '다시 세우지' : '짓지'} 못한다`, wait: true };
+    const slow = total > Math.max(d.budget * 10, ADM_MINCAP[id]) ? ' · 예산을 늘려야 빨리 모인다' : '';
+    return { did: false, status: `${name} ${redo ? '다시 세울' : '지을'} 기금을 모으는 중 (${fmt(d.fund)}/${total}냥${slow})`, wait: true, need: total };
   },
   // 여럿 가운데 기금으로 지금 지을 수 있는 것부터 (모두 모자라면 첫째 것을 기다린다)
   attemptAny(id, types, opts = {}) {
@@ -943,7 +969,7 @@ const Admin = {
     const c = repairCost(b);
     const plan = this.planCost(id, c, this.fee(id, b.type), urgent);
     if (plan.buy && !this.mayBuy(c, urgent, id)) return { did: false, status: this.shortText(c, def, id), wait: true };
-    if (d.fund + 1e-6 < plan.total) return { did: false, status: `${def.name} 다시 세울 기금을 모으는 중 (${fmt(d.fund)}/${plan.total}냥)`, wait: true };
+    if (d.fund + 1e-6 < plan.total) return this.waitFund(id, def.name, plan.total, true);
     const inj = { silver: c.silver || 0, wood: plan.short.wood || 0, stone: plan.short.stone || 0 };
     d.fund -= plan.total;
     for (const k in inj) S.res[k] += inj[k];
@@ -1043,7 +1069,7 @@ const Admin = {
       const isFood = b => b.type === 'farm' || b.type === 'fishery';
       const staffed = b => (b._workers || []).length;
       const open = b => staffed(b) < Math.min(BDEF[b.type].workers, b.want);
-      const pay = () => { d.fund = Math.max(0, d.fund - 1); d.spent += 1; };
+      const pay = () => { const n = Math.min(1, d.fund); d.fund -= n; d.spent += n; };
       const lower = b => { if (d.lowered.indexOf(b.id) < 0) d.lowered.push(b.id); };
       const raid = !!this.raidInfo();
       d.lowered = d.lowered.filter(bid => getB(bid));
@@ -1054,9 +1080,10 @@ const Admin = {
       if (S.res.stone < 12 && !work.some(b => b.type === 'quarry' && staffed(b))) crises.push(['stone', b => b.type === 'quarry', '채석장']);
       // 무사가 하나도 없으면 무관에 사람을 보낸다
       if (!hungry && popCount() >= 14 && !S.villagers.some(v => !v.dead && v.role === 'guard' && v.jobType === 'dojo')) crises.push(['guard', b => b.type === 'dojo', '무관']);
-      for (const [k, isT, where] of crises) {
+      // 손쓸 일터가 있는 위기만 센다 (무관·벌목장이 아예 없으면 위기라도 할 일이 없다)
+      const live = crises.filter(([, isT]) => work.some(b => isT(b) && (b.want < BDEF[b.type].workers || open(b))));
+      for (const [k, isT, where] of live) {
         const targets = work.filter(isT);
-        if (!targets.length) continue;
         // 1) 내려 두었던 자리부터 되살린다
         const low = targets.find(b => b.want < BDEF[b.type].workers);
         if (low) {
@@ -1072,7 +1099,8 @@ const Admin = {
         for (const b of work) {
           if (isT(b) || !open(b) || (JOB_PRIORITY[b.type] || 0) < pr) continue;
           if (isFood(b) && hungry) continue;
-          if ((b.type === 'tower' || b.type === 'dojo') && raid) continue;
+          // 망루는 닫지 않는다 (닫힌 채 습격을 맞는다)
+          if (b.type === 'tower' || (b.type === 'dojo' && raid)) continue;
           b.want = staffed(b); lower(b); froze++;
         }
         if (froze) markDirty();
@@ -1088,11 +1116,13 @@ const Admin = {
           return { did: true, status: `${where}${pp(where, '이/가')} 급해 일손을 돌린다.` };
         }
       }
-      if (!crises.length) {
+      if (!live.length) {
         // 급한 일이 지나면 내려 두었던 일터를 하나씩 되돌린다
         for (const bid of d.lowered.slice()) {
           const b = getB(bid);
-          if (!b || !usable(b)) { d.lowered = d.lowered.filter(x => x !== bid); continue; }
+          if (!b) { d.lowered = d.lowered.filter(x => x !== bid); continue; }
+          // 무너졌거나 다시 짓는 중이면 다 지은 뒤에 되돌린다
+          if (!usable(b)) continue;
           if (isFood(b) && plenty) continue;
           if (b.type === 'lumber' && S.res.wood >= cap * 0.9) continue;
           if (b.type === 'quarry' && S.res.stone >= cap * 0.9) continue;
@@ -1202,7 +1232,8 @@ const Admin = {
           UI.toast('예방이 잔치를 열었다. 민심이 오른다.', 'good');
           return { did: true, status: '잔치를 열어 민심을 달랬다.' };
         }
-        return { did: false, status: `민심이 가라앉아 잔치 비용을 모으는 중 (${fmt(d.fund)}/${cost}냥)`, wait: true };
+        if (!d.budget) return { did: false, status: `예산이 끊겨 남은 기금 ${fmt(d.fund)}냥으로는 잔치를 열지 못한다`, wait: true };
+        return { did: false, status: `민심이 가라앉아 잔치 비용을 모으는 중 (${fmt(d.fund)}/${cost}냥)`, wait: true, need: cost };
       }
       if (this.liveSites(d).length) return { did: false, status: this.busyStatus(d) };
       const labor = this.laborPool();
@@ -1289,7 +1320,8 @@ const Admin = {
       let wait = null;
       if (!busy) {
         const manor = getB(S.manorId);
-        if (manor && manor.ruined) return this.repairFor('gong', manor, true);
+        // 영주관 복구비를 모으는 동안에도 다른 일은 한다
+        if (manor && manor.ruined) { const r = this.repairFor('gong', manor, true); if (r.did) return r; wait = r; }
         // 첫 벌목장·채석장은 일손이 빠듯해도 짓는다 (이방이 사람을 돌린다)
         const lumbers = this.countAll('lumber');
         if (!lumbers && (S.res.wood < 120 || pop >= 10)) {
@@ -1308,7 +1340,7 @@ const Admin = {
         if (ruins.length) {
           const r = this.repairFor('gong', ruins[0], homeless > 0);
           if (r.did) return r;
-          wait = r;
+          wait = wait || r;
         }
         if (free < 3 || homeless) {
           const fee2 = this.fee('gong', 'house2');
@@ -1335,7 +1367,7 @@ const Admin = {
       if (d.fund >= 2) {
         const b = this.unconnected();
         if (b) {
-          const r = this.orderRoadTo(b, { payFrom: 'gong', maxLen: 14 });
+          const r = this.orderRoadTo(b, { payFrom: 'gong', maxLen: 20 });
           if (r.ok && r.n) {
             this.note('gong', `${BDEF[b.type].name} 앞까지 길 ${r.n}칸을 닦았다`, true);
             return { did: true, status: `${BDEF[b.type].name} 앞까지 길을 닦았다.` };
@@ -1376,6 +1408,8 @@ const Admin = {
     let tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100);
     if (S.vassal === 'gwanbu') tax *= 1.15;
     tax *= this.taxMul();
+    // 철혈회 산하면 세금과 함께 은자를 내려 준다 (dailyTick 과 같다)
+    if (S.vassal === 'cheolhyeol') tax += pop * 0.35;
     const A = S.admin || {};
     let trade = A.taxSeen ? A.trade || 0 : 0;
     if (!A.taxSeen) {
@@ -1400,6 +1434,8 @@ const Admin = {
     // 호방: 모자란 논밭, 넘치는 곳간, 시장
     n.ho = 1 + Math.min(4, ff.farmsNeeded) * (10 + this.fee('ho', 'farm')) / 3;
     if (this.needStore(0.75)) n.ho += 2;
+    // 굶주릴 지경이면 하루 먹을 것의 절반은 사들일 수 있게
+    if (this.foodEmergency()) n.ho += ff.cons * ADM_PRICE.food * 0.5;
     if (S.rank >= 1 && pop >= 20 && this.countAll('market') < 1 + Math.floor(pop / 60)) n.ho += (40 + this.fee('ho', 'market')) / 8;
     // 공방: 집 짓는 삯, 길, 벌목장·채석장, 폐허
     const free = this.freeHousing();
@@ -1431,7 +1467,8 @@ const Admin = {
     if (pop >= 18) n.ri = this.dailyNeed('ri');
     // 일손이 모자라면 이방이 사람을 돌려야 한다 (한 번에 1냥)
     if (pop >= 8 && (this.laborPool() <= 0 || S.res.wood < 30)) n.ri = Math.max(n.ri, 1.5);
-    if (pop >= 12) n.hyeong = this.dailyNeed('hyeong');
+    // 형방은 송사·도둑 상소를 맡을 기금도 조금씩 모은다
+    if (pop >= 12) n.hyeong = this.dailyNeed('hyeong') + 1.5;
     // 탐욕스러운 아전은 떼먹는 만큼 더 줘야 한다
     for (const id of ADM_IDS) n[id] /= 1 - this.trait(id).skim;
     return n;
@@ -1442,15 +1479,17 @@ const Admin = {
     const inc = this.expectedIncome();
     // 순수입의 절반 + 곳간에 쌓인 여윳돈의 6분의 1
     const reserve = 40 + pop * 2;
-    const pool = Math.max(0, Math.round(Math.max(0, inc.net) * 0.5 + Math.max(0, S.res.silver - reserve) / 6));
     const need = this.needs();
+    // 굶주릴 지경이면 여윳돈을 따지지 않고 호방이 곡식 살 몫부터 뗀다 (품삯을 남긴 곳간의 4분의 1까지)
+    const famine = this.foodEmergency() ? Math.min(need.ho, Math.max(0, S.res.silver - this.upkeepEstimate()) / 4) : 0;
+    const pool = Math.max(0, Math.round(Math.max(famine, Math.max(0, inc.net) * 0.5 + Math.max(0, S.res.silver - reserve) / 6)));
     const ff = this.foodForecast();
     const noDojo = !this.countAll('dojo') && pop >= 8;
     const woodLow = !this.countAll('lumber') || S.res.wood < 30;
     const w = { ho: this.foodShort(ff) ? 1.7 : 1, gong: woodLow ? 1.8 : 1.1, byeong: this.raidInfo() ? 1.5 : noDojo ? 1.3 : 1, ye: 0.8, ri: 0.6, hyeong: 0.7 };
-    const acc = { ri: 0, ho: 0, ye: 0, byeong: 0, hyeong: 0, gong: 0 };
+    const acc = { ri: 0, ho: famine, ye: 0, byeong: 0, hyeong: 0, gong: 0 };
     // 모자라면 무게대로 나누고, 다 찬 곳에서 남은 몫은 다시 나눈다
-    let left = pool;
+    let left = pool - famine;
     for (let pass = 0; pass < 4 && left > 0.05; pass++) {
       const open = ADM_IDS.filter(id => need[id] - acc[id] > 0.01);
       const tw = open.reduce((a, id) => a + (need[id] - acc[id]) * w[id], 0);
@@ -1507,12 +1546,13 @@ const Admin = {
   sealTip(D) { return `${D.hanja}(${D.name}) — ${D.role}. ${D.duty}`; },
   fundHTML(id) {
     const d = this.dept(id);
-    const cap = this.cap(id);
-    return `<b>${fmt(d.fund)}</b><small> / ${fmt(cap)}냥</small>`;
+    // 예산이 끊기면 더 들어올 돈이 없으니 상한도 없다
+    if (!d.budget) return `<b>${fmt(d.fund)}</b><small>냥 · 예산 없음</small>`;
+    return `<b>${fmt(d.fund)}</b><small> / ${fmt(this.cap(id))}냥</small>`;
   },
   barHTML(id) {
     const d = this.dept(id);
-    const cap = Math.max(1, this.cap(id));
+    const cap = Math.max(1, d.budget ? this.cap(id) : ADM_MINCAP[id]);
     return `<i style="width:${Math.round(clamp(d.fund / cap, 0, 1) * 100)}%"></i>`;
   },
   effHTML(id) {
@@ -1531,7 +1571,7 @@ const Admin = {
     else if (!d.budget && d.fund < 1) { st = '예산이 없어 아전이 붓을 놓고 있다.'; cls = 'off'; }
     else if (!st) st = '오늘 일을 살피는 중이다.';
     else if (/중|시작|돌렸다|채웠다|닦았다|열어|사들였다/.test(st)) cls = 'work';
-    if (/모자라|미룬다|모으는|보낼 사람이 없다|터가 없다|못했다/.test(st) && d.auto && (d.budget || d.fund >= 1)) cls = 'wait';
+    if (/모자라|미룬다|모으는|끊겨|보낼 사람이 없다|터가 없다|못했다/.test(st) && d.auto && (d.budget || d.fund >= 1)) cls = 'wait';
     return `<span class="adm-dot ${cls}"></span>${escapeHtml(st)}`;
   },
   logHTML(id) {
@@ -1627,8 +1667,24 @@ const Admin = {
     if (!S || !S.admin) return '';
     const body = document.getElementById('sheet-body');
     const fresh = !body || !body.dataset.h;
-    if (this._dirty || fresh || !this._html) { this._html = this.buildHTML(); this._dirty = false; }
+    if (this._dirty || fresh || !this._html) { this._html = this.buildHTML(); this._dirty = false; this.keepFocus(body); }
     return this._html;
+  },
+  // 창을 새로 그리면 초점이 사라지므로, 쥐고 있던 단추·칸으로 되돌린다 (키보드로 이어서 누를 수 있게)
+  keepFocus(body) {
+    const a = document.activeElement;
+    if (!body || !a || a === body || !body.contains(a) || !a.dataset) return;
+    const ds = a.dataset;
+    const sel = ds.admBudget ? `input[data-adm-budget="${ds.admBudget}"]`
+      : ds.act ? `[data-act="${ds.act}"]${ds.d ? `[data-d="${ds.d}"]` : ''}${ds.n ? `[data-n="${ds.n}"]` : ''}` : '';
+    if (!sel) return;
+    // UI.renderSheet 가 내용을 갈아 끼운 다음에 돌린다
+    queueMicrotask(() => {
+      if (UI.sheet !== 'admin' || (document.activeElement && document.activeElement !== document.body)) return;
+      // −1 이 막히면(예산 0) 같은 부서의 다른 단추로
+      const el = body.querySelector(`${sel}:not([disabled])`) || (ds.d && body.querySelector(`[data-act="${ds.act}"][data-d="${ds.d}"]:not([disabled])`));
+      if (el) el.focus({ preventScroll: true });
+    });
   },
   onSheetClick(e) {
     const t = e.target.closest('[data-act]');
@@ -1676,19 +1732,24 @@ function admRegisterSheet() {
   return true;
 }
 document.addEventListener('DOMContentLoaded', admRegisterSheet);
-// 입력 칸에 직접 쓴 예산
+// 입력 칸에 직접 쓴 예산. 여기서 창을 다시 그리면 옮겨 가던 초점(Tab, 다른 칸 누르기)을 잃으므로
+// 다시 그리기는 uiTick 이 입력 칸에서 초점이 빠진 뒤에 한다
 document.addEventListener('change', e => {
   const t = e.target;
   if (!t || !t.matches || !t.matches('input[data-adm-budget]') || !S) return;
   Admin.setBudget(t.dataset.admBudget, t.value);
+  t.value = Admin.budget(t.dataset.admBudget);
   Admin._dirty = true;
-  UI.renderSheet();
 });
 document.addEventListener('keydown', e => {
   const t = e.target;
   if (t && t.matches && t.matches('input[data-adm-budget]') && e.key === 'Enter') { e.preventDefault(); t.blur(); }
 });
-Bus.on('raidWarning', () => { const d = Admin.dept('byeong'); if (d) d.next = 0; });
+Bus.on('raidWarning', () => {
+  const d = Admin.dept('byeong'); if (d) d.next = 0;
+  // 이방이 내려 두었던 망루 일손은 경보가 오면 바로 되돌린다
+  Admin.restoreLowered(b => b.type === 'tower');
+});
 Bus.on('built', b => {
   if (!S || !S.admin) return;
   for (const id of ADM_IDS) {
