@@ -4,9 +4,10 @@
 // ───────────────────────────────────────────────
 const Input = { pointers: new Map(), down: false, btn: 0, sx: 0, sy: 0, lx: 0, ly: 0, moved: false, paint: false, paintStart: null, pinch: null, keys: new Set(), prevSpeed: 1 };
 
+// 화면 좌표 → 타일 (정수 x, y와 실수 fx, fy). 투영은 render.js 의 screenToTile 이 맡는다.
 function tileAtScreen(sx, sy) {
-  const w = screenToWorld(sx, sy);
-  return { x: Math.floor(w.x / TILE), y: Math.floor(w.y / TILE), wx: w.x, wy: w.y };
+  const t = screenToTile(sx, sy);
+  return { x: Math.floor(t.x), y: Math.floor(t.y), fx: t.x, fy: t.y };
 }
 function lPath(a, b) {
   const out = [];
@@ -17,25 +18,13 @@ function lPath(a, b) {
   while (y !== b.y && out.length < 80) { y += sy; out.push({ x, y }); }
   return out;
 }
-function pickUnit(wx, wy) {
-  let best = null, bd = 11;
-  for (const arr of [S.enemies, S.allies, S.villagers]) for (const u of arr) {
-    if (u.dead || u.inside) continue;
-    const d = Math.hypot(u.x * TILE - wx, u.y * TILE - 9 - wy);
-    if (d < bd) { bd = d; best = u; }
-  }
-  return best;
-}
 
 function onClick(btn, sx, sy) {
   const t = tileAtScreen(sx, sy);
   if (btn === 2) { if (UI.tool) UI.setTool(null); else UI.select(null); return; }
   const tool = UI.tool;
   if (!tool) {
-    const u = pickUnit(t.wx, t.wy);
-    if (u) { UI.select({ u }); return; }
-    const b = World.bAt(t.x, t.y);
-    UI.select(b ? { b } : null);
+    UI.select(pickAt(sx, sy));
     return;
   }
   if (tool.kind === 'build') {
@@ -104,6 +93,7 @@ function initInput() {
       Input.pinch.cx = cx; Input.pinch.cy = cy;
       clampCamera();
       UI.camTarget = null;
+      Bus.emit('camMoved');
       return;
     }
     if (!Input.down) return;
@@ -115,6 +105,7 @@ function initInput() {
       Cam.x -= dx / Cam.zoom; Cam.y -= dy / Cam.zoom;
       clampCamera();
       UI.camTarget = null;
+      Bus.emit('camMoved');
     }
     Input.lx = e.clientX; Input.ly = e.clientY;
   });
@@ -139,6 +130,7 @@ function initInput() {
     Cam.x += before.x - after.x; Cam.y += before.y - after.y;
     clampCamera();
     UI.camTarget = null;
+    Bus.emit('camMoved');
   }, { passive: false });
 
   window.addEventListener('keydown', e => {
@@ -179,19 +171,15 @@ function enterGame(isNew) {
   G.fx = []; G.particles = []; G.projectiles = [];
   Cam.zoom = window.innerWidth < 700 ? 1.05 : 1.4;
   const m = getB(S.manorId);
-  Cam.x = ((m ? m.x + 1.5 : World.center.x)) * TILE;
-  Cam.y = ((m ? m.y + 3 : World.center.y)) * TILE;
-  clampCamera();
+  centerOnTile(m ? m.x + 1.5 : World.center.x, m ? m.y + 3 : World.center.y);
   UI.camTarget = null;
   UI.select(null); UI.setTool(null);
   UI.closeSheet();
   $('log').hidden = true;
   UI.buildMenuDirty = true;
   UI.lastTop = '';
-  if (isNew) {
-    Events.notice('영주로 임명되다',
-      `현청에서 임명장이 내려왔다. 오늘부터 그대가 <em>${escapeHtml(S.name)}</em>의 영주다.\n\n여덟 식구, 초가 두 채, 논밭 한 뙈기. 뒷산에는 흑풍채 산적이 들끓고, 강 건너에서는 정파와 사파가 피를 흘린다.\n\n집과 논밭을 늘려 사람을 모으고, 벌목장과 채석장으로 재료를 쌓자. 산적이 오기 전에 무관과 망루를 세워 두는 것이 좋다.`, '任');
-  }
+  // 첫 인사와 튜토리얼은 이야기 모듈이 맡는다
+  hook(Story, 'onEnterGame', isNew);
 }
 
 let lastFrame = 0;
@@ -210,14 +198,18 @@ function loop(t) {
     if (Input.keys.has('d') || Input.keys.has('arrowright')) Cam.x += sp;
     UI.camTarget = null;
     clampCamera();
+    Bus.emit('camMoved');
   }
   if (UI.camTarget) {
-    Cam.x = lerp(Cam.x, UI.camTarget.x, Math.min(1, dt * 5));
-    Cam.y = lerp(Cam.y, UI.camTarget.y, Math.min(1, dt * 5));
-    if (Math.hypot(Cam.x - UI.camTarget.x, Cam.y - UI.camTarget.y) < 2) UI.camTarget = null;
+    const w = worldOf(UI.camTarget.tx, UI.camTarget.ty);
+    Cam.x = lerp(Cam.x, w.x, Math.min(1, dt * 5));
+    Cam.y = lerp(Cam.y, w.y, Math.min(1, dt * 5));
+    if (Math.hypot(Cam.x - w.x, Cam.y - w.y) < 2) UI.camTarget = null;
     clampCamera();
   }
-  if (!UI.modalOpen && S.speed > 0) {
+  // 사건 두루마리가 열렸거나 이야기 모듈이 멈춰 달라고 하면 시간이 멈춘다
+  const paused = UI.modalOpen || hook(Story, 'isPausing') === true;
+  if (!paused && S.speed > 0) {
     const dtH = dt * S.speed / SEC_PER_HOUR;
     const steps = Math.max(1, Math.ceil(dtH / 0.02));
     for (let i = 0; i < steps; i++) simStep(dtH / steps);
@@ -229,6 +221,7 @@ function loop(t) {
 function boot(hotData) {
   initRender();
   UI.init();
+  Tips.init();
   initInput();
   window.addEventListener('resize', () => { resizeCanvas(); if (S) clampCamera(); });
   $('input-name').value = pick(VILLAGE_NAMES);
@@ -239,7 +232,7 @@ function boot(hotData) {
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { SpriteCache.clear(); UI.buildMenuDirty = true; });
   // 열린 화면이 새 판으로 갈아끼워질 때 진행 상황을 이어받는다
   if (hotData && hotData.save) {
-    try { deserialize(hotData.save); $('title-screen').hidden = true; Cam.x = (World.center.x) * TILE; Cam.y = World.center.y * TILE; clampCamera(); } catch (e) { S = null; }
+    try { deserialize(hotData.save); $('title-screen').hidden = true; centerOnTile(World.center.x, World.center.y); hook(Story, 'onEnterGame', false); } catch (e) { S = null; }
   }
   if ($('title-screen').hidden === false) startTitleArt();
   requestAnimationFrame(loop);

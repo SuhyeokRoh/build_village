@@ -431,13 +431,16 @@ function chooseGoal(k) {
 const Events = {
   queue(id, data = {}) { S.eventQueue.push({ id, data }); },
   notice(title, body, stamp = '告') { S.eventQueue.push({ id: '_notice', data: { title, body, stamp } }); },
-  raidWarning(k, mul = 1) {
-    if (this.raidPending() || S.occupation) return;
-    const goal = chooseGoal(k);
-    const size = raidSize(k, mul * (goal === 'occupy' ? 1.1 : 1));
-    const ex = pickExit(k);
-    const delay = rndi(3, 5);
+  // opts: { goal, size, delay(시진), exitIdx } — 이야기 모듈이 짜인 습격을 낼 때 쓴다
+  raidWarning(k, mul = 1, opts = {}) {
+    if (this.raidPending() || S.occupation) return false;
+    const goal = opts.goal || chooseGoal(k);
+    const size = opts.size || raidSize(k, mul * (goal === 'occupy' ? 1.1 : 1));
+    const ex = opts.exitIdx !== undefined ? World.exits[opts.exitIdx] : pickExit(k);
+    const delay = opts.delay || rndi(3, 5);
     S.eventQueue.push({ id: '_raid', data: { k, goal, size, exitIdx: World.exits.indexOf(ex), delay } });
+    Bus.emit('raidWarning', k, goal, size);
+    return true;
   },
   raidPending() { return !!S.raid || S.scheduled.some(s => s.kind === 'raid') || S.eventQueue.some(e => e.id === '_raid'); },
   roll() {
@@ -445,6 +448,7 @@ const Events = {
     const cands = Object.entries(EV).filter(([id, e]) => {
       if (!e.weight) return false;
       if (S.occupation && !['merchant', 'wedding', 'refugees', 'plague', 'fire'].includes(id)) return false;
+      if (hook(Story, 'allowEvent', id) === false) return false;
       const last = S.cooldowns[id];
       if (last !== undefined && day - last < e.cd) return false;
       try { return e.cond(); } catch (err) { return false; }

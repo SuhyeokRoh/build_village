@@ -428,10 +428,9 @@ function strike(u, t) {
   if (u.hero && Math.random() < 0.2) dmg *= 1.8;
   u.cd = u.hero ? 0.08 : u.leader ? 0.1 : 0.12;
   u.atkT = 0.05;
-  const px = t.x * TILE, py = t.y * TILE;
-  addFx({ kind: 'slash', x: px, y: py, dir: u.dir || 1, dur: 0.25, big, color: u.kind === 'e' ? 'rgba(255,120,100,0.95)' : undefined });
+  addFx({ kind: 'slash', tx: t.x, ty: t.y, dir: u.dir || 1, dur: 0.25, big, color: u.kind === 'e' ? 'rgba(255,120,100,0.95)' : undefined });
   if (big) {
-    addFx({ kind: 'ring', x: u.x * TILE, y: u.y * TILE, r: 30, color: u.kind === 'e' ? '#ff6a5a' : '#ffe08a', dur: 0.45 });
+    addFx({ kind: 'ring', tx: u.x, ty: u.y, r: 30, color: u.kind === 'e' ? '#ff6a5a' : '#ffe08a', dur: 0.45 });
     const pool = u.kind === 'e' ? S.villagers.concat(S.allies) : S.enemies;
     for (const o of pool) if (o !== t && isFoeOf(u, o) && dist(u.x, u.y, o.x, o.y) < 1.7) damage(o, dmg * 0.6, u);
   }
@@ -441,7 +440,7 @@ function damage(t, dmg, src) {
   if (t.dead) return;
   t.hp -= dmg;
   t.hitT = R.now;
-  floatText(t.x * TILE, t.y * TILE, '-' + Math.round(dmg), t.kind === 'e' ? '#ffe08a' : '#ff7a6a');
+  floatText(t.x, t.y, '-' + Math.round(dmg), t.kind === 'e' ? '#ffe08a' : '#ff7a6a');
   if (t.kind !== 'e' && !t.target && src) t.target = src.id;
   if (t.hp <= 0) killUnit(t, src);
 }
@@ -451,8 +450,8 @@ function killUnit(t, src) {
     if (S.raid) S.raid.killed++;
     let back = 0;
     for (const k in t.carryRes) { addRes(k, t.carryRes[k]); if (S.raid) S.raid.loot[k] = Math.max(0, (S.raid.loot[k] || 0) - t.carryRes[k]); back += t.carryRes[k]; }
-    if (back > 0) floatText(t.x * TILE, t.y * TILE - 10, '약탈품 회수', '#bfe3b0');
-    addFx({ kind: 'ring', x: t.x * TILE, y: t.y * TILE, r: 16, color: '#ff8a6a', dur: 0.5 });
+    if (back > 0) floatText(t.x, t.y, '약탈품 회수', '#bfe3b0', false, 10);
+    addFx({ kind: 'ring', tx: t.x, ty: t.y, r: 16, color: '#ff8a6a', dur: 0.5 });
     if (src && src.kind === 'v') {
       src.kills = (src.kills || 0) + 1;
       if (t.leader) logMsg(`${src.hero ? src.hero.epithet + ' ' : ''}${src.name}${pp(src.name, '이/가')} ${t.title}${pp(t.title, '을/를')} 쓰러뜨렸다!`, 'good');
@@ -572,7 +571,7 @@ function attackBuilding(e, b) {
   e.cd = 0.13; e.atkT = 0.05;
   const dmg = e.atk * rnd(0.8, 1.2) * (S.raid.goal === 'punish' ? 0.7 : 1);
   b.hp -= dmg; b.flash = R.now;
-  addFx({ kind: 'spark', x: e.x * TILE + e.dir * 8, y: e.y * TILE, dur: 0.3 });
+  addFx({ kind: 'spark', tx: e.x + e.dir * 0.25, ty: e.y, dur: 0.3 });
   if (b.hp < b.maxHp * 0.45 && b.type !== 'wall' && b.type !== 'stonewall' && S.raid.goal !== 'punish') b.burning = true;
   // 약탈
   if (S.raid.goal !== 'occupy' && !['wall', 'stonewall', 'gate', 'tower'].includes(b.type) && Math.random() < 0.55) {
@@ -584,7 +583,7 @@ function attackBuilding(e, b) {
       S.res[k] -= amt;
       e.carry += amt; e.carryRes[k] = (e.carryRes[k] || 0) + amt;
       S.raid.loot[k] = (S.raid.loot[k] || 0) + amt;
-      floatText(b.x * TILE + b.w * TILE / 2, b.y * TILE + 10, `${RESOURCES[k].name} -${amt}`, '#ffb08a');
+      floatText(b.x + b.w / 2, b.y + b.h / 2, `${RESOURCES[k].name} -${amt}`, '#ffb08a', false, 10);
       if (e.carry >= 24) { e.flee = true; e.path = null; }
     }
   }

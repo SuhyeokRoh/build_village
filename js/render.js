@@ -38,6 +38,29 @@ function screenToWorld(sx, sy) {
 function worldToScreen(wx, wy) {
   return { x: (wx - Cam.x) * Cam.zoom + Cam.vw / 2, y: (wy - Cam.y) * Cam.zoom + Cam.vh / 2 };
 }
+// ── 투영 계층 ─────────────────────────────
+// 게임 논리(sim·units·story·admin…)는 타일 좌표만 쓴다. 타일 ↔ 월드 픽셀 ↔ 화면 픽셀 변환은 여기서만 한다.
+// 등각(2.5D) 렌더러로 바꿀 때 이 함수들의 구현만 바꾸면 나머지는 그대로 동작해야 한다.
+function worldOf(tx, ty) { return { x: tx * TILE, y: ty * TILE }; }
+function tileOfWorld(wx, wy) { return { x: wx / TILE, y: wy / TILE }; }
+function screenToTile(sx, sy) { const w = screenToWorld(sx, sy); return tileOfWorld(w.x, w.y); }
+function tileToScreen(tx, ty) { const w = worldOf(tx, ty); return worldToScreen(w.x, w.y); }
+function centerOnTile(tx, ty) { const w = worldOf(tx, ty); Cam.x = w.x; Cam.y = w.y; clampCamera(); }
+// 화면 좌표에서 사람(우선) 또는 건물을 고른다: {u} | {b} | null
+function pickAt(sx, sy) {
+  let best = null, bd = 13 * Cam.zoom;
+  for (const arr of [S.enemies, S.allies, S.villagers]) for (const u of arr) {
+    if (u.dead || u.inside) continue;
+    const p = tileToScreen(u.x, u.y);
+    const d = Math.hypot(p.x - sx, p.y - 9 * Cam.zoom - sy);
+    if (d < bd) { bd = d; best = u; }
+  }
+  if (best) return { u: best };
+  const t = screenToTile(sx, sy);
+  const b = World.bAt(Math.floor(t.x), Math.floor(t.y));
+  return b ? { b } : null;
+}
+
 function clampCamera() {
   const mx = MW * TILE, my = MH * TILE;
   Cam.zoom = clamp(Cam.zoom, Math.max(0.45, Math.min(Cam.vw / mx, Cam.vh / my)), 2.6);
@@ -428,15 +451,18 @@ function drawParticles(c, dt) {
     }
   }
 }
+// 효과는 타일 좌표(tx, ty)와 땅에서 띄울 높이(lift, 월드 픽셀)로 받는다
 function addFx(fx) { fx.t0 = R.now; G.fx.push(fx); if (G.fx.length > 200) G.fx.shift(); }
-function floatText(x, y, text, color, big) { addFx({ kind: 'text', x, y, text, color, big, dur: 1.1 }); }
+function floatText(tx, ty, text, color, big, lift = 0) { addFx({ kind: 'text', tx, ty, lift, text, color, big, dur: 1.1 }); }
+function fxPos(f) { const p = worldOf(f.tx, f.ty); return { x: p.x, y: p.y - (f.lift || 0) }; }
 function drawFx(c, now) {
   for (let i = G.fx.length - 1; i >= 0; i--) {
     const f = G.fx[i];
     const t = (now - f.t0) / f.dur;
     if (t >= 1) { G.fx.splice(i, 1); continue; }
+    const { x: fx, y: fy } = fxPos(f);
     if (f.kind === 'slash') {
-      c.save(); c.translate(f.x, f.y); c.scale(f.dir, 1);
+      c.save(); c.translate(fx, fy); c.scale(f.dir, 1);
       c.strokeStyle = f.color || `rgba(255,255,255,${1 - t})`;
       c.globalAlpha = 1 - t;
       c.lineWidth = (f.big ? 3 : 1.6) * (1 - t * 0.5);
@@ -445,11 +471,11 @@ function drawFx(c, now) {
       c.restore();
     } else if (f.kind === 'ring') {
       c.strokeStyle = f.color; c.globalAlpha = 1 - t; c.lineWidth = 2;
-      c.beginPath(); c.ellipse(f.x, f.y, f.r * t + 4, (f.r * t + 4) * 0.5, 0, 0, Math.PI * 2); c.stroke();
+      c.beginPath(); c.ellipse(fx, fy, f.r * t + 4, (f.r * t + 4) * 0.5, 0, 0, Math.PI * 2); c.stroke();
       c.globalAlpha = 1;
     } else if (f.kind === 'spark') {
       c.fillStyle = `rgba(255,230,160,${1 - t})`;
-      for (let k = 0; k < 5; k++) { const a = k * 1.3 + f.x; c.fillRect(f.x + Math.cos(a) * t * 10, f.y - 10 + Math.sin(a) * t * 8, 1.6, 1.6); }
+      for (let k = 0; k < 5; k++) { const a = k * 1.3 + f.tx * 7; c.fillRect(fx + Math.cos(a) * t * 10, fy - 10 + Math.sin(a) * t * 8, 1.6, 1.6); }
     }
   }
 }
@@ -460,16 +486,20 @@ function drawFloaters(c, now) {
     c.globalAlpha = clamp(1.4 - t * 1.4, 0, 1);
     c.font = `${f.big ? 'bold 12px' : '9px'} "IBM Plex Sans KR", sans-serif`;
     c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillText(f.text, f.x + 0.7, f.y - 24 - t * 14 + 0.7);
-    c.fillStyle = f.color; c.fillText(f.text, f.x, f.y - 24 - t * 14);
+    const { x: fx, y: fy } = fxPos(f);
+    c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillText(f.text, fx + 0.7, fy - 24 - t * 14 + 0.7);
+    c.fillStyle = f.color; c.fillText(f.text, fx, fy - 24 - t * 14);
   }
   c.globalAlpha = 1;
 }
+// 화살: 타일 좌표 (x0,y0)→(x1,y1), 높이 z0→z1 (월드 픽셀)
 function drawProjectiles(c) {
   for (const p of G.projectiles) {
     const t = clamp(p.t / p.dur, 0, 1);
-    const x = lerp(p.x0, p.x1, t), y = lerp(p.y0, p.y1, t) - Math.sin(t * Math.PI) * 18;
-    const a = Math.atan2(p.y1 - p.y0 - Math.cos(t * Math.PI) * 18 * Math.PI / 1, p.x1 - p.x0);
+    const a0 = worldOf(p.x0, p.y0), a1 = worldOf(p.x1, p.y1);
+    const y0 = a0.y - (p.z0 || 0), y1 = a1.y - (p.z1 || 0);
+    const x = lerp(a0.x, a1.x, t), y = lerp(y0, y1, t) - Math.sin(t * Math.PI) * 18;
+    const a = Math.atan2(y1 - y0 - Math.cos(t * Math.PI) * 18 * Math.PI, a1.x - a0.x);
     c.save(); c.translate(x, y); c.rotate(a);
     line(c, '#3a2a1a', 1, -6, 0, 3, 0); rr(c, '#d6dce0', 3, -0.8, 2, 1.6); rr(c, '#e8e0d0', -7, -1, 2, 2);
     c.restore();
@@ -528,6 +558,25 @@ function drawOverlays(c, now) {
     }
   }
   drawToolGhost(c, now);
+  drawMarkers(c, now);
+}
+// 이야기(튜토리얼)가 가리키는 곳: G.markers = [{x, y, text}] (타일 좌표, 보통 건물 가운데)
+function drawMarkers(c, now) {
+  if (!G.markers || !G.markers.length) return;
+  for (const m of G.markers) {
+    const p = worldOf(m.x, m.y);
+    const bob = Math.sin(now * 4) * 4;
+    const y = p.y - 46 + bob;
+    c.fillStyle = '#ffd36a'; c.strokeStyle = '#3a2410'; c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(p.x, y + 14); c.lineTo(p.x - 8, y); c.lineTo(p.x - 3, y); c.lineTo(p.x - 3, y - 10);
+    c.lineTo(p.x + 3, y - 10); c.lineTo(p.x + 3, y); c.lineTo(p.x + 8, y); c.closePath(); c.fill(); c.stroke();
+    if (m.text) {
+      c.font = '10px "Gowun Batang", serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const w = c.measureText(m.text).width + 10;
+      c.fillStyle = 'rgba(28,20,17,0.9)'; c.fillRect(p.x - w / 2, y - 26, w, 14);
+      c.fillStyle = '#ffe3a0'; c.fillText(m.text, p.x, y - 19);
+    }
+  }
 }
 function rangeCircle(c, tx, ty, r) {
   c.strokeStyle = 'rgba(255,220,140,0.6)'; c.lineWidth = 1; c.setLineDash([3, 4]);

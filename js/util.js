@@ -100,3 +100,21 @@ function pp(word, pair) {
   const w = String(word).replace(/\([^)]*\)/g, '').replace(/<[^>]*>/g, '');
   return josa(w, pair).slice(w.length);
 }
+
+// ── 이벤트 버스: 모듈끼리 서로를 몰라도 소식을 주고받는다 ──
+// 이름과 인자는 docs/architecture.md 의 "Bus 이벤트" 표를 따른다.
+const Bus = {
+  map: new Map(),
+  on(name, fn) { if (!this.map.has(name)) this.map.set(name, []); this.map.get(name).push(fn); return () => this.off(name, fn); },
+  off(name, fn) { const a = this.map.get(name); if (a) { const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); } },
+  emit(name, ...args) {
+    const a = this.map.get(name);
+    if (!a) return;
+    for (const fn of a.slice()) { try { fn(...args); } catch (e) { console.error('Bus', name, e); } }
+  },
+};
+// 선택적 모듈 훅을 안전하게 부른다: hook(Story, 'daily') — 모듈이나 함수가 없으면 아무 일도 없다
+function hook(mod, name, ...args) {
+  if (!mod || typeof mod[name] !== 'function') return undefined;
+  try { return mod[name](...args); } catch (e) { console.error('hook', name, e); return undefined; }
+}

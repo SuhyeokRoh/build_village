@@ -79,9 +79,14 @@ function newGame(name) {
     const p = randomTileNear(cx, cy + 3, 4) || { x: cx, y: cy + 3 };
     newVillager({ x: p.x + 0.5, y: p.y + 0.5, age: rndi(18, 50) });
   }
+  // 모듈 상태 준비 → 이야기 모듈이 시작 마을을 꾸민다(쓰러져 가는 마을 등)
+  hook(Admin, 'init');
+  hook(Petitions, 'init');
+  hook(Story, 'init');
+  hook(Story, 'setupNewGame');
   refreshAssign();
-  S.stats.maxPop = n;
-  logMsg(`${josa(name, '이/가')} 강호의 지도 위에 처음 이름을 올렸다. 영주의 시대가 시작된다.`, 'good');
+  S.stats.maxPop = popCount();
+  logMsg(`${S.name}${pp(S.name, '이/가')} 강호의 지도 위에 처음 이름을 올렸다. 영주의 시대가 시작된다.`, 'good');
   World.terrainDirty = true;
 }
 
@@ -169,9 +174,10 @@ function tryBuild(type, x, y) {
   pay(BDEF[type].cost);
   let forest = 0;
   for (let yy = y; yy < y + BDEF[type].h; yy++) for (let xx = x; xx < x + BDEF[type].w; xx++) if (World.tile(xx, yy) === T.FOREST) forest++;
-  placeBuilding(type, x, y, false);
+  const b = placeBuilding(type, x, y, false);
   if (forest) addRes('wood', forest * 3);
-  return { ok: true };
+  Bus.emit('placed', b);
+  return { ok: true, b };
 }
 function roadCost(x, y) { return World.tile(x, y) === T.WATER ? { wood: 6 } : { silver: 1 }; }
 function canPlaceRoad(x, y) {
@@ -181,7 +187,7 @@ function canPlaceRoad(x, y) {
   return canAfford(roadCost(x, y));
 }
 function setRoad(x, y, free = false) {
-  if (!free) { if (!canPlaceRoad(x, y)) return false; pay(roadCost(x, y)); }
+  if (!free) { if (!canPlaceRoad(x, y)) return false; pay(roadCost(x, y)); Bus.emit('road', x, y); }
   const i = y * MW + x;
   if (World.tiles[i] === T.FOREST) { World.tiles[i] = T.DIRT; addRes('wood', 2); }
   World.road[i] = 1;
@@ -204,6 +210,7 @@ function demolish(b) {
   const def = BDEF[b.type];
   if (!b.ruined) for (const k in def.cost) addRes(k, Math.floor(def.cost[k] * (b.done ? 0.5 : 0.8)));
   removeBuilding(b);
+  Bus.emit('demolished', b);
   return true;
 }
 function removeBuilding(b) {
@@ -243,10 +250,12 @@ function repair(b) {
   pay(c);
   b.ruined = false; b.done = false; b.progress = BDEF[b.type].time * 0.5; b.hp = b.maxHp * 0.3; b.burning = false;
   markDirty();
+  Bus.emit('repairStarted', b);
   return true;
 }
 function buildingDestroyed(b, by) {
   b.burning = false;
+  Bus.emit('destroyed', b);
   const def = BDEF[b.type];
   if (b.type === 'manor' && S.raid && S.raid.goal === 'occupy') { beginOccupation(S.raid.faction); return; }
   if (S.raid) S.raid.destroyed = (S.raid.destroyed || 0) + 1;
@@ -395,6 +404,7 @@ function constructionStep(dtH) {
       b.done = true; b.hp = b.maxHp; done = true;
       updateSiteFactors(b);
       if (!def.line) logMsg(`${def.name} 공사가 끝났다.`, 'good');
+      Bus.emit('built', b);
     }
   }
   if (done) { refreshAssign(); }
@@ -442,6 +452,8 @@ function happinessFactors() {
   if (hasMod('plague')) f.push(['역병', -10]);
   if (hasMod('tiger')) f.push(['호환의 공포', -8]);
   if (hasMod('victory')) f.push(['승전의 기쁨', 6]);
+  // 모듈이 더하는 요인: [이름, 값] 배열
+  for (const m of [Admin, Petitions, Story]) { const extra = hook(m, 'happinessFactors'); if (Array.isArray(extra)) f.push(...extra); }
   return f;
 }
 function happinessTarget() { return clamp(happinessFactors().reduce((a, [, v]) => a + v, 0), 0, 100); }
@@ -478,6 +490,7 @@ function simStep(dtH) {
   constructionStep(dtH);
   healStep(dtH);
   if (S.raid) updateRaid(dtH);
+  hook(Story, 'tick', dtH);
   for (const b of S.buildings) if (b.burning && b.burnUntil && S.time > b.burnUntil) { b.burning = false; b.burnUntil = 0; }
   cleanupDead();
 }
@@ -510,7 +523,11 @@ function hourlyTick() {
     logMsg(`마을이 ${RANKS[rank].name}${pp(RANKS[rank].name, '으로/로')} 커졌다! 새 건물을 지을 수 있다.`, 'good');
     UI.toast(`${RANKS[rank].name} 승격! 명성 +${15 * rank}`, 'good');
     UI.buildMenuDirty = true;
+    Bus.emit('rankUp', rank);
   }
+  hook(Admin, 'hourly');
+  hook(Petitions, 'hourly');
+  hook(Story, 'hourly');
   if (S.time >= S.nextEventAt) {
     S.nextEventAt = S.time + rnd(13, 26) * (S.occupation ? 1.6 : 1);
     if (!S.raid) Events.roll();
@@ -529,6 +546,7 @@ function dailyTick() {
   // 세금
   let tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100);
   if (S.vassal === 'gwanbu') tax *= 1.15;
+  tax *= hook(Admin, 'taxMul') || 1;
   addRes('silver', tax);
   // 무사 품삯
   let wage = 0;
@@ -587,6 +605,11 @@ function dailyTick() {
     if (f.rel > 30) f.rel -= 0.5; else if (f.rel < -40) f.rel += 0.5;
   }
   growthCheck(true);
+  // 육방 예산 집행 → 상소 → 이야기 순서
+  hook(Admin, 'daily');
+  hook(Petitions, 'daily');
+  hook(Story, 'daily');
+  Bus.emit('day', day);
   S.stats.maxPop = Math.max(S.stats.maxPop, pop);
   for (const b of S.buildings) updateSiteFactors(b);
   if (S.time > 30) { saveGame(true); }
@@ -611,6 +634,7 @@ function growthCheck(morning) {
       for (let i = 0; i < n; i++) newVillager({ x: ex.x + 0.5, y: ex.y + 0.5, arriving: true });
       S.stats.born += n;
       logMsg(`${ex.name}${pp(ex.name, '으로/로')} 새 식구 ${n}명이 찾아왔다.`, 'good');
+      Bus.emit('arrived', n);
       markDirty();
     }
   }
@@ -624,6 +648,7 @@ function growthCheck(morning) {
 }
 function threatTick() {
   if (dayOf() < 3) return;
+  if (hook(Story, 'allowThreat') === false) return;
   const calm = S.lastRaidEnd !== undefined && S.time - S.lastRaidEnd < 60;
   const pop = popCount();
   const wealth = S.res.silver / 60 + pop / 4 + S.fame / 40;
@@ -691,6 +716,7 @@ function startRaid(k, goal, size, opts = {}) {
   if (S.speed > 1) S.speed = 1;
   UI.focusOn(ex.x, ex.y);
   markDirty();
+  Bus.emit('raidStart', S.raid);
 }
 function spawnAllies(k, n, stayDays) {
   const ex = World.exits[rndi(0, World.exits.length - 1)];
@@ -744,7 +770,7 @@ function towersStep(dtH) {
     archer.dir = best.x > b.x + 0.5 ? 1 : -1;
     b.cd = 0.16;
     const dmg = (5 + archer.martial * 2.6) * (S.res.weapons > 0 ? 1.3 : 1);
-    G.projectiles.push({ x0: b.x * TILE + 16, y0: b.y * TILE - 48, x1: best.x * TILE, y1: best.y * TILE - 8, t: 0, dur: 0.02 + bd * 0.006, target: best.id, dmg, src: archer.id });
+    G.projectiles.push({ x0: b.x + 0.5, y0: b.y + 0.5, z0: 48, x1: best.x, y1: best.y, z1: 8, t: 0, dur: 0.02 + bd * 0.006, target: best.id, dmg, src: archer.id });
   }
 }
 function projectilesStep(dtH) {
@@ -853,6 +879,8 @@ function endRaid(result) {
   S.lastRaidEnd = S.time;
   for (const e of S.enemies) if (!e.garrison) { e.flee = true; e.path = null; }
   markDirty();
+  Bus.emit('raidEnd', result, r);
+  if (result === 'liberated') Bus.emit('liberated', 'uprising');
   Events.notice(title, body, stamp);
 }
 function beginOccupation(k) {
@@ -876,6 +904,7 @@ function beginOccupation(k) {
   addFame(-15);
   for (const b of S.buildings) b.burning = false;
   logMsg(`영주관이 함락되었다. 마을은 이제 ${F.name}의 손아귀에 있다.`, 'bad');
+  Bus.emit('occupied', k);
   markDirty();
   Events.notice(`${F.name}에게 점령당하다`,
     `영주관에 ${F.name}의 깃발이 올랐다. 점령군은 매일 은자와 식량을 수탈하고, 새로 찾아오는 사람도 없다.\n\n몸값을 치르거나, 무사를 길러 봉기하거나, 우호 세력에 구원을 청해 마을을 되찾아야 한다. 세력 창에서 할 수 있다.`, '陷');
@@ -891,6 +920,7 @@ function payRansom() {
   for (const e of S.enemies) { e.garrison = false; e.flee = true; e.path = null; }
   changeRel(k, 10);
   logMsg(`몸값 ${c}냥을 치르고 ${FACTIONS[k].name} 점령군을 돌려보냈다.`, 'good');
+  Bus.emit('liberated', 'ransom');
   markDirty();
   return true;
 }
@@ -910,6 +940,7 @@ function becomeVassal(k) {
   for (const r of (FACTIONS[k].rivals || [])) changeRel(r, -25);
   for (const o of FACTION_ORDER) if ((FACTIONS[o].rivals || []).includes(k)) changeRel(o, -15);
   logMsg(`${josa(S.name, '이/가')} ${FACTIONS[k].name}의 산하 마을이 되었다.`, 'war');
+  Bus.emit('vassal', k);
 }
 function breakVassal(silent) {
   const k = S.vassal;
@@ -917,7 +948,8 @@ function breakVassal(silent) {
   S.vassal = null;
   changeRel(k, -40);
   S.factions[k].threat = 50;
-  if (!silent) logMsg(`${FACTIONS[k].name}과의 주종 관계를 끊었다. 그들의 분노가 하늘을 찌른다.`, 'bad');
+  if (!silent) logMsg(`${FACTIONS[k].name}${pp(FACTIONS[k].name, '과/와')}의 주종 관계를 끊었다. 그들의 분노가 하늘을 찌른다.`, 'bad');
+  Bus.emit('vassal', null);
 }
 
 // ── 저장·불러오기 ──────────────────────────
@@ -945,6 +977,9 @@ function deserialize(str) {
   World.terrainDirty = true;
   for (const b of S.buildings) updateSiteFactors(b);
   refreshAssign();
+  hook(Admin, 'onLoad');
+  hook(Petitions, 'onLoad');
+  hook(Story, 'onLoad');
 }
 function saveGame(auto) {
   if (!S || S.ended) return false;

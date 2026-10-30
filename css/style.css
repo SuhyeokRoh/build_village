@@ -123,6 +123,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--gold); outl
 }
 #menubar button:hover { border-color: var(--gold-dim); color: var(--gold); }
 #menubar button.alert { border-color: var(--cinnabar-2); color: #ffd6c8; }
+.badge {
+  display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 4px;
+  border-radius: 999px; background: var(--cinnabar); color: #fff3e6; font-family: var(--font-ui); font-size: 11px; font-weight: 600;
+}
+[data-tip], [data-tip-title] { cursor: help; }
+button[data-tip], button[data-tip-title] { cursor: pointer; }
+#tooltip p { white-space: pre-line; }
 
 /* ── 습격/점령 띠 ───────────────────────── */
 #banner {

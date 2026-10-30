@@ -28,6 +28,9 @@ const UI = {
     $('btn-factions').onclick = () => this.openSheet('factions');
     $('btn-village').onclick = () => this.openSheet('village');
     $('btn-help').onclick = () => this.openSheet('help');
+    $('btn-admin').onclick = () => this.openSheet('admin');
+    $('btn-petitions').onclick = () => this.openSheet('petitions');
+    $('btn-story').onclick = () => hook(Story, 'openAdvisor');
     $('btn-log').onclick = () => { $('log').hidden = !$('log').hidden; this.renderLog(); };
     $('log-close').onclick = () => { $('log').hidden = true; };
     $('btn-save').onclick = () => saveGame(false);
@@ -46,23 +49,32 @@ const UI = {
     const flow = S.lastFlow || {};
     const fmtFlow = k => flow[k] ? ` · 어제 +${fmt(flow[k])}` : '';
     const chips = [
-      ['silver', '銀', fmt(S.res.silver), `은자 ${fmt(S.res.silver)}냥${fmtFlow('silver')}`, false],
-      ['food', '食', fmt(S.res.food), `식량 ${fmt(S.res.food)} / ${cap} · 하루 소비 ${Math.round(pop * 2)}${fmtFlow('food')}`, S.res.food < pop * 2],
-      ['wood', '木', fmt(S.res.wood), `목재 ${fmt(S.res.wood)} / ${cap}${fmtFlow('wood')}`, false],
-      ['stone', '石', fmt(S.res.stone), `석재 ${fmt(S.res.stone)} / ${cap}${fmtFlow('stone')}`, false],
-      ['weapons', '兵', fmt(S.res.weapons), `병장기 ${fmt(S.res.weapons)} — 있으면 무사와 궁수가 더 강해진다`, false],
+      ['silver', '銀', fmt(S.res.silver), `지금 ${fmt(S.res.silver)}냥${fmtFlow('silver')}`, false],
+      ['food', '食', fmt(S.res.food), `지금 ${fmt(S.res.food)} / 최대 ${cap} · 하루 소비 ${Math.round(pop * 2)}${fmtFlow('food')}`, S.res.food < pop * 2],
+      ['wood', '木', fmt(S.res.wood), `지금 ${fmt(S.res.wood)} / 최대 ${cap}${fmtFlow('wood')}`, false],
+      ['stone', '石', fmt(S.res.stone), `지금 ${fmt(S.res.stone)} / 최대 ${cap}${fmtFlow('stone')}`, false],
+      ['weapons', '兵', fmt(S.res.weapons), `지금 ${fmt(S.res.weapons)}`, false],
       ['pop', '人', `${pop}<small>/${house}</small>`, `인구 ${pop}명 · 집 ${house}칸`, pop > house],
-      ['happy', '心', `${Math.round(S.happy)}`, `민심 ${Math.round(S.happy)} — 높으면 사람이 모이고, 25 아래면 떠난다`, S.happy < 35],
-      ['def', '武', `${defensePower()}`, '무력 — 무사·객경·망루의 힘', false],
-      ['fame', '名', `${fmt(S.fame)}`, '명성 — 강호에 알려진 정도. 높을수록 사람과 사건이 몰려온다', false],
+      ['happy', '心', `${Math.round(S.happy)}`, `지금 ${Math.round(S.happy)} / 100 · 자세한 까닭은 [마을 현황]`, S.happy < 35],
+      ['def', '武', `${defensePower()}`, `지금 ${defensePower()}`, false],
+      ['fame', '名', `${fmt(S.fame)}`, `지금 ${fmt(S.fame)} · 목표 400`, false],
     ];
-    const html = chips.map(([k, h, val, tip, low]) => `<span class="chip${low ? ' low' : ''}" title="${tip}"><i>${h}</i><b>${val}</b></span>`).join('');
+    const html = chips.map(([k, h, val, tip, low]) => {
+      const g = HANJA_GLOSS[h];
+      return `<span class="chip${low ? ' low' : ''}" data-tip-title="${h} · ${g[0]}" data-tip="${escapeHtml(g[1] + '\n' + tip)}"><i>${h}</i><b>${val}</b></span>`;
+    }).join('');
     if (html !== this.lastTop) { $('res').innerHTML = html; this.lastTop = html; }
     $('village-name').textContent = S.name;
     $('village-rank').textContent = RANKS[S.rank].name + (S.vassal ? ` · ${FACTIONS[S.vassal].name} 산하` : '') + (S.occupation ? ' · 점령됨' : '');
     $('rank-seal').textContent = RANKS[S.rank].short;
+    const rg = HANJA_GLOSS[RANKS[S.rank].short];
+    $('rank-seal').dataset.tipTitle = `${RANKS[S.rank].short} · ${rg[0]}`;
+    $('rank-seal').dataset.tip = `${rg[1]}\n다음 등급: ${S.rank + 1 < RANKS.length ? `${RANKS[S.rank + 1].name} (인구 ${RANKS[S.rank + 1].minPop}명)` : '없음 — 가장 높은 등급'}`;
     $('clock-date').textContent = dateText();
     $('clock-time').textContent = timeText();
+    const si = Math.floor(((hourOf() + 1) % 24) / 2);
+    $('clock-time').dataset.tipTitle = `${SHICHEN[si][0]} (${SHICHEN[si][1]})`;
+    $('clock-time').dataset.tip = `옛 시각 12시진 가운데 하나. 지금으로 치면 ${SHICHEN_HOURS[si]}.\n한 계절은 ${DAYS_PER_SEASON}일, 한 해는 ${DAYS_PER_SEASON * 4}일.`;
     for (const s of [0, 1, 2, 4]) $('spd-' + s).classList.toggle('on', S.speed === s);
     $('btn-factions').classList.toggle('alert', !!S.occupation);
   },
@@ -190,6 +202,7 @@ const UI = {
     const how = this.tool.kind === 'road' || this.tool.kind === 'line' ? '끌어서 잇기' : this.tool.kind === 'build' ? '눌러서 놓기' : '눌러서 실행';
     hint.textContent = `${name} · ${how} · 우클릭이나 Esc로 취소`;
     hint.hidden = false;
+    Bus.emit('tool', k);
   },
 
   // ── 선택 정보 ──
@@ -198,6 +211,7 @@ const UI = {
     this.lastPanel = '';
     $('panel').hidden = !obj;
     if (obj) this.updatePanel();
+    Bus.emit('select', obj);
   },
   updatePanel() {
     if (!this.sel) return;
@@ -316,17 +330,26 @@ const UI = {
   },
 
   // ── 큰 창 ──
+  // 다른 모듈(육방·상소 등)이 자기 창을 끼워 넣는 곳
+  // UI.registerSheet('admin', { html: () => '...', onClick: e => {...}, live: true })
+  sheets: {},
+  registerSheet(kind, def) { this.sheets[kind] = def; },
   openSheet(kind) {
     this.sheet = kind;
     $('sheet').hidden = false;
+    $('sheet').dataset.kind = kind;
+    $('sheet-body').dataset.h = '';
     this.renderSheet();
+    Bus.emit('sheetOpen', kind);
   },
-  closeSheet() { this.sheet = null; $('sheet').hidden = true; },
+  closeSheet() { const k = this.sheet; this.sheet = null; $('sheet').hidden = true; if (k) Bus.emit('sheetClose', k); },
   renderSheet() {
     if (!this.sheet) return;
     const body = $('sheet-body');
     let html = '';
-    if (this.sheet === 'factions') html = this.factionsHTML();
+    const ext = this.sheets[this.sheet];
+    if (ext) html = ext.html();
+    else if (this.sheet === 'factions') html = this.factionsHTML();
     else if (this.sheet === 'village') html = this.villageHTML();
     else html = this.helpHTML();
     if (body.dataset.h !== html) { body.innerHTML = html; body.dataset.h = html; }
@@ -367,7 +390,7 @@ const UI = {
       if (S.vassal === k) acts.push(`<button type="button" class="btn danger" data-act="break" data-f="${k}">${UI.confirmBreak ? '정말 끊는다' : '주종 관계를 끊는다'}</button>`);
       const perk = F.perk ? `<p class="fac-desc" style="color:var(--muted)">산하가 되면: ${F.perk}${S.vassal === k ? ` · 매일 공물 은자 ${Math.round(4 + popCount() * 0.25)}냥` : ''}</p>` : '';
       return `<div class="fac">
-        <div class="fac-top"><div class="fac-crest" style="background:${F.color}">${F.hanja}</div><div style="min-width:0"><div class="fac-name">${F.name}</div><div class="fac-type">${F.type}</div></div><div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chips.join('')}</div></div>
+        <div class="fac-top"><div class="fac-crest" style="background:${F.color}" data-tip-title="${F.hanja} · ${HANJA_GLOSS[F.hanja] ? HANJA_GLOSS[F.hanja][0] : ''}" data-tip="${F.name}의 문장">${F.hanja}</div><div style="min-width:0"><div class="fac-name">${F.name}</div><div class="fac-type">${F.type}</div></div><div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chips.join('')}</div></div>
         <p class="fac-desc">${F.desc}</p>
         <div class="rel"><div class="rel-track"><span style="left:${(r + 100) / 2}%"></span></div><span>${r > 0 ? '+' : ''}${r}</span></div>
         ${perk}
@@ -435,6 +458,8 @@ const UI = {
       </div>`;
   },
   onSheetClick(e) {
+    const ext = this.sheets[this.sheet];
+    if (ext) { if (ext.onClick) ext.onClick(e); this.renderSheet(); return; }
     const t = e.target.closest('[data-act]');
     if (!t || t.disabled) return;
     const a = t.dataset.act, k = t.dataset.f;
@@ -460,6 +485,8 @@ const UI = {
     this.modalEntry = entry;
     $('modal-title').textContent = ev.title;
     $('modal-stamp').textContent = ev.stamp || '事';
+    const sg = glossOf(ev.stamp || '事');
+    if (sg) { $('modal-stamp').dataset.tipTitle = sg.title; $('modal-stamp').dataset.tip = sg.body; }
     $('modal-text').innerHTML = ev.text;
     const box = $('modal-choices');
     box.innerHTML = '';
@@ -482,6 +509,7 @@ const UI = {
     let result = null;
     try { result = choice.run(); } catch (err) { console.error(err); }
     if (this.modalEntry && S.eventQueue[0] === this.modalEntry) S.eventQueue.shift();
+    if (this.modalEntry) Bus.emit('eventResolved', this.modalEntry.id, choice.label);
     if (!result) { this.closeModal(); return; }
     $('modal-text').innerHTML = result;
     const box = $('modal-choices');
@@ -501,13 +529,14 @@ const UI = {
   },
 
   // ── 카메라 ──
-  focusOn(tx, ty) { this.camTarget = { x: tx * TILE, y: ty * TILE }; },
+  // 카메라 목표는 타일 좌표로 둔다 (main.js 루프가 투영해서 따라간다)
+  focusOn(tx, ty) { this.camTarget = { tx, ty }; },
   onMinimap(e) {
     const r = e.currentTarget.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
-    Cam.x = fx * MW * TILE; Cam.y = fy * MH * TILE;
     this.camTarget = null;
-    clampCamera();
+    centerOnTile(fx * MW, fy * MH);
+    Bus.emit('camMoved');
   },
 
   restart() {
@@ -525,8 +554,11 @@ const UI = {
       this.updateTop();
       this.updateBanner();
       this.updatePanel();
-      if (this.sheet && this.sheet !== 'help') this.renderSheet();
+      if (this.sheet && this.sheet !== 'help' && !(this.sheets[this.sheet] && this.sheets[this.sheet].live === false)) this.renderSheet();
       if (this.buildMenuDirty || this.affordKey() !== this.lastAfford) this.renderBuildItems();
+      hook(Admin, 'uiTick');
+      hook(Petitions, 'uiTick');
+      hook(Story, 'uiTick');
     }
   },
 };
