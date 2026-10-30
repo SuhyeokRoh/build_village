@@ -1,1 +1,152 @@
 /* admin 모듈 전용 스타일. 토큰은 css/style.css 의 :root 를 쓴다. */
+/* ── 육방 관아 창 ───────────────────────── */
+#sheet[data-kind="admin"] .sheet-inner { width: min(1010px, 100%); }
+.adm h2 { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.adm-h { font-size: 16px; color: var(--gold-dim); letter-spacing: 0.25em; font-family: var(--font-display); }
+.adm .lead { margin-bottom: 14px; }
+
+/* 장부: 한지 띠 위에 먹으로 쓴 숫자 */
+.adm-ledger {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(255,255,255,0.35), transparent 60%),
+    var(--paper);
+  color: var(--ink); border: 1px solid var(--paper-edge); border-radius: 6px;
+  box-shadow: inset 0 0 0 3px rgba(196, 173, 128, 0.35);
+}
+.adm-cell { padding: 9px 12px 10px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.adm-cell + .adm-cell { border-left: 1px dashed rgba(91, 75, 62, 0.35); }
+.adm-cell small { font-family: var(--font-body); font-size: 12px; color: var(--ink-soft); }
+.adm-cell b { font-family: var(--font-ui); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.adm-cell span { font-size: 11.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adm-cell.over b { color: var(--cinnabar); }
+
+.adm-actions { display: flex; align-items: flex-start; gap: 12px; margin: 12px 0 14px; }
+.adm-rec {
+  flex: none; background: var(--gold); color: var(--lacquer); border-color: var(--gold);
+  font-family: var(--font-body); font-weight: 700; font-size: 14px; padding: 7px 14px;
+}
+.adm-rec:hover:not(:disabled) { background: #e6bd66; color: var(--lacquer); border-color: #e6bd66; }
+.adm-warn { min-width: 0; flex: 1; }
+.adm-warn p { margin: 0; font-size: 13px; line-height: 1.5; color: #f0b9a8; }
+.adm-warn p + p { margin-top: 2px; }
+
+/* 부서 카드 */
+.adm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 292px), 1fr)); gap: 12px; }
+.adm-card {
+  background: linear-gradient(180deg, var(--lacquer-2), #241913);
+  border: 1px solid var(--lacquer-edge); border-radius: 8px; padding: 12px 13px 11px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  box-shadow: inset 0 1px 0 rgba(214, 170, 82, 0.08);
+}
+.adm-card.paused { border-style: dashed; }
+.adm-card.paused .adm-seal { filter: grayscale(0.7) brightness(0.8); }
+.adm-card-head { display: flex; align-items: center; gap: 10px; }
+.adm-seal {
+  flex: none; width: 42px; height: 42px; display: grid; place-items: center;
+  background: var(--cinnabar); color: #fbe9d6; border-radius: 6px;
+  font-family: var(--font-display); font-size: 25px; line-height: 1;
+  box-shadow: inset 0 0 0 2px rgba(251, 233, 214, 0.35), 0 2px 0 #6e1d17;
+  cursor: help;
+}
+.adm-name { min-width: 0; flex: 1; }
+.adm-name h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 21px; color: var(--gold); line-height: 1.15; }
+.adm-name h3 small { font-size: 13px; color: var(--gold-dim); letter-spacing: 0.15em; margin-left: 2px; cursor: help; }
+.adm-name > span { display: block; color: var(--muted); font-size: 12px; }
+
+/* 자동 스위치 */
+.adm-auto {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px;
+  background: var(--lacquer); border: 1px solid var(--lacquer-edge); border-radius: 999px;
+  padding: 3px 10px 3px 4px; font-size: 12px; color: var(--muted);
+}
+.adm-auto i {
+  position: relative; width: 28px; height: 16px; border-radius: 999px; background: #3d2e25; border: 1px solid var(--lacquer-edge);
+  transition: background 0.15s;
+}
+.adm-auto i::after {
+  content: ""; position: absolute; top: 1px; left: 1px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--muted); transition: transform 0.15s, background 0.15s;
+}
+.adm-auto.on { color: var(--gold); border-color: var(--gold-dim); }
+.adm-auto.on i { background: rgba(214, 170, 82, 0.35); border-color: var(--gold-dim); }
+.adm-auto.on i::after { transform: translateX(12px); background: var(--gold); }
+.adm-auto:hover { border-color: var(--gold-dim); }
+
+/* 아전 */
+.adm-headman { display: flex; align-items: center; gap: 7px; font-family: var(--font-body); font-size: 14px; min-width: 0; }
+.adm-who { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adm-who small { color: var(--muted); font-size: 12px; margin-right: 2px; }
+.adm-trait { flex: none; font-family: var(--font-ui); font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid; cursor: help; }
+.adm-trait.t-honest { color: #bfe7c7; border-color: #3f7d57; }
+.adm-trait.t-capable { color: var(--gold); border-color: var(--gold-dim); }
+.adm-trait.t-greedy { color: #ffb4a3; border-color: #a63b2c; }
+.adm-trait.t-lazy { color: var(--muted); border-color: var(--lacquer-edge); }
+.adm-mini {
+  flex: none; margin-left: auto; background: transparent; border: 1px solid var(--lacquer-edge); border-radius: 4px;
+  padding: 2px 8px; font-size: 12px; color: var(--muted); min-height: 26px;
+}
+.adm-mini:hover:not(:disabled) { color: var(--gold); border-color: var(--gold-dim); }
+.adm-mini.danger { color: #ffc9bd; border-color: var(--cinnabar-2); background: rgba(181, 51, 42, 0.18); }
+.adm-mini:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 예산 */
+.adm-budget { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.adm-lbl { font-family: var(--font-body); font-size: 13px; color: var(--muted); }
+.adm-step { display: inline-flex; align-items: stretch; border: 1px solid var(--lacquer-edge); border-radius: 6px; overflow: hidden; background: var(--lacquer); }
+.adm-step button {
+  min-width: 34px; min-height: 32px; padding: 0 6px; border: 0; background: var(--lacquer-3);
+  font-family: var(--font-ui); font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.adm-step button + button, .adm-step .adm-in + button { border-left: 1px solid var(--lacquer-edge); }
+.adm-step button:hover:not(:disabled) { background: #4a3529; color: var(--gold); }
+.adm-step button:disabled { opacity: 0.4; cursor: not-allowed; }
+.adm-in { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 4px; border-left: 1px solid var(--lacquer-edge); background: var(--lacquer); }
+.adm-in input {
+  width: 44px; border: 0; background: transparent; color: var(--gold); text-align: right;
+  font-family: var(--font-ui); font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; padding: 4px 0;
+  -moz-appearance: textfield; appearance: textfield; -webkit-user-select: text; user-select: text;
+}
+.adm-in input::-webkit-outer-spin-button, .adm-in input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.adm-in input:focus { outline: none; }
+.adm-in:focus-within { box-shadow: inset 0 0 0 1px var(--gold); }
+.adm-in small { color: var(--muted); font-size: 11px; }
+
+/* 기금 */
+.adm-fundrow { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.adm-fund { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.adm-fund b { font-size: 16px; font-weight: 600; color: var(--text); }
+.adm-fund small { color: var(--muted); font-size: 12px; }
+.adm-eff { font-size: 11.5px; color: var(--good); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.adm-fundrow .adm-mini { align-self: center; }
+.adm-bar { height: 4px; border-radius: 2px; background: #3a2a21; overflow: hidden; margin-top: -3px; }
+.adm-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold-dim), var(--gold)); transition: width 0.3s; }
+
+/* 하는 일과 기록 */
+.adm-status { margin: 0; font-family: var(--font-body); font-size: 13px; line-height: 1.5; color: #e8dabd; min-height: 3em; }
+.adm-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--muted); }
+.adm-dot.work { background: var(--good); box-shadow: 0 0 6px rgba(156, 204, 114, 0.6); }
+.adm-dot.wait { background: var(--gold); }
+.adm-dot.off { background: #5a4a3e; }
+.adm-log { list-style: none; margin: 0; padding: 7px 0 0; border-top: 1px solid rgba(90, 63, 46, 0.6); display: flex; flex-direction: column; gap: 2px; }
+.adm-log li { font-family: var(--font-body); font-size: 12px; line-height: 1.45; color: var(--muted); display: flex; gap: 6px; min-width: 0; }
+.adm-log li time { flex: none; font-family: var(--font-ui); font-size: 10.5px; color: var(--gold-dim); padding-top: 1px; font-variant-numeric: tabular-nums; }
+.adm-log li.none { font-style: italic; opacity: 0.7; }
+
+/* 메뉴의 육방 버튼: 예산을 다 주지 못한 날 */
+#menubar button.adm-alert { border-color: var(--cinnabar-2); color: #ffd6c8; }
+
+@media (max-width: 640px) {
+  .adm-ledger { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adm-cell:nth-child(3) { border-left: 0; }
+  .adm-cell:nth-child(n+3) { border-top: 1px dashed rgba(91, 75, 62, 0.35); }
+  .adm-actions { flex-direction: column; gap: 8px; }
+}
+@media (max-width: 420px) {
+  #sheet[data-kind="admin"] { padding: 8px; }
+  #sheet[data-kind="admin"] .sheet-inner { padding: 16px 12px 16px; max-height: calc(100% - 4px); }
+  .adm-card { padding: 11px 11px 10px; }
+  .adm-cell { padding: 8px 10px 9px; }
+  .adm-cell b { font-size: 18px; }
+  .adm-step button { min-width: 32px; }
+}
