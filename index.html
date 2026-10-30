@@ -20,14 +20,14 @@
       <span class="seal" id="rank-seal" data-tip-title="村 · 마을 촌" data-tip="마을 등급">村</span>
       <div class="tb-title">
         <strong id="village-name">청석촌</strong>
-        <small id="village-rank">촌(村)</small>
+        <small id="village-rank" data-tip-title="村">촌(村)</small>
       </div>
     </div>
     <div id="res" class="res"></div>
     <div class="clock">
       <div class="clock-text">
         <strong id="clock-date">1년 봄 1일</strong>
-        <small id="clock-time">진시(辰時)</small>
+        <small id="clock-time" data-tip-title="진시 (辰時)" data-tip="옛 시각 12시진 가운데 하나. 지금으로 치면 아침 7~9시.">진시(辰時)</small>
       </div>
       <div class="speed" role="group" aria-label="게임 속도">
         <button type="button" id="spd-0" data-speed="0" title="일시정지 (Space)">❚❚</button>
@@ -96,7 +96,7 @@
     <div class="title-card">
       <div class="title-hanja" data-tip-title="江湖村領主記">江湖村領主記</div>
       <h1>강호촌 영주기</h1>
-      <p class="title-lead">정파와 사파가 피를 흘리고, 녹림의 산적이 들끓는 난세.<br>지도에도 없는 작은 마을의 영주가 되어, 이 마을을 강호에 이름 높은 성(城)으로 키워내라.</p>
+      <p class="title-lead">정파와 사파가 피를 흘리고, 녹림의 산적이 들끓는 난세.<br>지도에도 없는 작은 마을의 영주가 되어, 이 마을을 강호에 이름 높은 성(<span data-tip-title="城">城</span>)으로 키워내라.</p>
       <label class="title-field" for="input-name">마을 이름
         <input id="input-name" type="text" maxlength="8" autocomplete="off">
       </label>
@@ -104,7 +104,7 @@
         <button type="button" id="btn-new" class="btn-primary">새로 시작</button>
         <button type="button" id="btn-continue" class="btn-ghost" hidden>이어하기</button>
       </div>
-      <p class="title-note">좌클릭 선택·건설 · 드래그 이동 · 휠 확대 · Space 일시정지</p>
+      <p class="title-note"><span class="for-mouse">좌클릭 선택·건설 · 드래그 이동 · 휠 확대 · Space 일시정지</span><span class="for-touch">누르기 선택·건설 · 끌기 이동 · 두 손가락 확대 · ❚❚ 일시정지</span></p>
     </div>
   </div>
 </div>

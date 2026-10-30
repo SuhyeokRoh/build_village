@@ -16,10 +16,14 @@ const JOB_NAME = {
   farm: '농부', fishery: '어부', lumber: '나무꾼', quarry: '석공', smithy: '대장장이', market: '장사꾼', inn: '점소이',
   escort: '표사', clinic: '의원', dojo: '무사', tower: '궁수',
 };
+// 「읍(邑)」「정파(正派)」처럼 괄호 안의 한자에 풀이를 단다
+const tipParen = s => s.replace(/\(([^)]+)\)/, (m, h) => `(<span data-tip-title="${h}">${h}</span>)`);
+// 손가락으로 다루는 화면인가 (story.js 의 coarse() 와 같은 기준)
+const coarsePointer = () => !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
 
 const UI = {
   sel: null, tool: null, hover: null, dragTiles: null, cat: 'home',
-  modalOpen: false, modalEntry: null, buildMenuDirty: true, lastPanel: '', lastTop: '', sheet: null,
+  modalOpen: false, modalEntry: null, modalAt: 0, buildMenuDirty: true, lastPanel: '', lastTop: '', sheet: null,
   camTarget: null,
 
   init() {
@@ -66,6 +70,8 @@ const UI = {
     if (html !== this.lastTop) { $('res').innerHTML = html; this.lastTop = html; }
     $('village-name').textContent = S.name;
     $('village-rank').textContent = RANKS[S.rank].name + (S.vassal ? ` · ${FACTIONS[S.vassal].name} 산하` : '') + (S.occupation ? ' · 점령됨' : '');
+    // 등급 이름의 한자(縣城 등)에 풀이를 단다. 이름에 한자가 없으면(마을) 인장 글자로
+    $('village-rank').dataset.tipTitle = (RANKS[S.rank].name.match(/\(([^)]+)\)/) || [])[1] || RANKS[S.rank].short;
     $('rank-seal').textContent = RANKS[S.rank].short;
     const rg = HANJA_GLOSS[RANKS[S.rank].short];
     $('rank-seal').dataset.tipTitle = `${RANKS[S.rank].short} · ${rg[0]}`;
@@ -78,7 +84,12 @@ const UI = {
     for (const s of [0, 1, 2, 4]) $('spd-' + s).classList.toggle('on', S.speed === s);
     $('btn-factions').classList.toggle('alert', !!S.occupation);
   },
-  setSpeed(s) { if (!S) return; S.speed = s; this.updateTop(); },
+  setSpeed(s) {
+    if (!S) return;
+    // ❚❚ 단추로 멈춰도 Space가 멈추기 전 속도로 되돌리게 (main.js 가 Input.prevSpeed 를 쓴다)
+    if (!s && S.speed > 0 && typeof Input !== 'undefined') Input.prevSpeed = S.speed;
+    S.speed = s; this.updateTop();
+  },
 
   // ── 습격·점령 띠 ──
   updateBanner() {
@@ -109,7 +120,7 @@ const UI = {
     if (a === 'goto-enemy') {
       const en = S.enemies.find(x => !x.dead && (!x.garrison || (S.raid && S.raid.goal === 'uprising')));
       if (en) this.focusOn(en.x, en.y);
-      else if (S.raid) this.focusOn(S.raid.exit.x, S.raid.exit.y);
+      else if (S.raid && S.raid.exit) this.focusOn(S.raid.exit.x, S.raid.exit.y);
     } else if (a === 'open-factions') this.openSheet('factions');
   },
 
@@ -197,10 +208,11 @@ const UI = {
     $('tooltip').hidden = true;
     this.buildMenuDirty = true;
     const hint = $('tool-hint');
-    if (!this.tool) { hint.hidden = true; return; }
+    if (!this.tool) { hint.hidden = true; Bus.emit('tool', null); return; }
     const name = (BDEF[k] || TOOLS[k]).name;
     const how = this.tool.kind === 'road' || this.tool.kind === 'line' ? '끌어서 잇기' : this.tool.kind === 'build' ? '눌러서 놓기' : '눌러서 실행';
-    hint.textContent = `${name} · ${how} · 우클릭이나 Esc로 취소`;
+    // 터치 화면에는 우클릭도 Esc도 없다: 고른 단추를 다시 눌러 거둔다
+    hint.textContent = `${name} · ${how} · ${coarsePointer() ? '같은 단추를 다시 누르면 취소' : '우클릭이나 Esc로 취소'}`;
     hint.hidden = false;
     Bus.emit('tool', k);
   },
@@ -355,13 +367,14 @@ const UI = {
     if (body.dataset.h !== html) { body.innerHTML = html; body.dataset.h = html; }
   },
   factionsHTML() {
+    const crest = F => `<div class="fac-crest" style="background:${F.color}" data-tip-title="${F.hanja} · ${HANJA_GLOSS[F.hanja] ? HANJA_GLOSS[F.hanja][0] : ''}" data-tip="${F.name}의 문장">${F.hanja}</div>`;
     let occ = '';
     if (S.occupation) {
       const k = S.occupation.faction, F = FACTIONS[k];
       const c = ransomCost();
       const helpers = FACTION_ORDER.filter(m => m !== k && FACTIONS[m].military && rel(m) >= 30);
       occ = `<div class="fac" style="border-color:#a678c0;margin-bottom:14px">
-        <div class="fac-top"><div class="fac-crest" style="background:${F.color}">${F.hanja}</div><div><div class="fac-name">${F.name}에게 점령당함</div><div class="fac-type">${dayOf() - S.occupation.since}일째 · 점령군 ${S.enemies.filter(e => e.garrison && !e.dead).length}명</div></div></div>
+        <div class="fac-top">${crest(F)}<div><div class="fac-name">${F.name}에게 점령당함</div><div class="fac-type">${dayOf() - S.occupation.since}일째 · 점령군 ${S.enemies.filter(e => e.garrison && !e.dead).length}명</div></div></div>
         <p class="fac-desc">무사 ${fighters().length}명이 마을에 남아 있다. 점령군보다 강해졌을 때 봉기하라.</p>
         <div class="fac-actions">
           <button type="button" class="btn" data-act="ransom" ${S.res.silver >= c ? '' : 'disabled'}>몸값을 치른다 (은자 ${c})</button>
@@ -390,7 +403,7 @@ const UI = {
       if (S.vassal === k) acts.push(`<button type="button" class="btn danger" data-act="break" data-f="${k}">${UI.confirmBreak ? '정말 끊는다' : '주종 관계를 끊는다'}</button>`);
       const perk = F.perk ? `<p class="fac-desc" style="color:var(--muted)">산하가 되면: ${F.perk}${S.vassal === k ? ` · 매일 공물 은자 ${Math.round(4 + popCount() * 0.25)}냥` : ''}</p>` : '';
       return `<div class="fac">
-        <div class="fac-top"><div class="fac-crest" style="background:${F.color}" data-tip-title="${F.hanja} · ${HANJA_GLOSS[F.hanja] ? HANJA_GLOSS[F.hanja][0] : ''}" data-tip="${F.name}의 문장">${F.hanja}</div><div style="min-width:0"><div class="fac-name">${F.name}</div><div class="fac-type">${F.type}</div></div><div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chips.join('')}</div></div>
+        <div class="fac-top">${crest(F)}<div style="min-width:0"><div class="fac-name">${F.name}</div><div class="fac-type">${tipParen(F.type)}</div></div><div style="margin-left:auto;display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">${chips.join('')}</div></div>
         <p class="fac-desc">${F.desc}</p>
         <div class="rel"><div class="rel-track"><span style="left:${(r + 100) / 2}%"></span></div><span>${r > 0 ? '+' : ''}${r}</span></div>
         ${perk}
@@ -406,7 +419,7 @@ const UI = {
     const factors = happinessFactors();
     const flow = S.lastFlow || {};
     const stat = (label, val) => `<div class="stat"><small>${label}</small><b>${val}</b></div>`;
-    return `<h2>${escapeHtml(S.name)} 현황</h2><p class="lead">${RANKS[S.rank].name} · ${dateText()} · 현성(인구 120)과 명성 400을 이루면 강호에 이름을 떨친다.</p>
+    return `<h2>${escapeHtml(S.name)} 현황</h2><p class="lead">${tipParen(RANKS[S.rank].name)} · ${dateText()} · 현성(인구 120)과 명성 400을 이루면 강호에 이름을 떨친다.</p>
       <div class="stat-grid">
         ${stat('인구', `${pop} / ${housingTotal()}`)}${stat('민심', Math.round(S.happy))}${stat('무력', defensePower())}${stat('명성', fmt(S.fame))}
         ${stat('습격 격퇴', S.stats.raidsWon)}${stat('약탈·함락', S.stats.raidsLost)}${stat('잃은 사람', S.stats.died)}${stat('최대 인구', S.stats.maxPop)}
@@ -429,7 +442,7 @@ const UI = {
       <h3>목표</h3>
       <ul>
         <li>흑풍채에 짓밟힌 마을을 다시 일으켜 <b>현성(인구 120)</b>으로 키우고 <b>명성 400</b>을 떨치면 <b>천하제일촌</b>이 된다.</li>
-        <li>왼쪽 위 <b>할 일 두루마리</b>에 지금 장(章)의 목표가 있다. 막히면 [힌트]나 [총관 부르기]를 누르자.</li>
+        <li>왼쪽 위 <b>할 일 두루마리</b>에 지금 장(<span data-tip-title="章">章</span>)의 목표가 있다. 막히면 [힌트]나 [총관 부르기]를 누르자.</li>
         <li><b>총관</b> 윤서하가 곁에서 할 일과 까닭을 일러 준다. 화살표와 금빛 테두리가 누를 곳을 가리킨다.</li>
       </ul>
       <h3>다스리기</h3>
@@ -444,7 +457,7 @@ const UI = {
         <li><b>집</b>이 비어 있고 <b>식량</b>이 넉넉하고 <b>민심</b>이 42 이상이면 사람들이 찾아온다.</li>
         <li>일자리가 있는 건물을 지으면 놀고 있는 사람이 알아서 일하러 간다. 건물을 눌러 일꾼 수를 조절할 수 있다.</li>
         <li>논밭은 계절을 탄다. 가을에 가장 많이 나고 겨울에는 거의 나지 않으니 미리 쌓아두자. 어장은 계절을 덜 탄다.</li>
-        <li>인구가 15, 35, 70, 120을 넘으면 마을 등급이 오르고 새 건물이 열린다.</li>
+        <li>인구가 15·35·70·120명이 되면 마을 등급이 오르고 새 건물이 열린다.</li>
       </ul>
       <h3>마을 지키기</h3>
       <ul>
@@ -468,6 +481,7 @@ const UI = {
         <kbd>Space</kbd><span>일시정지</span>
         <kbd>1 2 3</kbd><span>속도</span>
         <kbd>Esc · 우클릭</kbd><span>건설 취소 · 선택 해제</span>
+        <kbd>건설 단추 다시 누르기</kbd><span>건설 취소 (휴대폰은 이렇게)</span>
       </div>`;
   },
   onSheetClick(e) {
@@ -492,10 +506,13 @@ const UI = {
   pumpEvents() {
     if (this.modalOpen || !S || !S.eventQueue.length || !$('title-screen').hidden) return;
     const entry = S.eventQueue[0];
-    const ev = Events.build(entry);
+    // 사건을 만들다 예외가 나면 그 사건만 버린다 (남겨 두면 매 프레임 같은 예외로 화면이 멈춘다)
+    let ev = null;
+    try { ev = Events.build(entry); } catch (err) { console.error(err); }
     if (!ev) { S.eventQueue.shift(); return; }
     this.modalOpen = true;
     this.modalEntry = entry;
+    this.modalAt = performance.now();
     $('modal-title').textContent = ev.title;
     $('modal-stamp').textContent = ev.stamp || '事';
     const sg = glossOf(ev.stamp || '事');
@@ -511,7 +528,11 @@ const UI = {
       btn.innerHTML = `<span>${escapeHtml(c.label)}</span>${c.sub ? `<small>${escapeHtml(c.sub)}</small>` : ''}`;
       const ok = c.ok ? c.ok() : true;
       btn.disabled = !ok;
-      btn.addEventListener('click', () => this.resolve(c));
+      btn.addEventListener('click', e => {
+        // 두루마리가 펼쳐지는 동안(0.35초) 지도를 노린 누르기나 Enter가 선택지를 고르지 않게 받지 않는다
+        if (e.isTrusted && performance.now() - this.modalAt < 400) return;
+        this.resolve(c);
+      });
       box.appendChild(btn);
     });
     $('modal').hidden = false;
