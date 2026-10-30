@@ -933,7 +933,9 @@ function render(nowMs) {
   for (const b of S.buildings) {
     const s = renSpriteOf(b, season);
     const nx = (b.x - b.y) * 32 + s.ox, ny = (b.x + b.y) * 16 + s.oy;
-    if (nx > V.x1 || nx + s.w < V.x0 || ny > V.y1 || ny + s.h < V.y0) continue;
+    // 영주관 깃폭은 그림 상자 오른쪽 밖으로 나간다
+    const xr = b.type === 'manor' ? Math.max(nx + s.w, renFlagPos(b).px + 28) : nx + s.w;
+    if (nx > V.x1 || xr < V.x0 || ny > V.y1 || ny + s.h < V.y0) continue;
     if (BDEF[b.type].ground && b.done && !b.ruined) { grounds.push(b); continue; }
     renPush(renKeyOf(b), 1, b, null, s, 0, 0);
     // 앞쪽 바위

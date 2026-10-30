@@ -421,7 +421,8 @@ button[data-tip], button[data-tip-title] { cursor: pointer; }
   .tb-title strong { font-size: 18px; }
   #menubar { flex-direction: row; flex-wrap: wrap; right: max(10px, var(--safe-r)); }
   #menubar button { padding: 5px 9px; font-size: 13px; }
-  #banner { top: calc(var(--top-h) + var(--safe-t) + 50px); max-width: calc(100% - 20px); font-size: 13px; }
+  /* left:50%만으로는 화면 절반 너비에 갇혀 글이 접히므로 가운데 맞춤을 margin으로 */
+  #banner { top: calc(var(--top-h) + var(--safe-t) + 50px); left: 0; right: 0; margin: 0 auto; transform: none; width: max-content; max-width: calc(100% - 20px); font-size: 13px; padding: 6px 12px; gap: 8px; }
   #toasts { top: calc(var(--top-h) + var(--safe-t) + 96px); }
   #panel {
     top: auto; left: max(10px, var(--safe-l)); right: max(10px, var(--safe-r)); width: auto;
@@ -435,6 +436,9 @@ button[data-tip], button[data-tip-title] { cursor: pointer; }
 /* 폰: 자원 칩 아홉이 한 줄에 다 들어가지 않으니 자원(銀食木石兵)과 마을(人心武名) 두 줄로 */
 @media (max-width: 640px) {
   :root { --top-h: 108px; }
+  /* 메뉴 단추가 두 줄로 접히니 습격 띠와 알림은 그 아래로 */
+  #banner { top: calc(var(--top-h) + var(--safe-t) + 84px); }
+  #toasts { top: calc(var(--top-h) + var(--safe-t) + 134px); }
   .res { display: grid; grid-template-columns: repeat(5, max-content); gap: 4px 5px; }
   .chip { padding: 1px 7px 1px 3px; gap: 4px; }
 }

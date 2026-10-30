@@ -74,6 +74,7 @@
 ## 3. 상태와 저장
 
 - 전역 `S`가 저장되는 게임 상태 전부다. `serialize()`가 `JSON.stringify(S)`로 저장하며 **이름이 `_`로 시작하는 키**와 `path, chat, wt, bmap, hitT, flash, exit`는 버린다.
+  - 그래서 습격 길목은 객체 대신 번호로 남긴다: `S.raid.exitIdx`와 `S.scheduled`의 습격 항목 `exitIdx`는 `World.exits`의 번호이고, `deserialize()`가 이것으로 `exit`을 되살린다. 사람(유닛)의 `exit`은 그냥 버리고 다시 찾는다.
 - 모듈 상태는 `S.story`, `S.admin`, `S.petitions`에 **순수 JSON**(숫자·문자열·배열·객체)으로만 둔다. 함수·DOM·Map 금지. 다른 객체는 id로 가리킨다(`S.bmap.get(id)`, `S.villagers.find(v => v.id === id)`).
 - 저장되지 않는 일시 상태는 모듈 객체 안이나 `G`(렌더러용), 또는 `_` 접두 키에 둔다.
 - 불러온 뒤 `onLoad()`가 불린다. 옛 저장(모듈 상태 없음)도 받아들여야 한다.
@@ -141,7 +142,7 @@
 - 디자인 언어: 옻칠한 어두운 나무 패널(`--lacquer*`), 금박(`--gold`), 먹과 한지(`--paper`, `--ink`), 주홍 인장(`--cinnabar`). 글꼴 `--font-display`(Song Myung, 제목), `--font-body`(Gowun Batang, 본문), `--font-ui`(IBM Plex Sans KR, 숫자·라벨). 이모지 쓰지 말 것.
 - **한자에는 반드시 풀이를 단다**: `data-tip-title="賊 · 도둑 적"` `data-tip="설명"`. 한 글자는 `HANJA_GLOSS`에 있으면 `data-tip-title` 만 줘도 `glossOf`로 풀이된다. 새 한자를 쓰면 `HANJA_GLOSS`에 더한다.
 - 사용자 입력(마을 이름)이 HTML에 들어갈 때는 `escapeHtml`. 한국어 조사는 `${이름}${pp(이름, '이/가')}`.
-- 폰 너비(390px)에서도 써져야 한다(`@media (max-width: 860px)` 에서 `#topbar`가 2줄, 건설 띠 140px).
+- 폰 너비(390px)에서도 써져야 한다(`@media (max-width: 860px)` 에서 `#topbar`가 2줄(`--top-h` 92px), `max-width: 640px` 에서는 이름·시각 / 銀食木石兵 / 人心武名 3줄(`--top-h` 108px), 건설 띠 140px). 위 띠 아래에 붙는 것은 숫자 대신 `var(--top-h)`로 놓는다.
 - `alert/confirm/prompt` 금지(아티팩트에서 동작 안 함). 확인은 화면 안에서.
 
 ## 7. 모듈이 쓸 수 있는 핵심 함수 (일부)
@@ -150,7 +151,7 @@
 - 자원: `S.res.{silver,food,wood,stone,weapons}`, `canAfford(cost)`, `pay(cost)`, `addRes(k, n)`, `costText(cost)`, `storageCap()`
 - 사람: `popCount()`, `housingTotal()`, `livingVillagers()`, `newVillager(opts)`, `makeHero()`, `spawnHero(h, at)`, `fighters()`, `civilians()`
 - 건물: `BDEF`, `canPlace(type, x, y)` → `{ok, why, poor}`, `tryBuild(type, x, y)` → `{ok, b}`(비용 냄), `placeBuilding(type, x, y, done)`(비용 없음), `repair(b)`, `repairCost(b)`, `demolish(b)`, `getB(id)`, `usable(b)`, `countType(type)`, `setRoad(x, y, free)`, `canPlaceRoad(x, y)`, `doorOf(b)`, `countTilesNear(rect, T.FOREST, r)`, `World.tile/isRoad/bAt/occ`, `walkable(x, y)`, `findPath(...)`
-- 민심: `S.happy`, `happinessFactors()`, `happinessTarget()`, `addMod(id, days)`, `hasMod(id)`, `S.tax`
+- 민심: `S.happy`, `happinessFactors()`, `happinessTarget()`, `addMod(id, days)`(이미 더 길게 걸린 효과는 줄이지 않는다), `hasMod(id)`, `S.tax`
 - 강호: `rel(k)`, `changeRel(k, d)`, `addFame(n)`, `S.factions[k].threat`, `becomeVassal(k)`, `defensePower()`, `Events.raidWarning(k, mul, { goal, size, delay, exitIdx })`, `scheduleRaid`, `raidSize(k)`, `S.raid`, `S.occupation`
 - 기타: `markDirty()`(일자리 다시 배치), `refreshAssign()`, `logMsg`, `UI.toast`, `UI.focusOn(tx, ty)`, `UI.select({b})`, `UI.setTool(key)`, `UI.openSheet(kind)`
 

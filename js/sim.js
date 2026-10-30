@@ -17,9 +17,11 @@ function housingTotal() { let n = 0; for (const b of S.buildings) if (usable(b))
 function storageCap() { let n = 300; for (const b of S.buildings) if (usable(b)) n += BDEF[b.type].storage || 0; return n; }
 function countType(t, onlyUsable = true) { return S.buildings.filter(b => b.type === t && (!onlyUsable || usable(b))).length; }
 function hasMod(id) { return S.mods.some(m => m.id === id); }
+// 이미 더 길게 걸려 있는 효과는 줄이지 않는다
 function addMod(id, days, data = {}) {
-  S.mods = S.mods.filter(m => m.id !== id);
-  S.mods.push(Object.assign({ id, until: dayOf() + days }, data));
+  const old = S.mods.find(m => m.id === id);
+  S.mods = S.mods.filter(m => m !== old);
+  S.mods.push(Object.assign({ id, until: Math.max(dayOf() + days, old ? old.until : 0) }, data));
 }
 function rel(k) { return S.factions[k].rel; }
 function changeRel(k, d) { S.factions[k].rel = clamp(S.factions[k].rel + d, -100, 100); }

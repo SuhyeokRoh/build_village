@@ -1247,7 +1247,11 @@ const Petitions = {
     if (!st) return;
     st.recent = st.recent.filter(r => S.time - r.t < PET_DECAY_H);
     // 금룡상회 좌판 세금
-    if (hasMod('pet_stall')) addRes('silver', Math.round(2 + popCount() * 0.1));
+    if (hasMod('pet_stall')) {
+      const n = Math.round(2 + popCount() * 0.1);
+      addRes('silver', n);
+      if (S.dayAcc) S.dayAcc.trade = (S.dayAcc.trade || 0) + n;   // 육방 장부에는 장사로 잡힌다
+    }
   },
   happinessFactors() {
     const st = S && S.petitions;

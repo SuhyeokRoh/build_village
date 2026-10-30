@@ -1303,6 +1303,7 @@ const Story = (() => {
     raidAverted() {
       const st = ST();
       st.raid = 'tribute'; st.raidDone = true;
+      st.raidPaid = 1;   // 짜인 습격을 은자로 매듭지었으니 제2장 포상은 없다
       this.say([
         { m: 'calm', t: '은자로 피를 막으셨군요. 나쁜 선택은 아닙니다. 사람이 상하지 않았으니까요.' },
         { m: 'stern', t: '다만 한번 맛을 들인 놈들은 다시 옵니다. 그때까지 무관의 무사들을 단단히 길러 두십시오.' },
@@ -1628,7 +1629,7 @@ const Story = (() => {
           else bottom = H - lr.top + 8;
         }
         const panel = byId('panel');
-        if (ph && !panel.hidden) { bottom = Math.max(bottom, H - panel.getBoundingClientRect().top + 8); mini = !this.cur.pause; }
+        if (ph && !panel.hidden) { bottom = Math.max(bottom, H - panel.getBoundingClientRect().top + 8); mini = !(this.cur && this.cur.pause); }
         card.classList.toggle('mini', mini);
         const wide = ph && W > 620;   // 태블릿: 화면 끝까지 늘이지 않는다
         card.style.left = cl + 'px';
