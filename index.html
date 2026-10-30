@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>강호촌 영주기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Song+Myung&family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <header id="topbar">
+    <div class="tb-name">
+      <span class="seal" id="rank-seal">村</span>
+      <div class="tb-title">
+        <strong id="village-name">청석촌</strong>
+        <small id="village-rank">촌(村)</small>
+      </div>
+    </div>
+    <div id="res" class="res"></div>
+    <div class="clock">
+      <div class="clock-text">
+        <strong id="clock-date">1년 봄 1일</strong>
+        <small id="clock-time">진시(辰時)</small>
+      </div>
+      <div class="speed" role="group" aria-label="게임 속도">
+        <button type="button" id="spd-0" data-speed="0" title="일시정지 (Space)">❚❚</button>
+        <button type="button" id="spd-1" data-speed="1" title="보통 (1)">▶</button>
+        <button type="button" id="spd-2" data-speed="2" title="빠르게 (2)">▶▶</button>
+        <button type="button" id="spd-4" data-speed="4" title="매우 빠르게 (3)">▶▶▶</button>
+      </div>
+    </div>
+  </header>
+
+  <nav id="menubar">
+    <button type="button" id="btn-factions">세력</button>
+    <button type="button" id="btn-village">마을 현황</button>
+    <button type="button" id="btn-log">기록</button>
+    <button type="button" id="btn-save">저장</button>
+    <button type="button" id="btn-help">도움말</button>
+  </nav>
+
+  <div id="banner" hidden></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <aside id="log" hidden>
+    <div class="log-head">마을 기록 <button type="button" id="log-close" aria-label="닫기">✕</button></div>
+    <ol id="log-list"></ol>
+  </aside>
+
+  <aside id="panel" hidden></aside>
+
+  <div id="minimap-wrap"><canvas id="minimap" width="128" height="96"></canvas></div>
+
+  <footer id="buildbar">
+    <div id="build-tabs" class="build-tabs" role="tablist"></div>
+    <div id="build-items" class="build-items"></div>
+  </footer>
+
+  <div id="tool-hint" hidden></div>
+  <div id="tooltip" hidden></div>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-inner">
+      <button type="button" class="sheet-close" id="sheet-close" aria-label="닫기">✕</button>
+      <div id="sheet-body"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal" hidden>
+    <div class="scroll">
+      <div class="scroll-rod"></div>
+      <div class="scroll-paper">
+        <div class="scroll-head">
+          <span class="stamp" id="modal-stamp">事</span>
+          <h2 id="modal-title">사건</h2>
+        </div>
+        <div id="modal-text" class="scroll-text"></div>
+        <div id="modal-choices" class="choices"></div>
+      </div>
+      <div class="scroll-rod"></div>
+    </div>
+  </div>
+
+  <div id="title-screen" class="title-screen">
+    <canvas id="title-bg"></canvas>
+    <div class="title-card">
+      <div class="title-hanja">江湖村領主記</div>
+      <h1>강호촌 영주기</h1>
+      <p class="title-lead">정파와 사파가 피를 흘리고, 녹림의 산적이 들끓는 난세.<br>지도에도 없는 작은 마을의 영주가 되어, 이 마을을 강호에 이름 높은 성(城)으로 키워내라.</p>
+      <label class="title-field" for="input-name">마을 이름
+        <input id="input-name" type="text" maxlength="8" autocomplete="off">
+      </label>
+      <div class="title-actions">
+        <button type="button" id="btn-new" class="btn-primary">새로 시작</button>
+        <button type="button" id="btn-continue" class="btn-ghost" hidden>이어하기</button>
+      </div>
+      <p class="title-note">좌클릭 선택·건설 · 드래그 이동 · 휠 확대 · Space 일시정지</p>
+    </div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/world.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/render.js"></script>
+<script src="js/units.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/events.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
