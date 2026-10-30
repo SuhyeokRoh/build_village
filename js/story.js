@@ -57,6 +57,8 @@ const Story = (() => {
   const coarse = () => !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
   const phone = () => window.innerWidth <= 860;
   const RES_NAME = k => (k === 'fame' ? '명성' : RESOURCES[k].name);
+  // 숫자로 끝나는 말 뒤의 조사: 끝자리 0·1·3·6·7·8(영·일·삼·육·칠·팔, 십·백·천)은 받침이 있다
+  const ppn = (w, pair) => (/\d$/.test(String(w)) ? pair.split('/')[/[013678]$/.test(String(w)) ? 0 : 1] : pp(w, pair));
   // 「읍(邑)」의 한자에 풀이를 단다
   const rankName = i => RANKS[i].name.replace(/\(([^)]+)\)/, (m, h) => `(${hj(h)})`);
 
@@ -92,6 +94,24 @@ const Story = (() => {
     return n;
   }
   function pendingPetitions() { const n = hook(Petitions, 'pending'); return typeof n === 'number' ? n : 0; }
+  // 무관보다 먼저 사람을 데려갈 빈 일자리 (refreshAssign의 순서를 따른다)
+  function slotAhead() {
+    const foodLow = S.res.food < popCount() * 4;
+    const pri = t => (JOB_PRIORITY[t] || 0) + (foodLow && (t === 'farm' || t === 'fishery') ? 5 : 0);
+    return S.buildings.find(b => usable(b) && b.active && BDEF[b.type].workers && pri(b.type) > pri('dojo')
+      && (b._workers || []).length < Math.min(BDEF[b.type].workers, b.want));
+  }
+  // 영주관에서 가장 가까운 숲 칸 (벌채할 곳)
+  function forestNear() {
+    const c = manorCenter();
+    let best = null, bd = Infinity;
+    for (let y = 1; y < MH - 1; y++) for (let x = 1; x < MW - 1; x++) {
+      if (World.tile(x, y) !== T.FOREST || World.occ[y * MW + x]) continue;
+      const d = dist(x + 0.5, y + 0.5, c.x, c.y);
+      if (d < bd) { bd = d; best = { x: x + 0.5, y: y + 0.5 }; }
+    }
+    return best;
+  }
 
   // 자원을 준다 → 「은자 +100 · 석재 +30」
   function grant(res, why) {
@@ -171,15 +191,50 @@ const Story = (() => {
 
   // ── 짚어 주기 (단추 둘레의 금빛 고리 + 지도 위 화살표) ──
   function panelShows(b) { return UI.sel && UI.sel.b === b && !byId('panel').hidden; }
+  // 건설 도구를 든 채로는 건물을 눌러도 고를 수 없다 → 든 도구를 한 번 더 눌러 거두게 한다
+  // (도구를 여기서 거두지는 않는다. 안내는 0.22초마다 다시 불리니 영주가 일부러 든 도구까지 빼앗게 된다)
+  function toolDown(what, markers, focus) {
+    const k = UI.tool.key, def = BDEF[k] || TOOLS[k];
+    const cat = BDEF[k] ? def.cat : 'tools';
+    const catName = (BUILD_CATS.find(c => c.id === cat) || {}).name || '';
+    const g = UI.cat !== cat ? { sel: `#build-tabs button[data-cat="${cat}"]`, tag: catName } : { sel: `.bitem[data-key="${k}"]`, tag: '한 번 더 누르기' };
+    const how = coarse() ? '한 번 더 눌러' : '한 번 더 누르거나 Esc를 눌러';
+    return Object.assign(g, { markers, focus, sub: `먼저 ${UI.cat !== cat ? `[${catName}]에서 ` : ''}[${def.name}]${pp(def.name, '을/를')} ${how} 도구를 거두고, ${what}${pp(what, '을/를')} 누르십시오.` });
+  }
+  // 재료가 모자라는데 그 재료를 낼 곳도 없으면, 기다리라 하지 않고 얻을 길을 짚는다
+  function lackGuide(cost, markers, focus) {
+    const short = k => (S.res[k] || 0) < (cost[k] || 0);
+    if (short('wood') && !nonRuined('lumber').length) {
+      if (UI.tool && UI.tool.key === 'clear') {
+        const f = forestNear();
+        // 눈길은 4칸 단위로 맞춘다 (한 칸씩 벨 때마다 화면이 따라 움직이지 않게)
+        const fc = f && { x: Math.round(f.x / 4) * 4, y: Math.round(f.y / 4) * 4 };
+        return { markers: f ? [{ ...f, text: '숲' }] : markers, focus: fc || focus, sub: '나무가 선 숲 칸을 누르면 은자 2냥에 목재 4를 얻습니다. 모자란 만큼 베고 [벌채]를 한 번 더 눌러 거두십시오.' };
+      }
+      const sub = '목재가 모자라는데 벌목장이 없습니다. [길·정리]의 [벌채]로 숲을 베면 한 칸에 은자 2냥으로 목재 4를 얻습니다.';
+      if (UI.cat !== 'tools') return { sel: '#build-tabs button[data-cat="tools"]', tag: '길·정리', markers, focus, sub };
+      return { sel: '.bitem[data-key="clear"]', tag: '벌채', markers, focus, sub };
+    }
+    // 석재는 안내 중에 낼 곳이 없다 → 단계마다 한 번은 소인이 더 마련한다
+    if (short('stone') && !nonRuined('quarry').length && M.tutorialActive()) {
+      const st = ST(), key = `lack${st.chapter}.${st.step}`;
+      if (st.granted[key] === undefined) { topUp(cost, key, '총관이 현청을 졸라 마련했다'); return null; }
+      return { markers, focus, sub: '석재가 모자랍니다. 바위산 가까이에 [생산]의 [채석장]을 지으면 석재가 납니다.' };
+    }
+    return null;
+  }
   function guideRepair(b, text) {
     const name = BDEF[b.type].name;
     const c = bCenter(b);
+    const markers = [{ x: c.x, y: c.y, text: text || `${name} 터` }];
+    const rc = repairCost(b);
+    if (!canAfford(rc)) { const g = lackGuide(rc, markers, c); if (g) return g; }
     if (panelShows(b)) {
-      const rc = repairCost(b);
-      if (!canAfford(rc)) return { markers: [{ x: c.x, y: c.y, text }], sub: `다시 짓는 데 ${costText(rc)}${pp(costText(rc), '이/가')} 듭니다. 재료가 모이기를 기다리십시오.`, focus: c };
-      return { sel: '#panel [data-act="repair"]', tag: '다시 짓기', sub: '창의 [다시 짓기]를 누르십시오.', markers: [{ x: c.x, y: c.y, text }], focus: c };
+      if (!canAfford(rc)) return { markers, sub: `다시 짓는 데 ${costText(rc)}${ppn(costText(rc), '이/가')} 듭니다. 재료가 모이기를 기다리십시오.`, focus: c };
+      return { sel: '#panel [data-act="repair"]', tag: '다시 짓기', sub: '창의 [다시 짓기]를 누르십시오.', markers, focus: c };
     }
-    return { markers: [{ x: c.x, y: c.y, text: text || `${name} 터` }], sub: `화살표가 가리키는 ${text || name}${pp(text || name, '을/를')} 눌러 고르십시오.`, focus: c };
+    if (UI.tool) return toolDown(`화살표가 가리키는 ${text || name}`, markers, c);
+    return { markers, sub: `화살표가 가리키는 ${text || name}${pp(text || name, '을/를')} 눌러 고르십시오.`, focus: c };
   }
   // 같은 종류의 폐허라면 영주가 고른 것을 따른다
   function guideRuin(type, text) {
@@ -196,8 +251,13 @@ const Story = (() => {
     const mk = site ? [{ x: site.cx, y: site.cy, text: `${def.name} 자리` }] : [];
     const focus = site ? { x: site.cx, y: site.cy } : null;
     if (def.rank && S.rank < def.rank) return { sub: `${def.name}${pp(def.name, '은/는')} 마을이 ${rankName(def.rank)} 이상이 되어야 지을 수 있습니다.` };
+    if (!canAfford(def.cost)) { const g = lackGuide(def.cost, mk, focus); if (g) return g; }
     if (UI.tool && UI.tool.key === type) {
-      return { markers: mk, focus, sub: site ? `화살표 끝의 땅을 누르면 ${def.name}${pp(def.name, '이/가')} 들어섭니다. 초록빛이면 지을 수 있는 자리입니다.` : '지을 만한 빈터를 골라 누르십시오.' };
+      // 손가락으로는 미리 보기 없이 누르는 즉시 짓는다
+      const how = coarse()
+        ? `화살표 끝의 땅을 누르면 곧바로 ${def.name}${pp(def.name, '이/가')} 들어섭니다. 지을 수 없는 자리면 재료는 쓰이지 않습니다.`
+        : `화살표 끝의 땅을 누르면 ${def.name}${pp(def.name, '이/가')} 들어섭니다. 초록빛이면 지을 수 있는 자리입니다.`;
+      return { markers: mk, focus, sub: site ? how : '지을 만한 빈터를 골라 누르십시오.' };
     }
     if (UI.cat !== cat) return { sel: `#build-tabs button[data-cat="${cat}"]`, tag: catName, markers: mk, focus, sub: `아래 건설 띠에서 [${catName}]${pp(catName, '을/를')} 누르십시오.` };
     return { sel: `.bitem[data-key="${type}"]`, tag: def.name, markers: mk, focus, sub: `[${def.name}]${pp(def.name, '을/를')} 고르고, 표시한 자리를 누르십시오.` };
@@ -233,9 +293,10 @@ const Story = (() => {
   }
   function goalLines() {
     const pop = popCount();
+    const lack = [pop < 120 ? `사람 ${120 - pop}명` : '', S.fame < 400 ? `명성 ${fmt(Math.ceil(400 - S.fame))}` : ''].filter(Boolean).join('과 ');
     return [
       { m: 'smile', t: `이 마을의 목표는 ${hjp('천하제일촌', '天下第一村')}입니다. 인구 120명의 ${hjp('현성', '縣城')}을 이루고, 강호에 명성 400을 떨치는 것.` },
-      { m: 'calm', t: `지금 인구 ${pop}명, 명성 ${fmt(S.fame)}. ${pop >= 120 && S.fame >= 400 ? '이미 이루셨습니다.' : `아직 ${pop < 120 ? `사람 ${120 - pop}명` : ''}${pop < 120 && S.fame < 400 ? '과 ' : ''}${S.fame < 400 ? `명성 ${fmt(400 - S.fame)}` : ''}이 모자랍니다.`} 할 일 두루마리 맨 아래에 늘 적어 두었습니다.` },
+      { m: 'calm', t: `지금 인구 ${pop}명, 명성 ${fmt(S.fame)}. ${lack ? `아직 ${lack}${ppn(lack, '이/가')} 모자랍니다.` : '이미 이루셨습니다.'} 할 일 두루마리 맨 아래에 늘 적어 두었습니다.` },
     ];
   }
 
@@ -309,7 +370,7 @@ const Story = (() => {
           id: 'time', title: '공사가 끝나기를 기다리기', why: '이제 일꾼들의 몫입니다. 시간을 빨리 감아도 됩니다.',
           lines: () => [
             { m: 'calm', t: '이제 일꾼들의 몫입니다. 공사는 일 없는 사람들이 거들수록 빨라지지요.' },
-            { m: 'smile', t: '시간이 더디게 가면 오른쪽 위의 ▶▶ 단추로 빨리 감으십시오. Space를 누르면 멈춥니다. 해가 지면 다들 집에 들어가 쉬니, 밤에는 들일이 멈춥니다.' },
+            { m: 'smile', t: `시간이 더디게 가면 오른쪽 위의 ▶▶ 단추로 빨리 감으십시오. ${coarse() ? '❚❚ 단추를 누르면 멈춥니다.' : 'Space를 누르면 멈춥니다.'} 해가 지면 다들 집에 들어가 쉬니, 밤에는 들일이 멈춥니다.` },
           ],
           goals: () => [
             check('논밭 완공', usableOf('farm').length > 0),
@@ -345,7 +406,8 @@ const Story = (() => {
             { m: 'calm', t: `${hjp('이방', '吏房')}·${hjp('호방', '戶房')}·${hjp('예방', '禮房')}·${hjp('병방', '兵房')}·${hjp('형방', '刑房')}·${hjp('공방', '工房')}. 부서마다 예산을 나눠 주시면, 그 돈으로 필요한 것을 스스로 짓고 처리합니다. 공방은 집과 길을, 병방은 방비를 챙기는 식이지요.` },
             { m: 'smile', t: '[육방]을 열어 한 부서에라도 예산을 넣어 보십시오. 손을 놓고 계셔도 마을이 돌아가게 만드는 것, 그것이 좋은 영주입니다.' },
           ],
-          goals: () => [ST().adminStub ? check('육방 열어 보기', flag('sheet_admin')) : check('한 부서에 예산 넣기', flag('budget'))],
+          // 이 단계 전에 이미 넣어 둔 예산도 친다
+          goals: () => [ST().adminStub ? check('육방 열어 보기', flag('sheet_admin')) : check('한 부서에 예산 넣기', flag('budget') || budgetTotal() > 0)],
           guide: () => ({ sel: '#btn-admin', tag: '육방', sub: '[육방]을 열어 한 부서의 예산을 올려 보십시오.' }),
         },
       ],
@@ -375,15 +437,15 @@ const Story = (() => {
           lines: () => [
             { m: 'worry', t: '영주님, 좋지 않은 소식입니다. 뒷산에 약초를 캐러 갔던 이가, 흑풍채 놈들이 산을 내려올 채비를 하는 걸 보았답니다.' },
             { m: 'stern', t: '한 번 맛을 본 놈들입니다. 이번에는 남은 것까지 다 털어 갈 셈이겠지요. 그 전에 방비를 갖춰야 합니다.' },
-            { m: 'calm', t: `${hjp('무관', '武館')}을 지으면 그곳 일꾼들이 무공을 익혀 무사가 됩니다. ${hjp('망루', '望樓')}에는 궁수가 올라 다가오는 적을 쏘지요. 북쪽 산길 어귀의 무너진 망루는 다시 세우면 됩니다.` },
-            ST().granted.scout ? { m: 'smile', t: `무관에는 은자가 꽤 듭니다. 모자라는 만큼은 소인이 현청을 졸라 받아 두었습니다. (${ST().granted.scout})` } : null,
+            { m: 'calm', t: `${hjp('무관', '武館')}을 지으면 그곳 일꾼들이 무공을 익혀 무사가 됩니다. ${hjp('망루', '望樓')}에는 궁수가 올라 다가오는 적을 쏘지요. ${towerNote()}` },
+            ST().granted.scout ? { m: 'smile', t: `무관과 망루에는 재료가 꽤 듭니다. 모자라는 만큼은 소인이 현청을 졸라 받아 두었습니다. (${ST().granted.scout})` } : null,
           ],
         },
         {
           id: 'defense', title: '무관과 망루로 방비하기', why: '무사가 있어야 마을을 지킵니다. 망루의 궁수는 멀리서 적을 쏩니다.',
           enter: () => defenseGrant(),
           lines: () => [
-            { m: 'calm', t: '[무림·방어]에서 [무관]을 골라 표시한 자리에 앉히십시오. 망루는 북쪽 산길 어귀의 폐허를 다시 지으시면 됩니다.' },
+            { m: 'calm', t: `[무림·방어]에서 [무관]을 골라 표시한 자리에 앉히십시오. ${towerNote()}` },
           ],
           goals: () => {
             const dojo = usableOf('dojo').length > 0;
@@ -395,29 +457,42 @@ const Story = (() => {
             const wait = S.buildings.filter(b => (b.type === 'dojo' || b.type === 'tower') && !b.done && !b.ruined);
             if (wait.length) return guideWait(['dojo', 'tower']);
             if (!dojoWorkers()) {
-              // 일손이 없으면 벌목장(없으면 논밭)에서 사람을 빼 무관으로 보낸다
+              // 일손이 없으면 벌목장(없으면 채석장·논밭)에서 사람을 빼 무관으로 보낸다
               const src = ['lumber', 'quarry', 'farm'].map(t => usableOf(t).find(b => (b._workers || []).length)).find(Boolean);
               if (!src) return { sub: '무관에서 일할 사람이 없습니다. 새 식구가 오기를 기다리십시오.' };
-              const nm = BDEF[src.type].name;
-              if (panelShows(src)) return { sel: '#panel [data-act="want-"]', tag: '일꾼 −', sub: `[일꾼 −]를 눌러 ${nm}의 일손을 하나 빼십시오. 놀게 된 사람이 무관으로 갑니다.`, focus: bCenter(src) };
-              return { markers: [{ ...bCenter(src), text: `${nm}: 일꾼 빼기` }], focus: bCenter(src), sub: `일손이 모자랍니다. ${nm}${pp(nm, '을/를')} 눌러 [일꾼 −]로 사람을 빼면 무관으로 갑니다.` };
+              // 빈자리가 남아 있으면 [일꾼 −]를 눌러도 아무도 빠지지 않는다 → 지금 일하는 수에 맞춰 둔다
+              if (src.want > src._workers.length) src.want = src._workers.length;
+              ST().flags.donor = src.id;
+              const nm = BDEF[src.type].name, at = bCenter(src);
+              // 비어 있는 망루 같은 더 급한 자리가 먼저 사람을 데려간다
+              const ahead = slotAhead();
+              const then = ahead ? `처음 빠진 사람은 비어 있는 ${BDEF[ahead.type].name}에 먼저 가니, 한 번 더 빼면 무관으로 갑니다.` : '놀게 된 사람이 무관으로 갑니다.';
+              if (panelShows(src)) return { sel: '#panel [data-act="want-"]', tag: '일꾼 −', sub: `[일꾼 −]를 눌러 ${nm}의 일손을 하나 빼십시오. ${then}`, focus: at };
+              const markers = [{ ...at, text: `${nm}: 일꾼 빼기` }];
+              if (UI.tool) return toolDown(`화살표가 가리키는 ${nm}`, markers, at);
+              return { markers, focus: at, sub: `일손이 모자랍니다. ${nm}${pp(nm, '을/를')} 눌러 [일꾼 −]로 사람을 빼십시오. ${then}` };
             }
             return null;
           },
         },
         {
           id: 'walls', title: '목책과 성문 알아 두기', why: '길목을 막으면 망루가 쏠 틈을 법니다.', ack: '알겠소',
-          lines: () => [
-            { m: 'smile', t: '방비가 섰습니다. 하나만 더 일러 두지요.' },
-            { m: 'calm', t: `${hjp('목책', '木柵')}은 적의 발을 묶고, ${hjp('성문', '城門')}으로는 우리 사람만 지나다닙니다. 놈들이 오는 길목에 목책을 두르면 망루가 쏠 틈을 법니다. 목책은 끌어서 길게 세울 수 있지요.` },
-            { m: 'stern', t: '자, 이제 놈들이 오는지 지켜봅시다.' },
-          ],
+          lines: () => {
+            // 무관으로 사람을 보내느라 줄여 둔 일손은 다시 채우라고 일러 둔다
+            const d = getB(ST().flags.donor), dn = d && BDEF[d.type].name;
+            return [
+              { m: 'smile', t: '방비가 섰습니다. 하나만 더 일러 두지요.' },
+              d && usable(d) && d.want < BDEF[d.type].workers ? { m: 'calm', t: `무관으로 보내느라 ${dn}의 일손을 줄여 두었습니다. 새 식구가 오면 ${dn}${pp(dn, '을/를')} 눌러 [일꾼 +]로 다시 채워 주십시오.` } : null,
+              { m: 'calm', t: `${hjp('목책', '木柵')}은 적의 발을 묶고, ${hjp('성문', '城門')}으로는 우리 사람만 지나다닙니다. 놈들이 오는 길목 양옆에 목책을 두르고 길 위에는 성문을 세우면 망루가 쏠 틈을 법니다. 목책은 길 위에는 못 세우지만 끌어서 길게 세울 수 있지요.` },
+              { m: 'stern', t: '자, 이제 놈들이 오는지 지켜봅시다.' },
+            ];
+          },
           guide: () => {
             const p = northPath(7);
             const g = UI.cat !== 'martial'
               ? { sel: '#build-tabs button[data-cat="martial"]', tag: '무림·방어' }
               : { sel: '.bitem[data-key="wall"]', tag: '목책' };
-            return Object.assign(g, { markers: [{ x: p.x, y: p.y, text: '흑풍채가 올 길' }], sub: '목책은 [무림·방어]에 있습니다. 다 들으셨으면 [알겠소]를 누르십시오.' });
+            return Object.assign(g, { markers: [{ x: p.x, y: p.y, text: '흑풍채가 올 길' }], sub: '목책과 성문은 [무림·방어]에 있습니다. 길 위에는 성문만 세울 수 있습니다. 다 들으셨으면 [알겠소]를 누르십시오.' });
           },
         },
         {
@@ -439,22 +514,23 @@ const Story = (() => {
           guide: () => {
             const p = northPath(7);
             if (S.raid) return { sel: '#banner [data-act="goto-enemy"]', sub: '무사들이 알아서 싸웁니다. [적 위치로]를 눌러 싸움을 지켜보십시오.' };
-            return { markers: [{ x: p.x, y: p.y, text: '흑풍채가 올 길' }], focus: p, sub: '놈들이 오기 전에 길목에 목책을 두르거나, 무관의 일꾼을 가득 채워 두십시오.' };
+            return { markers: [{ x: p.x, y: p.y, text: '흑풍채가 올 길' }], focus: p, sub: '놈들이 오기 전에 길목 양옆에 목책을, 길 위에 성문을 세우거나, 무관의 일꾼을 가득 채워 두십시오.' };
           },
         },
       ],
-      reward: () => (ST().skipped ? { silver: 80, weapons: 5 } : {}),
+      // 짜인 습격이 제 몫(전리품·위로)을 치렀으면 따로 주지 않는다 (건너뛰었거나 습격을 겪은 뒤 안내를 받은 경우에는 준다)
+      reward: () => (ST().raidPaid ? {} : { silver: 80, weapons: 5 }),
       rewardWhy: '현청의 포상',
-      end: () => (ST().skipped
-        ? [{ m: 'smile', t: '첫 고비를 넘겼습니다. 현청이 포상으로 은자 80냥과 병장기를 보내왔습니다.' }]
-        : []),
+      end: () => (ST().raidPaid
+        ? []
+        : [{ m: 'smile', t: '첫 고비를 넘겼습니다. 현청이 포상으로 은자 80냥과 병장기를 보내왔습니다.' }]),
     },
     {
       title: '마을의 기틀', seal: '基',
       steps: [{
-        id: 'base', title: '촌을 마을로 키우기', why: '사람이 열다섯을 넘으면 촌이 마을이 되고, 시장과 객잔을 세울 수 있습니다.',
+        id: 'base', title: '촌을 마을로 키우기', why: '사람이 열다섯이 되면 촌이 마을이 되고, 시장과 객잔을 세울 수 있습니다.',
         lines: () => [
-          { m: 'smile', t: `제3장, 마을의 기틀입니다. 사람이 열다섯을 넘으면 ${hjp('촌', '村')}이 ${hjp('마을', '里')}이 되고, ${hjp('시장', '市')}과 ${hjp('객잔', '客棧')}을 세울 수 있습니다. 장이 서면 은자가 돌고 민심도 오르지요.` },
+          { m: 'smile', t: `제3장, 마을의 기틀입니다. 사람이 열다섯이 되면 ${hjp('촌', '村')}이 ${hjp('마을', '里')}이 되고, ${hjp('시장', '市')}과 ${hjp('객잔', '客棧')}을 세울 수 있습니다. 장이 서면 은자가 돌고 민심도 오르지요.` },
           { m: 'calm', t: '[마을 현황]을 한번 열어 보십시오. 민심을 움직이는 까닭이 낱낱이 적혀 있고, 세율도 거기서 정합니다.' },
           { m: 'calm', t: '이제부터는 영주님 뜻대로 다스리시면 됩니다. 소인은 곁에서 형편을 살피다가 때맞춰 아뢰겠습니다.' },
         ],
@@ -552,10 +628,16 @@ const Story = (() => {
     if (!nonRuined('tower').length) { const r = ruinOf('tower'); const c = r ? repairCost(r) : BDEF.tower.cost; for (const k in c) need[k] = (need[k] || 0) + c[k]; }
     return topUp(need, 'scout', '현청이 방비에 보태라며 보냈다');
   }
+  // 망루 형편 (공방이 안내보다 먼저 다시 세우기도 한다)
+  function towerNote() {
+    const t = nonRuined('tower');
+    if (!t.length) return '북쪽 산길 어귀의 무너진 망루는 다시 세우면 됩니다.';
+    return t.some(b => b.done) ? '망루는 벌써 하나 다시 섰으니, 궁수만 오르면 됩니다.' : '망루는 벌써 다시 세우는 중이니, 공사가 끝나기만 기다리시면 됩니다.';
+  }
   function raidComingLines() {
     return [
       { m: 'stern', t: '종을 쳤습니다! 무사들은 알아서 싸우고, 다른 이들은 집으로 몸을 피할 겁니다.' },
-      { m: 'calm', t: '현청에 급히 기별을 넣었으니 포졸 몇이 달려올 겁니다. 놈들이 오기 전에 길목에 목책을 두르셔도 좋고, 싸움이 붙으면 위쪽의 [적 위치로]를 눌러 지켜보십시오.' },
+      { m: 'calm', t: '현청에 급히 기별을 넣었으니 포졸 몇이 달려올 겁니다. 놈들이 오기 전에 길목 양옆에 목책을, 길 위에 성문을 세우셔도 좋고, 싸움이 붙으면 위쪽의 [적 위치로]를 눌러 지켜보십시오.' },
     ];
   }
 
@@ -577,7 +659,7 @@ const Story = (() => {
         const F = FACTIONS[s.faction];
         return [
           { m: 'stern', t: `${F.name}${pp(F.name, '이/가')} 다가옵니다. 남은 시간은 ${Math.max(1, Math.ceil(s.at - S.time))}시간 남짓. 지금 무사 ${fighters().length}명, 망루 ${countType('tower')}채가 마을을 지킵니다.` },
-          { m: 'calm', t: '망루를 더 세우시고, 놈들이 오는 길목에 목책을 두르십시오. 객잔에 머무는 고수가 있다면 객경으로 모셔 두는 것도 방법입니다.' },
+          { m: 'calm', t: '망루를 더 세우시고, 놈들이 오는 길목 양옆에 목책을, 길 위에는 성문을 세우십시오. 객잔에 머무는 고수가 있다면 객경으로 모셔 두는 것도 방법입니다.' },
         ];
       },
       guide: () => ({ sel: '#build-tabs button[data-cat="martial"]', tag: '무림·방어' }),
@@ -661,7 +743,7 @@ const Story = (() => {
     return {
       v: 1, chapter: 0, step: 0, skipped: false, intro: 'pending', finished: false,
       flags: {}, acks: {}, rewards: {}, granted: {}, advice: {}, budgets: {},
-      raid: 'none', raidDone: false, ruins: [], newLord: false, arrivedAt: 0, stepAt: 0,
+      raid: 'none', raidDone: false, raidPaid: 0, ruins: [], newLord: false, arrivedAt: 0, stepAt: 0,
       adviceAt: -999, collapsed: false, petitionStub: false, adminStub: false,
     };
   }
@@ -834,7 +916,7 @@ const Story = (() => {
   // ── 모듈 객체 ─────────────────────────────────
   const M = {
     el: null, cur: null, queue: [], faces: {}, guideNow: null,
-    _acc: 0, _sites: {}, _flash: 0, _scrolled: '', _trk: '', _open: false, _checking: false, _face: '',
+    _acc: 0, _sites: {}, _flash: 0, _scrolled: '', _trk: '', _open: false, _checking: false, _face: '', _adviseRaid: false,
 
     // ━━ 훅 ━━
     init() { S.story = freshState(); this.reset(); },
@@ -932,6 +1014,8 @@ const Story = (() => {
       if (st.intro === 'done') this.check();
       // 때가 지난 곁말·조언은 거둔다
       if (this.cur && this.cur.expireAt && !this.cur.pause && S.time > this.cur.expireAt) this.close(false);
+      // 습격 경보 두루마리가 닫히면 바로 방비를 아뢴다
+      if (this._adviseRaid && !UI.modalOpen && !this.cur && !this.queue.length) { this._adviseRaid = false; this.advise(true); }
       // 한자 풀이를 읽었는지 (위쪽 장부 단계)
       if (typeof Tips !== 'undefined' && Tips.cur && byId('res').contains(Tips.cur)) setFlag('tip');
       this.guideNow = this.cur && this.cur.guide ? this.cur.guide() : this.currentGuide(false);
@@ -1134,6 +1218,7 @@ const Story = (() => {
       st.stepAt = S.time;
       this._sites = {};
       this._scrolled = '';
+      this.fold();
       // 지난 단계의 말은 거둔다
       this.queue = this.queue.filter(q => q.tag !== 'step');
       if (this.cur && this.cur.tag === 'step' && !this.cur.pause) this.showNext();
@@ -1336,6 +1421,7 @@ const Story = (() => {
         else if (a === 'ack') {
           const s = this.stepObj();
           if (!s) return;
+          this.fold();
           if (this.cur && this.cur.tag === 'step' && !this.cur.pause) this.showNext();
           this.ackStep(s.id);
         }
@@ -1356,7 +1442,7 @@ const Story = (() => {
     },
     reset() {
       this.cur = null; this.queue = []; this._sites = {}; this._open = false; this._scrolled = ''; this._trk = '';
-      this._card = false; this._focusKey = '';
+      this._card = false; this._focusKey = ''; this._adviseRaid = false;
       if (typeof G !== 'undefined') G.markers = [];
       if (this.el) { this.el.card.hidden = true; this.el.scrim.hidden = true; this.el.ring.hidden = true; this.el.tag.hidden = true; }
     },
@@ -1372,9 +1458,17 @@ const Story = (() => {
       this._chapT = setTimeout(() => { el.hidden = true; }, 3200);
     },
 
+    // 폰의 펼친 두루마리를 접는다 (멈춤 대화·단계가 바뀔 때 지도와 카드를 가리지 않게)
+    fold() {
+      if (!this._open) return;
+      this._open = false; this._trk = '';
+      this.renderTracker(); this.layout();
+    },
+
     // ━━ 대화창 ━━
     open(d) {
       this.cur = d;
+      if (d.pause) this.fold();
       this.renderCard();
     },
     showNext() {
@@ -1639,7 +1733,18 @@ const Story = (() => {
   });
   // 안내 중 폰에서 건설 도구를 고르면, 지을 자리를 가리는 선택 창을 닫는다
   Bus.on('tool', key => { if (key && phone() && M.tutorialActive() && UI.sel) UI.select(null); });
-  Bus.on('petitionResolved', () => setFlag('petition'));
+  // 폰에서 [다시 짓기]를 누르면 창을 닫아, 다음에 가리킬 곳을 카드와 창이 가리지 않게
+  Bus.on('repairStarted', b => { if (phone() && M.tutorialActive() && UI.sel && UI.sel.b === b) UI.select(null); });
+  Bus.on('petitionResolved', (p, cid) => {
+    const st = ST();
+    if (!st) return;
+    // 영주가 직접 처결했거나 바라던 일이 이루어진 것만 친다 (기한을 넘기거나 거둔 것은 아니다)
+    if (!cid || cid[0] !== '_' || cid === '_moot') { setFlag('petition'); return; }
+    // 첫 상소 단계에서 상소가 사라지면 하나를 다시 올린다 (안내 중에는 무작위 상소가 오지 않는다)
+    if (!M.tutorialActive() || M.stepId() !== 'petition' || st.flags.petition || pendingPetitions()) return;
+    const np = hook(Petitions, 'add', { type: 'well' });
+    if (!np && !pendingPetitions()) st.petitionStub = true;
+  });
   Bus.on('budgetChanged', (dept, amount) => {
     const st = ST();
     if (!st) return;
@@ -1666,8 +1771,8 @@ const Story = (() => {
         M.say(raidComingLines(), { tag: 'step' });
       } else M.raidAverted();
     } else if (!M.tutorialActive()) {
-      // 다른 습격: 경보 두루마리를 닫은 뒤 바로 방비를 아뢴다
-      setTimeout(() => M.advise(true), 50);
+      // 다른 습격: 경보 두루마리를 닫은 뒤(uiTick) 바로 방비를 아뢴다
+      M._adviseRaid = true;
     }
   });
   Bus.on('raidStart', raid => {
@@ -1689,6 +1794,7 @@ const Story = (() => {
     setFlag('raidSurvived');
     if (st.raid !== 'active' && st.raid !== 'coming') return;
     st.raidDone = true;
+    st.raidPaid = 1;   // 제2장 포상은 이것으로 갈음한다
     if (result === 'win') {
       st.raid = 'won';
       const txt = grant({ silver: 60, weapons: 6 }, '흑풍채가 버리고 간 것');
@@ -1702,7 +1808,7 @@ const Story = (() => {
       const txt = grant({ food: 60, silver: 60 }, '현청의 위로');
       M.say([
         { m: 'worry', t: '…털렸습니다. 그래도 영주님, 마을은 아직 서 있습니다. 사람도 남았고요.' },
-        { m: 'stern', t: '다음엔 다르게 하지요. 무관의 일꾼을 가득 채워 수련을 쌓게 하시고, 망루를 하나 더 세우시고, 놈들이 오는 북쪽 길목에 목책을 두르십시오. 마을이 커지면 대장간에서 병장기도 만들 수 있습니다.' },
+        { m: 'stern', t: '다음엔 다르게 하지요. 무관의 일꾼을 가득 채워 수련을 쌓게 하시고, 망루를 하나 더 세우시고, 놈들이 오는 북쪽 길목 양옆에 목책을, 길 위에는 성문을 세우십시오. 마을이 커지면 대장간에서 병장기도 만들 수 있습니다.' },
         { m: 'calm', t: `현청에서 위로 삼아 식량과 은자를 보내왔습니다. (${txt}) 무너진 건물은 눌러서 다시 지으시면 됩니다.` },
       ], { tag: 'result', pause: true });
     }
