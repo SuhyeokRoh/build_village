@@ -1,1 +1,206 @@
-/* petitions 모듈 전용 스타일. 토큰은 css/style.css 의 :root 를 쓴다. */
+/* petitions 모듈 전용 스타일. 토큰은 css/style.css 의 :root 를 쓴다.
+   상소함: 옻칠한 창 위에 한지 상소문을 펼쳐 놓는다. 주홍 인장 疏, 처결하면 允/却 도장이 찍힌다. */
+
+.sheet[data-kind="petitions"] .sheet-inner { width: min(720px, 100%); }
+
+/* ── 머리 ─────────────────────────────── */
+.pet-top { display: flex; gap: 14px; align-items: center; margin-bottom: 10px; padding-right: 28px; }
+.pet-box {
+  flex: none; width: 54px; height: 54px; display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 31px; line-height: 1; color: var(--gold);
+  background: linear-gradient(180deg, #43291c, #24160f);
+  border: 1px solid var(--gold-dim); border-radius: 6px;
+  box-shadow: inset 0 0 0 3px rgba(214, 170, 82, 0.13), inset 0 -6px 10px rgba(0, 0, 0, 0.35), 0 2px 6px var(--shadow);
+}
+.pet-top-text { min-width: 0; }
+.pet-top h2 { margin: 0; }
+.sheet .pet-top .lead { margin: 2px 0 0; font-size: 13.5px; line-height: 1.55; }
+
+.pet-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 16px; font-size: 12.5px; }
+.pet-stats span {
+  padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  background: var(--lacquer-2); border: 1px solid var(--lacquer-edge); color: var(--muted);
+}
+.pet-stats b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pet-stats .pet-eff.pos { border-color: #3f7d57; }
+.pet-stats .pet-eff.pos b { color: var(--good); }
+.pet-stats .pet-eff.neg { border-color: #8c3a2c; }
+.pet-stats .pet-eff.neg b { color: var(--bad); }
+
+/* ── 한지 상소문 ───────────────────────── */
+.pet-list { display: flex; flex-direction: column; gap: 14px; }
+.pet-card {
+  position: relative; color: var(--ink);
+  padding: 14px 18px 14px 24px;
+  background:
+    radial-gradient(ellipse at 12% 0%, rgba(255, 255, 255, 0.45), transparent 55%),
+    radial-gradient(ellipse at 92% 100%, rgba(150, 110, 50, 0.18), transparent 60%),
+    repeating-linear-gradient(97deg, rgba(120, 90, 40, 0.035) 0 2px, transparent 2px 7px),
+    repeating-linear-gradient(8deg, rgba(120, 90, 40, 0.03) 0 1px, transparent 1px 11px),
+    var(--paper);
+  border: 1px solid var(--paper-edge);
+  border-radius: 3px;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+/* 왼쪽 붉은 괘선 두 줄 */
+.pet-card::before {
+  content: ""; position: absolute; left: 9px; top: 12px; bottom: 12px; width: 5px;
+  border-left: 2px solid rgba(181, 51, 42, 0.42); border-right: 1px solid rgba(181, 51, 42, 0.28);
+}
+.pet-card.urgent { border-color: #c98a6e; box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 8px 18px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(212, 72, 58, 0.35); }
+
+.pet-seal {
+  position: absolute; top: 12px; right: 14px; width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border: 2px solid var(--cinnabar); border-radius: 5px; color: var(--cinnabar);
+  font-family: var(--font-display); font-size: 23px; line-height: 1;
+  background: rgba(181, 51, 42, 0.07); transform: rotate(-7deg);
+  box-shadow: inset 0 0 0 2px rgba(181, 51, 42, 0.12);
+}
+.pet-card-head { display: flex; gap: 10px; align-items: flex-start; padding-right: 48px; }
+.pet-kind {
+  flex: none; width: 34px; height: 34px; margin-top: 1px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--ink); color: var(--paper);
+  font-family: var(--font-display); font-size: 19px; line-height: 1;
+  box-shadow: 0 0 0 2px rgba(34, 27, 22, 0.15);
+}
+.pet-titles { min-width: 0; }
+.pet-card h4 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 20px; line-height: 1.25; color: var(--ink); text-wrap: balance; }
+.sheet .pet-who { margin: 2px 0 0; font-family: var(--font-body); font-size: 13.5px; font-weight: 700; color: var(--ink-soft); line-height: 1.4; }
+.pet-who small { font-family: var(--font-ui); font-weight: 400; font-size: 11.5px; color: #7b6a58; margin-left: 2px; }
+
+.sheet .pet-text {
+  margin: 10px 0 0; font-family: var(--font-body); font-size: 14.5px; line-height: 1.75; color: #2d241c;
+}
+.pet-text::before { content: "「"; color: var(--ink-soft); }
+.pet-text::after { content: "」"; color: var(--ink-soft); }
+.sheet .pet-hint {
+  margin: 8px 0 0; padding: 5px 10px; font-family: var(--font-body); font-size: 13px; line-height: 1.55;
+  color: #4d3d2f; background: rgba(120, 90, 40, 0.09); border-radius: 3px; border-left: 3px solid var(--gold-dim);
+}
+
+.pet-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+.pet-due, .pet-newtag {
+  font-family: var(--font-ui); font-size: 11.5px; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid rgba(91, 75, 62, 0.45); color: var(--ink-soft);
+}
+.pet-due.urgent { background: var(--cinnabar); border-color: var(--cinnabar); color: #fff3e6; }
+.pet-newtag { border-color: var(--gold-dim); color: #7a5a1e; background: rgba(214, 170, 82, 0.18); }
+.pet-loc {
+  margin-left: auto; background: none; border: 0; padding: 2px 2px; font-family: var(--font-body); font-size: 13px;
+  color: var(--cinnabar); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(181, 51, 42, 0.45);
+}
+.pet-loc:hover { color: var(--cinnabar-2); text-decoration-color: currentColor; }
+
+/* ── 처결 단추 ─────────────────────────── */
+.pet-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pet-choice {
+  flex: 1 1 190px; min-width: 0; min-height: 44px;
+  display: flex; flex-direction: column; justify-content: center; gap: 1px; text-align: left;
+  padding: 7px 11px; border-radius: 5px; color: var(--ink);
+  background: rgba(255, 255, 255, 0.42); border: 1px solid var(--paper-edge);
+  font-family: var(--font-body); font-size: 14.5px; line-height: 1.35;
+  transition: background 0.12s, border-color 0.12s;
+}
+.pet-choice b { font-weight: 700; }
+.pet-choice small { font-family: var(--font-ui); font-size: 11.5px; color: var(--ink-soft); line-height: 1.4; }
+.pet-choice:hover:not(:disabled) { background: rgba(255, 255, 255, 0.72); border-color: var(--cinnabar); }
+.pet-choice:active:not(:disabled) { transform: translateY(1px); }
+.pet-choice.dept { border-color: rgba(111, 167, 138, 0.8); background: rgba(111, 167, 138, 0.12); }
+.pet-choice.dept:hover:not(:disabled) { background: rgba(111, 167, 138, 0.24); border-color: #3f7d57; }
+.pet-choice.deny { background: transparent; border-style: dashed; border-color: rgba(91, 75, 62, 0.45); }
+.pet-choice.deny b { font-weight: 400; }
+.pet-choice:disabled { opacity: 0.45; cursor: not-allowed; }
+.pet-choice:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 1px; }
+
+/* ── 처결한 상소: 잠시 그 자리에 도장이 찍힌 채 남는다 ── */
+.pet-card.done { padding-top: 12px; padding-bottom: 12px; }
+.pet-card.done .pet-seal { width: 44px; height: 44px; font-size: 27px; top: 10px; right: 12px; }
+.pet-card.denied .pet-seal, .pet-card.expired .pet-seal {
+  border-color: var(--ink-soft); color: var(--ink-soft); background: rgba(34, 27, 22, 0.06); box-shadow: none;
+}
+.pet-card.granted .pet-seal { background: var(--cinnabar); color: #fff3e6; }
+.pet-card.fresh .pet-seal { animation: pet-stamp 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.pet-card.fresh { animation: pet-glow 1.2s ease-out; }
+.sheet .pet-decision { margin: 8px 0 0; font-family: var(--font-body); font-size: 13px; font-weight: 700; color: var(--ink-soft); }
+.pet-card.granted .pet-decision { color: var(--cinnabar); }
+.sheet .pet-result {
+  margin: 6px 0 0; padding: 7px 11px; font-family: var(--font-body); font-size: 14px; line-height: 1.65; color: #2d241c;
+  background: rgba(255, 255, 255, 0.35); border-left: 3px solid var(--cinnabar); border-radius: 2px;
+}
+.pet-card.denied .pet-result, .pet-card.expired .pet-result { border-left-color: var(--ink-soft); }
+@keyframes pet-stamp {
+  0% { opacity: 0; transform: rotate(-16deg) scale(1.9); }
+  70% { opacity: 1; transform: rotate(-6deg) scale(0.94); }
+  100% { opacity: 1; transform: rotate(-7deg) scale(1); }
+}
+@keyframes pet-glow {
+  from { box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 8px 18px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(214, 170, 82, 0.6); }
+  to { box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), 0 8px 18px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(214, 170, 82, 0); }
+}
+
+/* ── 빈 상소함 ─────────────────────────── */
+.pet-empty {
+  text-align: center; padding: 22px 18px 18px; border-radius: 8px;
+  background: var(--lacquer-2); border: 1px dashed var(--lacquer-edge);
+}
+.pet-empty-seal {
+  display: inline-grid; place-items: center; width: 52px; height: 52px; margin-bottom: 6px;
+  border: 2px solid var(--cinnabar); border-radius: 6px; color: var(--cinnabar-2);
+  font-family: var(--font-display); font-size: 30px; transform: rotate(-6deg); opacity: 0.85;
+}
+.sheet .pet-empty p { margin: 6px auto 0; max-width: 520px; color: #d9c9aa; font-size: 14px; }
+.sheet .pet-empty .pet-empty-head { font-family: var(--font-display); font-size: 20px; color: var(--gold); margin-top: 0; }
+.sheet .pet-empty .pet-empty-tip { color: var(--muted); font-size: 13px; }
+
+/* ── 지난 처결 ─────────────────────────── */
+.sheet .pet-h3 { margin-top: 22px; }
+.pet-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.sheet .pet-history li {
+  display: grid; grid-template-columns: auto auto 1fr; grid-template-areas: "seal time main" "seal time label";
+  gap: 0 10px; align-items: center; padding: 7px 2px; font-family: var(--font-ui); line-height: 1.4;
+  border-bottom: 1px dashed rgba(154, 122, 62, 0.25);
+}
+.pet-hseal {
+  grid-area: seal; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 4px;
+  font-family: var(--font-display); font-size: 16px; line-height: 1;
+  border: 1.5px solid var(--cinnabar-2); color: var(--cinnabar-2);
+}
+.pet-history li.granted .pet-hseal { background: var(--cinnabar); border-color: var(--cinnabar); color: #fff3e6; }
+.pet-history li.denied .pet-hseal, .pet-history li.expired .pet-hseal { border-color: var(--muted); color: var(--muted); }
+.pet-history li.moot .pet-hseal { border-color: var(--jade); color: var(--jade); }
+.pet-history time { grid-area: time; color: var(--muted); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pet-hmain { grid-area: main; font-family: var(--font-body); font-size: 13.5px; color: var(--text); min-width: 0; }
+.pet-hmain b { color: var(--gold); font-weight: 700; }
+.pet-hlabel { grid-area: label; font-size: 12px; color: var(--muted); min-width: 0; }
+.pet-history li.expired .pet-hlabel { color: #e9a08f; }
+
+/* ── 메뉴 단추: 새 상소가 오면 은은하게 부른다 ── */
+#menubar #btn-petitions.alert { animation: pet-pulse 2.6s ease-in-out infinite; }
+#menubar #btn-petitions.pet-urgent { border-color: var(--cinnabar-2); }
+@keyframes pet-pulse {
+  0%, 100% { box-shadow: 0 2px 6px var(--shadow); }
+  50% { box-shadow: 0 0 0 3px rgba(212, 72, 58, 0.32), 0 2px 12px rgba(212, 72, 58, 0.4); }
+}
+
+/* ── 좁은 화면 ─────────────────────────── */
+@media (max-width: 560px) {
+  .sheet[data-kind="petitions"] { padding: 8px; }
+  .sheet[data-kind="petitions"] .sheet-inner { padding: 16px 12px 18px; max-height: calc(100% - 4px); }
+  .pet-top { gap: 10px; }
+  .pet-box { width: 44px; height: 44px; font-size: 25px; }
+  .sheet[data-kind="petitions"] h2 { font-size: 24px; }
+  .pet-card { padding: 12px 12px 12px 20px; }
+  .pet-card::before { left: 7px; }
+  .pet-seal { width: 32px; height: 32px; font-size: 19px; top: 10px; right: 10px; }
+  .pet-card.done .pet-seal { width: 38px; height: 38px; font-size: 23px; }
+  .pet-card-head { padding-right: 38px; gap: 8px; }
+  .pet-kind { width: 30px; height: 30px; font-size: 17px; }
+  .pet-card h4 { font-size: 18px; }
+  .sheet .pet-text { font-size: 14px; line-height: 1.7; }
+  .pet-choice { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #menubar #btn-petitions.alert, .pet-card.fresh, .pet-card.fresh .pet-seal { animation: none; }
+}
