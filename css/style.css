@@ -400,6 +400,12 @@ button[data-tip], button[data-tip-title] { cursor: pointer; }
 .btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); }
 .btn-ghost:hover { background: rgba(0,0,0,0.06); }
 .title-note { margin-top: 20px; font-size: 12px; color: var(--ink-soft); }
+/* 손가락 화면에는 터치 조작을 적는다 (story.js 의 coarse() 와 같은 기준) */
+.for-touch { display: none; }
+@media (pointer: coarse) {
+  .for-mouse { display: none; }
+  .for-touch { display: inline; }
+}
 
 /* ── 좁은 화면 ─────────────────────────── */
 @media (max-width: 860px) {
@@ -425,6 +431,12 @@ button[data-tip], button[data-tip-title] { cursor: pointer; }
   .bitem { width: 90px; }
   .clock-text strong { font-size: 15px; }
   .speed button { min-width: 30px; padding: 5px 6px; }
+}
+/* 폰: 자원 칩 아홉이 한 줄에 다 들어가지 않으니 자원(銀食木石兵)과 마을(人心武名) 두 줄로 */
+@media (max-width: 640px) {
+  :root { --top-h: 108px; }
+  .res { display: grid; grid-template-columns: repeat(5, max-content); gap: 4px 5px; }
+  .chip { padding: 1px 7px 1px 3px; gap: 4px; }
 }
 @media (max-width: 420px) {
   .speed button[data-speed="4"] { display: none; }
