@@ -300,7 +300,7 @@ const EV = {
         return '무관에 비급이 걸렸다. 무사들의 눈빛이 달라졌다.'; } },
       ...(d.j ? [{ label: `${fName(d.j)}에 바친다`, sub: `${fName(d.j)} 관계 +20 · 명성 +15`, run: () => { changeRel(d.j, 20); addFame(15);
         return `${fName(d.j)}의 어른이 감사의 서신을 보냈다. 무림 명문들 사이에 마을의 이름이 오르내린다.`; } }] : []),
-      { label: `${fName(d.s)}에 판다`, sub: '은자 +220', run: () => { addRes('silver', 220); changeRel(d.s, 5); return '상회의 대행수가 눈을 반짝이며 은자 꾸러미를 내밀었다.'; } },
+      { label: `${fName(d.s)}에 판다`, sub: '은자 +220', run: () => { addRes('silver', 220); changeRel(d.s, 5); return `${fName(d.s)}의 대행수가 눈을 반짝이며 은자 꾸러미를 내밀었다.`; } },
     ],
   },
   plague: {
@@ -587,13 +587,32 @@ const EV = {
 const EV_WAR_QUEST = ['jeong', 'gwan', 'sega', 'ma'];   // 원군 의뢰를 내는 계열 (§6)
 const evOfferOk = id =>evMil(id) && rel(id) >= 40 && id !== S.vassal && !(S.occupation && S.occupation.faction === id);
 const evTrib = k => Math.round((4 + popCount() * 0.25) * (CAMPS[FACTIONS[k].camp] ? CAMPS[FACTIONS[k].camp].tribute : 1));
+// 새외 세력의 모습: 빙설궁·금륜사는 변경의 말 탄 무인, 해랑도는 바다 건너 해적, 야수궁은 남쪽 밀림의 사냥꾼
+const SAEOE_LOOK = {
+  steppe: {
+    envoy: '털가죽을 두른 {F}의 사자가 말에서 내리지도 않고 외쳤다', law: '변경', road: '국경 너머의 길', flag: '사자가 말 위에서 털가죽 깃발을 던져 주었다. 국경 너머의 무인들이',
+    trader: '낙타와 말을 끌고 마을 광장에 들어섰다. 털모자 아래 볕에 그은 얼굴들이 웃는다', goods: '산삼과 말, 털가죽', pack: '낙타 등', ride: '말', bell: '방울 소리',
+    walk: '말을 끌고', cloak: '털가죽 망토', arm: '큰 칼', came: '내려왔소', rumor: '변경 쪽에서 내려온 나그네들이 수군거린다. {F}의 기마대가 고개 너머에 모였다고 한다.',
+  },
+  haerang: {
+    envoy: '늑대 가죽을 두른 {F}의 사자가 뱃전에서 뛰어내려 외쳤다', law: '바다', road: '바다 건너의 뱃길', flag: '사자가 늑대 가죽 깃발을 던져 주었다. 바다 건너의 무리가',
+    trader: '작은 배를 나루에 대고 짐을 부렸다. 바닷바람에 그은 얼굴들이 웃는다', goods: '산삼과 진주, 늑대 가죽', pack: '배', ride: '배', bell: '뱃노래',
+    walk: '바닷바람에 그은 얼굴로', cloak: '늑대 가죽 망토', arm: '휜 칼', came: '바다를 건너왔소', rumor: '바닷가에서 올라온 나그네들이 수군거린다. {F}의 배들이 포구 너머에 모였다고 한다.',
+  },
+  yasu: {
+    envoy: '짐승 가죽을 두른 {F}의 사자가 길들인 표범을 곁에 앉히고 외쳤다', law: '밀림', road: '남쪽 밀림의 길', flag: '사자가 짐승 가죽 깃발을 던져 주었다. 밀림의 사냥꾼들이',
+    trader: '짐을 진 물소를 몰고 마을 광장에 들어섰다. 문신 새긴 팔뚝이 볕에 그을었다', goods: '산삼과 약초, 짐승 가죽', pack: '물소 등', ride: '물소', bell: '물소 방울 소리',
+    walk: '길들인 표범을 데리고', cloak: '짐승 가죽 망토', arm: '긴 창', came: '밀림에서 올라왔소', rumor: '남쪽에서 올라온 나그네들이 수군거린다. {F}의 사냥꾼 무리가 밀림 어귀에 모였다고 한다.',
+  },
+};
+const evLook = k => SAEOE_LOOK[k] || SAEOE_LOOK.steppe;
 const OFFER_SAY = {
   jeong: F => `${F.leader.title}${pp(F.leader.title, '이/가')} 제자 둘을 데리고 찾아왔다.\n<q>강호가 어지럽소. 이 마을을 ${F.name}의 산하에 두면 사도의 무리도 함부로 넘보지 못할 것이오. 대신 매일 약간의 공물을 바치면 되오.</q>`,
   ma: F => `한밤중, ${F.name}의 가면을 쓴 사자가 영주관 처마 밑에 서 있었다. 경비는 아무도 그를 보지 못했다.\n<q>${F.name}에 충성을 맹세하라. 은자와 힘을 주겠다. 거절한다면… 달 없는 밤을 조심하는 게 좋을 것이다.</q>`,
-  sega: F => `${F.leader.title}의 서찰을 든 집사가 비단 보자기를 풀었다.\n<q>가문의 이름 아래 드시지요. ${F.name}의 혼맥과 재물이 이 마을을 지킬 것입니다. 철마다 바치는 예물만 잊지 마시고요.</q>`,
+  sega: F => `${F.leader.title}의 서찰을 든 집사가 비단 보자기를 풀었다.\n<q>가문의 이름 아래 드시지요. ${F.name}의 혼맥과 재물이 이 마을을 지킬 것입니다. 날마다 바치는 예물만 잊지 마시고요.</q>`,
   heuk: F => `밤늦게 ${F.name}의 장부꾼이 뒷문으로 들었다.\n<q>밤길은 우리가 지켜 드리지. 대신 장부 한 귀퉁이를 우리에게 내주시오. 관의 눈은 우리가 알아서 피하겠소.</q>`,
   sa: F => `검은 비단옷을 입은 ${F.leader.title}${pp(F.leader.title, '이/가')} 수하 열댓을 거느리고 영주관을 찾았다.\n<q>요즘 세상이 험하지 않소? 우리 ${F.name}의 비호를 받으시오. 매일 공물만 조금 내면, 산적 놈들은 얼씬도 못 할 거요.</q>`,
-  saeoe: F => `털가죽을 두른 ${F.name}의 사자가 말에서 내리지도 않고 외쳤다.\n<q>변경의 법은 힘이다. 우리 깃발 아래 서면 국경 너머의 길이 열린다. 중원의 관리들처럼 장부를 들이밀지도 않는다.</q>`,
+  saeoe: (F, k) => { const L = evLook(k); return `${L.envoy.replace('{F}', () => F.name)}.\n<q>${L.law}의 법은 힘이다. 우리 깃발 아래 서면 ${L.road}${pp(L.road, '이/가')} 열린다. 중원의 관리들처럼 장부를 들이밀지도 않는다.</q>`; },
   gwan: F => `${F.name}에서 관리가 관인 찍힌 문서를 들고 왔다.\n<q>이 마을을 관의 보호 아래 두고자 하오. 공물을 바치고 법도를 따르면 관병이 마을을 지킬 것이오.</q>`,
   sang: F => `${F.name}의 대행수가 주판을 내려놓았다.\n<q>우리 깃발을 거시지요. 길과 장부가 함께 열립니다.</q>`,
 };
@@ -603,7 +622,7 @@ const OFFER_YES = {
   sega: F => `집사가 가문의 족자를 영주관 대청에 걸었다. 이제 ${F.name}의 이름이 이 마을을 감싼다.`,
   heuk: () => '장부꾼이 웃으며 장부에 마을 이름을 적었다. 그날 밤부터 낯선 그림자들이 마을 길목을 지킨다.',
   sa: F => `${F.leader.title}${pp(F.leader.title, '이/가')} 껄껄 웃으며 마을 어귀에 ${F.name}의 깃발을 꽂았다. 이제 이 마을을 건드리는 자는 ${F.name}${pp(F.name, '을/를')} 적으로 돌리는 셈이다.`,
-  saeoe: () => '사자가 말 위에서 털가죽 깃발을 던져 주었다. 국경 너머의 무인들이 이 마을을 형제로 부를 것이다.',
+  saeoe: (F, k) => `${evLook(k).flag} 이 마을을 형제로 부를 것이다.`,
   gwan: F => `관리가 관인을 꾹 눌러 찍었다. 영주관 문간에 ${F.name}의 방이 나붙었다.`,
   sang: F => `대행수가 주판알을 튕기며 웃었다. ${F.name}의 깃발이 장터에 올랐다.`,
 };
@@ -638,7 +657,7 @@ Object.assign(EV, {
     },
     text: d => {
       const F = FACTIONS[d.k];
-      let t = `${evCrest(d.k)}${(OFFER_SAY[F.camp] || OFFER_SAY.sang)(F)}\n\n산하가 되면 <em>${F.perk || '별다른 혜택이 없다'}</em>. 매일 공물로 은자 ${evTrib(d.k)}냥쯤을 바친다.`;
+      let t = `${evCrest(d.k)}${(OFFER_SAY[F.camp] || OFFER_SAY.sang)(F, d.k)}\n\n산하가 되면 <em>${F.perk || '별다른 혜택이 없다'}</em>. 매일 공물로 은자 ${evTrib(d.k)}냥쯤을 바친다.`;
       if (d.special) t += '\n갈림길에서 고른 길이다. 선납 은자 100냥을 바치면 관계와 상관없이 산하에 든다.';
       if (S.vassal && S.vassal !== d.k) t += `\n\n지금은 <em>${fName(S.vassal)}</em>의 산하다. 받아들이면 옛 주군을 배신하게 된다.`;
       return t;
@@ -647,7 +666,7 @@ Object.assign(EV, {
       const F = FACTIONS[d.k], ma = F.camp === 'ma' && !d.special;
       const out = [{ label: `${F.name}의 산하에 든다`, sub: `${d.special ? '선납 은자 -100 · ' : ''}${ma ? '은자 +150 · ' : ''}매일 공물 은자 ${evTrib(d.k)} · ${F.perk}`,
         ok: () => !d.special || S.res.silver >= 100,
-        run: () => { if (d.special) S.res.silver -= 100; becomeVassal(d.k); if (ma) addRes('silver', 150); return (OFFER_YES[F.camp] || OFFER_YES.sang)(F); } }];
+        run: () => { if (d.special) S.res.silver -= 100; becomeVassal(d.k); if (ma) addRes('silver', 150); return (OFFER_YES[F.camp] || OFFER_YES.sang)(F, d.k); } }];
       if (ma) {
         out.push({ label: '거절한다', sub: `${F.name} 관계 -15 · 위협이 쌓인다`, run: () => { changeRel(d.k, -15); evThreat(d.k, 30); return '가면 쓴 자는 대답 없이 어둠 속으로 사라졌다. 바람이 차다.'; } });
         if (JH.isAlive('gwanbu')) out.push({ label: '관부에 고발한다', sub: `관부 +15 · 정파 이웃 +8 · ${F.name}의 원한`, run: () => {
@@ -939,7 +958,7 @@ Object.assign(EV, {
           if (Math.random() < 0.35 && Events.raidWarning(d.k, 0.8)) return '<q>신께서 노하실 것이다.</q> 사자가 빈 수레를 끌고 돌아갔다. 그날 밤 붉은 횃불이 고개 너머에 모였다.';
           return '<q>신께서 노하실 것이다.</q> 사자가 빈 수레를 끌고 돌아갔다.'; } },
         ...(d.j && JH.isAlive(d.j) ? [{ label: `${fName(d.j)}에 알린다`, sub: `${fName(d.j)} 관계 +8 · ${F} 관계 -20 · 위협이 쌓인다`, run: () => {
-          changeRel(d.j, 8); changeRel(d.k, -20); evThreat(d.k, 40); return `${fName(d.j)}의 검수들이 마을 길목을 한동안 지켜 주기로 했다. ${F}의 눈빛은 한층 사나워졌다.`; } }] : []),
+          changeRel(d.j, 8); changeRel(d.k, -20); evThreat(d.k, 40); return `${fName(d.j)}에 기별을 넣었다. ${fName(d.j)}에서는 고맙다는 답이 왔지만, ${F}의 눈빛은 한층 사나워졌다.`; } }] : []),
       ];
     },
   },
@@ -1365,17 +1384,17 @@ Object.assign(EV, {
     cond: () => !S.occupation,
     who: () => evTarget('saeoe', null, true),
     init(d) { if (d.k) return; if (!evAim(d, this.who())) return false; d.gin = 50 + rndi(0, 20); d.buy = rndi(70, 100); },
-    text: d => `${evFrom(d)}${evF(d.k)} 쪽 상인들이 낙타와 말을 끌고 마을 광장에 들어섰다. 털모자 아래 볕에 그은 얼굴들이 웃는다.\n<q>산삼과 말, 털가죽이 있소. 곡식과 비단은 비싸게 사 가지.</q>`,
+    text: d => { const L = evLook(d.k); return `${evFrom(d)}${evF(d.k)} 쪽 상인들이 ${L.trader}.\n<q>${L.goods}${pp(L.goods, '이/가')} 있소. 곡식과 비단은 비싸게 사 가지.</q>`; },
     choices: d => {
-      const F = fName(d.k), tr = JH.canAct('trade', d.k);
+      const F = fName(d.k), tr = JH.canAct('trade', d.k), L = evLook(d.k);
       return [
         { label: '산삼을 산다', sub: `은자 -${d.gin} · 다친 사람이 모두 낫는다`, ok: () => S.res.silver >= d.gin, run: () => {
           S.res.silver -= d.gin; changeRel(d.k, 2); for (const v of S.villagers) if (!v.dead && !v.down) v.hp = v.maxHp;
           return '산삼 달인 물을 한 사발씩 돌렸다. 앓던 이들이 자리를 털고 일어났다.'; } },
-        { label: '곡식을 판다', sub: `식량 -60 · 은자 +${d.buy}`, ok: () => S.res.food >= 60, run: () => { S.res.food -= 60; addRes('silver', d.buy); changeRel(d.k, 2); return '곡식 자루가 낙타 등에 실렸다.'; } },
+        { label: '곡식을 판다', sub: `식량 -60 · 은자 +${d.buy}`, ok: () => S.res.food >= 60, run: () => { S.res.food -= 60; addRes('silver', d.buy); changeRel(d.k, 2); return `곡식 자루가 ${L.pack}에 실렸다.`; } },
         { label: '교역 협정을 맺는다', sub: tr.ok ? `은자 -60 · 스무 날 동안 매일 은자 · ${F} 관계 +3` : `은자 -60 · ${tr.why}`, ok: () => JH.canAct('trade', d.k).ok,
           run: () => { const r = JH.act('trade', d.k); return r.ok ? r.text : r.why; } },
-        { label: '그냥 보낸다', run: () => '상인들은 방울 소리를 남기고 떠났다.' },
+        { label: '그냥 보낸다', run: () => `상인들은 ${L.bell}${pp(L.bell, '을/를')} 남기고 떠났다.` },
       ];
     },
   },
@@ -1389,14 +1408,14 @@ Object.assign(EV, {
       d.h = makeHero({ martial: clamp(1.8 + dayOf() / 40 + rnd(0, 1), 1.8, 5) }); if (d.h.sex === 'm') d.h.hero.title = pick(['도객', '창객', '권사']);
       d.cost = Math.round(60 + d.h.martial * 50);
     },
-    text: d => `${evFrom(d)}${evF(d.k)}의 무인 하나가 말을 끌고 마을에 들어섰다. 털가죽 망토 아래 등에 큰 칼을 멨다. 경지는 <em>${realmOf(d.h.martial)}</em>쯤.\n<q>중원의 칼맛이 궁금해 내려왔소. 이 마을에서 제일 센 이와 한 판 겨루고 싶소.</q>`,
+    text: d => { const L = evLook(d.k); return `${evFrom(d)}${evF(d.k)}의 무인 하나가 ${L.walk} 마을에 들어섰다. ${L.cloak} 아래 등에 ${L.arm}${pp(L.arm, '을/를')} 멨다. 경지는 <em>${realmOf(d.h.martial)}</em>쯤.\n<q>중원의 칼맛이 궁금해 ${L.came}. 이 마을에서 제일 센 이와 한 판 겨루고 싶소.</q>`; },
     choices: d => {
-      const F = fName(d.k), c = bestFighter();
+      const F = fName(d.k), c = bestFighter(), L = evLook(d.k);
       return [
         { label: c ? `${c.name}${pp(c.name, '을/를')} 내보낸다` : '겨룰 사람이 없다', sub: `이기면 명성 +10 · ${F} 관계 +6`, ok: () => !!bestFighter(), run: () => {
           const b = bestFighter();
           if (!b) return '겨룰 사람이 없다.';
-          if (Math.random() < clamp(0.5 + (b.martial - d.h.martial) * 0.3, 0.1, 0.9)) { addFame(10); changeRel(d.k, 6); return `${b.name}${pp(b.name, '이/가')} 새외 무인의 큰 칼을 흘려 내고 목에 칼끝을 멈췄다. <q>중원에도 사람이 있구려.</q> 명성 +10.`; }
+          if (Math.random() < clamp(0.5 + (b.martial - d.h.martial) * 0.3, 0.1, 0.9)) { addFame(10); changeRel(d.k, 6); return `${b.name}${pp(b.name, '이/가')} 새외 무인의 ${L.arm}${pp(L.arm, '을/를')} 흘려 내고 목에 칼끝을 멈췄다. <q>중원에도 사람이 있구려.</q> 명성 +10.`; }
           injure(b, 0.3); changeRel(d.k, 3); addFame(2); return `${b.name}${pp(b.name, '이/가')} 세 합 만에 나동그라졌다. 새외 무인이 손을 내밀어 일으켜 주었다.`; } },
         { label: '객경으로 청한다', sub: `은자 -${d.cost} · 매일 은자 ${d.h.hero.upkeep}냥`, ok: () => S.res.silver >= d.cost && evHeroes() < 6, run: () => {
           S.res.silver -= d.cost; const v = spawnHero(d.h, World.exits[evExit(d.k)]); v.look.hat = 'fur'; changeRel(d.k, 4);
@@ -1411,7 +1430,7 @@ Object.assign(EV, {
     cond: () => true,
     who: () => evTarget('saeoe', id => evMil(id) && rel(id) < 20),
     init(d) { if (d.k) return; if (!evAim(d, this.who())) return false; },
-    text: d => `변경 쪽에서 내려온 나그네들이 수군거린다. ${evF(d.k)}의 기마대가 고개 너머에 모였다고 한다. 봉화가 오를지도 모른다.`,
+    text: d => `${evLook(d.k).rumor.replace('{F}', () => evF(d.k))} 봉화가 오를지도 모른다.`,
     choices: d => {
       const F = fName(d.k), sp = JH.canAct('spy', d.k);
       return [
@@ -1431,14 +1450,14 @@ Object.assign(EV, {
     init(d) { if (d.k) return; if (!evAim(d, this.who())) return false; d.ransom = 60 + dayOf() * 2; },
     text: d => `야경을 돌던 무사들이 길 잃은 ${evF(d.k)}의 무인 하나를 사로잡아 왔다. 다리에 화살을 맞아 더는 걷지 못한다.\n<q>죽이든 살리든 마음대로 하라. 다만 우리 쪽에서 사람을 보내 몸값을 낼 것이다.</q>`,
     choices: d => {
-      const F = fName(d.k);
+      const F = fName(d.k), L = evLook(d.k);
       return [
-        { label: '몸값을 받고 돌려보낸다', sub: `은자 +${d.ransom} · ${F} 관계 +6`, run: () => { addRes('silver', d.ransom); changeRel(d.k, 6); return '몸값 꾸러미와 맞바꾸어 포로를 말에 태워 보냈다.'; } },
+        { label: '몸값을 받고 돌려보낸다', sub: `은자 +${d.ransom} · ${F} 관계 +6`, run: () => { addRes('silver', d.ransom); changeRel(d.k, 6); return `몸값 꾸러미와 맞바꾸어 포로를 ${L.ride}에 태워 보냈다.`; } },
         ...(JH.isAlive('gwanbu') ? [{ label: '관부에 넘긴다', sub: `관부 관계 +8 · 은자 +30 · ${F} 관계 -15`, run: () => {
           changeRel('gwanbu', 8); addRes('silver', 30); changeRel(d.k, -15); evThreat(d.k, 20); return '포로는 관부의 옥으로 끌려갔다.'; } }] : []),
         { label: '상처를 치료해 풀어 준다', sub: `식량 -10 · ${F} 관계 +12 · 명성 +3 · 언젠가 은혜를 갚으러 올지도 모른다`, ok: () => S.res.food >= 10, run: () => {
           S.res.food -= 10; changeRel(d.k, 12); addFame(3); evLater('saeoe_captive_return', rndi(5, 7) * 24, { k: d.k });
-          return '상처가 아문 무인이 말 위에서 오래 뒤를 돌아보며 떠났다.'; } },
+          return `상처가 아문 무인이 ${L.ride} 위에서 오래 뒤를 돌아보며 떠났다.`; } },
       ];
     },
   },
@@ -1450,7 +1469,7 @@ Object.assign(EV, {
       d.gift = Math.random() < 0.35 && evHeroes() < 6 ? 'hero' : 'goods';
       if (d.gift === 'hero') d.h = makeHero({ upkeepMul: 0.6 });
     },
-    text: d => `지난번 풀어 준 ${evF(d.k)}의 무인이 동료들과 함께 다시 찾아왔다. 말 등에 짐이 가득하다.\n<q>목숨을 빚졌으니 갚으러 왔소.</q>${d.gift === 'hero' ? '\n그는 아예 이 마을에 남겠다고 한다.' : ''}`,
+    text: d => `지난번 풀어 준 ${evF(d.k)}의 무인이 동료들과 함께 다시 찾아왔다. ${evLook(d.k).pack}에 짐이 가득하다.\n<q>목숨을 빚졌으니 갚으러 왔소.</q>${d.gift === 'hero' ? '\n그는 아예 이 마을에 남겠다고 한다.' : ''}`,
     choices: d => {
       const F = fName(d.k);
       if (d.gift === 'hero') return [
@@ -1621,7 +1640,7 @@ Object.assign(EV, {
     title: '전장 줍기', stamp: '拾', tier: 'light', jh: true, weight: 0.5, cd: 12,
     cond: () => evWars().some(w => evFrontText(w) !== '먼 곳이다') || !!evLastWar(4),
     init: d => { if (d.n) return; const w = evWars().find(x => evFrontText(x) !== '먼 곳이다'); const lw = evLastWar(4); d.war = w ? w.name : lw ? lw.name : '싸움'; d.ids = (w ? w.a.concat(w.b) : lw ? lw.all : []).filter(id => JH.isNear(id)); d.n = rndi(8, 16); },
-    text: d => `${d.war}의 싸움이 마을 근처 들판을 휩쓸고 지나갔다. 부러진 창과 주인 잃은 칼이 풀숲에 널려 있다. 까마귀가 낮게 맴돈다.`,
+    text: d => `${d.war}${pp(d.war, '이/가')} 마을 근처 들판을 휩쓸고 지나갔다. 부러진 창과 주인 잃은 칼이 풀숲에 널려 있다. 까마귀가 낮게 맴돈다.`,
     choices: d => [
       { label: '무사들을 보내 거둔다', sub: `병장기 +${d.n} · 숨은 잔병과 마주칠 수 있다`, ok: () => fighters().length > 0, run: () => {
         addRes('weapons', d.n);
