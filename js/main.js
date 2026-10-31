@@ -2,7 +2,7 @@
 // ───────────────────────────────────────────────
 // 시작, 입력, 게임 루프
 // ───────────────────────────────────────────────
-const Input = { pointers: new Map(), down: false, btn: 0, sx: 0, sy: 0, lx: 0, ly: 0, moved: false, paint: false, paintStart: null, paintKey: null, pinch: null, keys: new Set(), prevSpeed: 1 };
+const Input = { pointers: new Map(), down: false, btn: 0, ptype: 'mouse', sx: 0, sy: 0, lx: 0, ly: 0, moved: false, paint: false, paintStart: null, paintKey: null, pinch: null, keys: new Set(), prevSpeed: 1 };
 
 // 화면 좌표 → 타일 (정수 x, y와 실수 fx, fy). 투영은 render.js 의 screenToTile 이 맡는다.
 function tileAtScreen(sx, sy) {
@@ -24,7 +24,15 @@ function onClick(btn, sx, sy) {
   if (btn === 2) { if (UI.tool) UI.setTool(null); else UI.select(null); return; }
   const tool = UI.tool;
   if (!tool) {
-    UI.select(pickAt(sx, sy));
+    const hit = pickAt(sx, sy);
+    UI.select(hit);
+    // 길목 문장판을 누르면 그 길의 이웃 풀이를 띄운다 (터치에는 커서 풀이가 없다).
+    // 터치는 mapShown 을 끄고 touchShown 으로 두어야 손을 뗀 뒤의 pointerleave 에 지워지지 않고, 다음에 누를 때 닫힌다.
+    // 마우스는 커서 풀이처럼 두어 커서가 떠나면 닫힌다
+    if (!hit && typeof exitCrestAt === 'function' && exitCrestAt(sx, sy)) {
+      const info = Tips.exitInfo(sx, sy), touch = Input.ptype !== 'mouse';
+      if (info) { Tips.render(info.title, info.body); Tips.place(sx, sy, false); Tips.mapShown = !touch; Tips.touchShown = touch; }
+    }
     return;
   }
   if (tool.kind === 'build') {
@@ -87,7 +95,7 @@ function initInput() {
       Input.paint = false; UI.dragTiles = null; Input.moved = true;
       return;
     }
-    Input.down = true; Input.btn = e.button; Input.moved = false;
+    Input.down = true; Input.btn = e.button; Input.ptype = e.pointerType; Input.moved = false;
     Input.sx = Input.lx = e.clientX; Input.sy = Input.ly = e.clientY;
     const t = tileAtScreen(e.clientX, e.clientY);
     if (e.button === 0 && UI.tool && (UI.tool.kind === 'road' || UI.tool.kind === 'line')) {
