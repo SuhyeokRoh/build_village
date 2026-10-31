@@ -11,7 +11,6 @@
 <link rel="stylesheet" href="css/petitions.css">
 <link rel="stylesheet" href="css/story.css">
 <link rel="stylesheet" href="css/worldmap.css">
-<style>@media (max-width: 640px) { #btn-worldmap.wide-only { display: none; } }</style>
 </head>
 <body>
 <div id="app">
@@ -44,8 +43,8 @@
     <button type="button" id="btn-story" data-tip-title="총관(總管)" data-tip="영주를 곁에서 돕는 비서. 지금 할 일과 목표를 알려 준다.">총관</button>
     <button type="button" id="btn-admin" data-tip-title="육방(六房)" data-tip="관아의 여섯 부서. 예산을 나눠 주면 부서가 알아서 필요한 것을 짓고 처리한다.">육방</button>
     <button type="button" id="btn-petitions" data-tip-title="상소함(上疏函)" data-tip="백성이 올린 상소. 들어주거나 물리쳐 민심을 다스린다.">상소함 <span id="petition-badge" class="badge" hidden>0</span></button>
-    <button type="button" id="btn-worldmap" class="wide-only" data-tip-title="天下圖" data-tip="천하의 판도와 전쟁, 계열마다의 세력 흐름을 본다.">천하도</button>
-    <button type="button" id="btn-factions">세력</button>
+    <button type="button" id="btn-worldmap" class="wide-only" data-tip-title="天下圖 · 천하도" data-tip="천하의 판도와 전쟁, 계열마다의 세력 흐름을 본다. 보는 동안 시간이 멈춘다."><span class="mb-hj" aria-hidden="true">天下</span>천하도</button>
+    <button type="button" id="btn-factions" data-tip-title="세력" data-tip="이웃과 천하의 세력, 외교, 의뢰, 강호의 소식.&#10;붉은 수는 맡을 수 있는 의뢰다.">세력 <span id="faction-badge" class="badge" hidden>0</span></button>
     <button type="button" id="btn-village">마을 현황</button>
     <button type="button" id="btn-log">기록</button>
     <button type="button" id="btn-save">저장</button>

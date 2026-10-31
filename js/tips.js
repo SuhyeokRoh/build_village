@@ -79,8 +79,7 @@ const Tips = {
   showMap(sx, sy) {
     if (!S || !document.getElementById('title-screen').hidden || UI.modalOpen || UI.tool || this.cur) return;
     const hit = pickAt(sx, sy);
-    if (!hit) return;
-    const info = hit.u ? this.unitInfo(hit.u) : this.buildingInfo(hit.b);
+    const info = hit ? (hit.u ? this.unitInfo(hit.u) : this.buildingInfo(hit.b)) : this.exitInfo(sx, sy);
     if (!info) return;
     this.mapShown = true;
     this.render(info.title, info.body);
@@ -113,11 +112,27 @@ const Tips = {
     if (b.hp < b.maxHp && b.done) lines.push(`내구도 ${Math.ceil(b.hp)} / ${b.maxHp}`);
     return { title: def.name, body: lines.join('\n') };
   },
+  // 지도 가장자리 길목: 그 방향의 이웃 ('북쪽 산길 — 흑풍채, 칠살문 쪽'). toward 는 JH.attachExits 가 붙인다
+  exitInfo(sx, sy) {
+    const t = screenToTile(sx, sy);
+    let best = null, bd = 2.6;
+    for (const ex of World.exits) {
+      const d = Math.hypot(t.x - (ex.x + 0.5), t.y - (ex.y + 0.5));
+      if (d < bd && ex.toward && ex.toward.length) { bd = d; best = ex; }
+    }
+    if (!best) return null;
+    const ids = best.toward.filter(id => FACTIONS[id]);
+    const lines = ids.map(id => {
+      const F = FACTIONS[id], r = Math.round(rel(id));
+      const th = F.military && S.vassal !== id && typeof JH !== 'undefined' ? ` · ${JH.spied(id) ? `위협 ${Math.round(S.factions[id].threat)}%` : JH.threatWord(id)}` : '';
+      return `${F.name} · 관계 ${r > 0 ? '+' : ''}${r}${th}`;
+    });
+    return { title: `${best.name} — ${ids.map(id => FACTIONS[id].name).join(', ')} 쪽`, body: lines.join('\n') };
+  },
   unitInfo(u) {
     if (u.kind === 'v') {
       const role = u.hero ? `${u.hero.title} · 객경` : u.jobType ? JOB_NAME[u.jobType] : '무직';
-      let doing = u.down ? '쓰러져 있다' : u.act === 'work' ? (WORK_TEXT[u.jobType] || '일하는 중') : (ACT_TEXT[u.act] || '');
-      const lines = [`${role} · ${u.age}세`, doing];
+      const lines = [`${role} · ${u.age}세`, actTextOf(u)];
       if (u.role === 'guard' || u.hero) lines.push(`무공 ${realmOf(u.martial)}`);
       if (u.petition) lines.push('상소를 올리고 처결을 기다리는 중');
       return { title: u.hero ? `${u.hero.epithet} ${u.name}` : u.name, body: lines.filter(Boolean).join('\n') };
