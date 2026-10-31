@@ -87,6 +87,17 @@
 }
 .pet-due.urgent { background: var(--cinnabar); border-color: var(--cinnabar); color: #fff3e6; }
 .pet-newtag { border-color: var(--gold-dim); color: #7a5a1e; background: rgba(214, 170, 82, 0.18); }
+/* 상소에 얽힌 세력: 세력 색 문장과 이름 */
+.pet-fac {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px 1px 2px; border-radius: 999px; white-space: nowrap;
+  font-family: var(--font-body); font-size: 12px; color: var(--ink-soft); cursor: help;
+  border: 1px solid var(--fc, var(--ink-soft)); background: rgba(255, 255, 255, 0.32);
+}
+.pet-fac i {
+  width: 19px; height: 19px; border-radius: 50%; display: grid; place-items: center; font-style: normal;
+  background: var(--fc, var(--ink-soft)); color: #fbf3e2; font-family: var(--font-display); font-size: 12px; line-height: 1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
 .pet-loc {
   margin-left: auto; background: none; border: 0; padding: 2px 2px; font-family: var(--font-body); font-size: 13px;
   color: var(--cinnabar); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(181, 51, 42, 0.45);
