@@ -95,6 +95,8 @@
 #steward.mini .stw-text { font-size: 13.5px; line-height: 1.5; min-height: 0; max-height: 4.6em; }
 #steward.mini .stw-who b { font-size: 14px; }
 #steward.mini .stw-foot { margin-top: 4px; }
+/* 키 낮은 화면에서 카드 키를 묶으면(Story.layout 이 max-height) 몸통이 굴러간다 — 첫 선택지가 위 띠 밑에 숨지 않게 */
+#steward .stw-body { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 
 /* ── 할 일 두루마리 ─────────────────────── */
 #story-tracker {

@@ -922,7 +922,7 @@ const Story = (() => {
     },
     sa: {
       name: '사파', seal: '邪', foes: ['jeong', 'gwan'], title: '사파의 맹주',
-      war: { name: '정사대전', goal: true, only: 'jeong' }, raid: ['jeong', 'gwan'],
+      war: { name: '정사대전', goal: true, only: 'jeong' }, raid: ['jeong', 'gwan'], raidFirst: 'jeong',   // 토벌대는 먼 정파부터 (곁의 관부보다 먼저)
       ch5: rch('sa', 5, {
         title: '강 나루의 주인', seal: '渡', step: '나루의 주인 되기', why: '사파는 길목과 돈줄을 쥔 자를 따릅니다.',
         goals: () => [gBuild('gambling'), gQuests('사파의 의뢰 해내기', 3, c => c === 'sa', '사파 세력의 의뢰')],
@@ -938,7 +938,7 @@ const Story = (() => {
         goals: () => [gRaid('정파 토벌대 격퇴'), gWar()],
         lines: () => [
           { m: 'stern', t: '제6장, 사파 회맹입니다. 사파의 방회들이 이 마을에서 회맹을 열자고 합니다. 맹주 자리는 이기는 자의 것입니다.' }, warLine(),
-          { m: 'worry', t: '정파가 토벌대를 꾸려 이 마을로 온다는 소문입니다. 막아 내시고, 정사대전에서도 이기셔야 합니다.' },
+          { m: 'worry', t: `정파가 토벌대를 꾸려 이 마을로 온다는 소문입니다. 막아 내시고, ${warNm('정사대전')}에서도 이기셔야 합니다.` },
         ],
       }),
       heuk: { lines: ['흑풍채주가 사파 회맹에 불려 가 무릎을 꿇었습니다. 흑풍채는 회맹의 말단으로 흩어졌습니다.'], news: '흑풍채가 사파 회맹에 머리를 숙이고 흩어졌다.' },
@@ -965,7 +965,7 @@ const Story = (() => {
         title: '관문을 열다', seal: '關', step: '관문 열기', why: '관의 토벌을 이겨 내고 새외와 길을 터야 마을이 관문이 됩니다.',
         goals: () => [gRaid('관의 토벌 격퇴'), gTrades(2)],
         lines: () => [
-          { m: 'stern', t: '제6장, 관문을 열다입니다. 관이 이 마을을 오랑캐와 내통한 곳으로 지목했습니다. 토벌이 옵니다.' }, warLine('변경에서도 '),
+          { m: 'stern', t: '제6장, 「관문을 열다」입니다. 관이 이 마을을 오랑캐와 내통한 곳으로 지목했습니다. 토벌이 옵니다.' }, warLine('변경에서도 '),
           { m: 'calm', t: '토벌을 막아 내시고, 새외 세력 둘과 교역 협정을 맺어 길을 트십시오. 그러면 이 마을이 중원과 새외를 잇는 관문이 됩니다.' },
         ],
       }),
@@ -1011,7 +1011,7 @@ const Story = (() => {
         title: '누구의 깃발도 아니다', seal: '獨', step: '홀로 서는 이름 얻기', why: '누구의 산하도 아닌 마을은 이름과 칼로 스스로를 지켜야 합니다.',
         goals: () => [gFame(200), gBuild('stage'), gRelAll(-30)],
         lines: () => [
-          { m: 'smile', t: '제5장, 누구의 깃발도 아니다. 이 마을은 어느 문파의 산하도 아닙니다. 그만큼 이름으로 버텨야 하지요.' },
+          { m: 'smile', t: '제5장, 「누구의 깃발도 아니다」입니다. 이 마을은 어느 문파의 산하도 아닙니다. 그만큼 이름으로 버텨야 하지요.' },
           { m: 'calm', t: `인구 70의 ${hjp('진', '鎭')}으로 키우시고, 명성 200을 떨치시고, 누구나 올라 겨루는 연무대를 세우시고, 이웃 누구와도 원수가 되지 마십시오. 관계 −30 아래인 이웃이 없어야 합니다.` },
         ],
         reward: { silver: 400 }, rewardWhy: '강호의 예물',
@@ -1427,6 +1427,8 @@ const Story = (() => {
       if (st.finished || S.victory) {
         if (S.victory && !jh.victory) jh.victory = jh.route || 'free';
         if (S.victory && !S.victoryTitle) S.victoryTitle = (ROUTES[jh.victory] || ROUTES.free).title;
+        // 끝난 뒤 주군을 바꿔 갈래가 어긋난 저장: 칭호를 얻은 갈래로 되돌린다 (그 갈래의 건물 혜택도 함께)
+        if (ROUTES[jh.victory] && jh.route !== jh.victory) jh.route = jh.victory;
         return;
       }
       if (st.intro !== 'done') return;
@@ -1515,8 +1517,8 @@ const Story = (() => {
       const fk = f ? `${Math.round(f.x)},${Math.round(f.y)}` : '';
       if (fk && fk !== this._focusKey && this.tutorialActive() && !S.raid && !UI.modalOpen) UI.focusOn(f.x, f.y);
       if (fk) this._focusKey = fk;
-      // 장 제목: 사건 두루마리나 멈춤 대화가 없을 때
-      const blocked = UI.modalOpen || (this.cur && this.cur.pause) || S.eventQueue.length;
+      // 장 제목: 사건 두루마리나 멈춤 대화가 없고 천하도도 닫혔을 때 (지도 밑에서 지나가 버리지 않게)
+      const blocked = UI.modalOpen || (this.cur && this.cur.pause) || S.eventQueue.length || (typeof WorldMap !== 'undefined' && WorldMap.isOpen());
       if (this._card && !blocked) { this._card = false; this.chapterCard(); }
       this.renderTracker();
       this.layout();
@@ -1851,10 +1853,14 @@ const Story = (() => {
       const lines = [];
       lines.push({ m: 'calm', t: `사람 ${pop}명에 집 ${house}칸, ${house > pop ? `빈 자리가 ${house - pop}칸 있습니다` : '빈 집이 없습니다'}. 곳간의 식량은 ${days >= 30 ? '넉넉하고' : `${Math.max(0, Math.floor(days))}일 치이고`}, 은자는 ${fmt(S.res.silver)}냥입니다.` });
       lines.push({ m: S.happy < 40 ? 'worry' : 'calm', t: `민심은 ${Math.round(S.happy)}입니다.${worst ? ` 가장 큰 걱정거리는 「${worst[0]}」(${Math.round(worst[1])})이고요.` : ' 이렇다 할 걱정거리는 없습니다.'}${pend ? ` 상소가 ${pend}건 기다리고 있습니다.` : ''}` });
+      // 첩자가 없으면 위협은 낱말로만 아뢴다 (§7: 잠잠 · 술렁 · 칼을 간다)
+      const tk = threats.length ? threats[0][0] : null, F = tk && FACTIONS[tk];
+      const sp = !!tk && (!jhOn() || JH.spied(tk)), w = tk && jhOn() ? JH.threatWord(tk) : '';
       if (S.occupation) lines.push({ m: 'worry', t: `마을이 ${FACTIONS[S.occupation.faction].name}에 점령되어 있습니다. [세력] 창에서 되찾을 길을 찾으십시오.` });
-      else if (threats.length && threats[0][1] >= 40) {
-        const F = FACTIONS[threats[0][0]];
-        lines.push({ m: 'stern', t: `${F.name}의 위협이 ${threats[0][1]}%까지 차올랐습니다. 무사 ${fighters().length}명, 망루 ${countType('tower')}채, 무력 ${defensePower()}. 방비를 서두르십시오.` });
+      else if (tk && (sp ? threats[0][1] >= 40 : w !== '잠잠')) {
+        const head = sp ? `${F.name}의 위협이 ${threats[0][1]}%까지 차올랐습니다`
+          : w === '칼을 간다' ? `${F.name}${pp(F.name, '이/가')} 칼을 갈고 있습니다` : `${F.name} 쪽이 술렁입니다`;
+        lines.push({ m: 'stern', t: `${head}. 무사 ${fighters().length}명, 망루 ${countType('tower')}채, 무력 ${defensePower()}. 방비를 서두르십시오.` });
       } else lines.push({ m: 'smile', t: `강호는 아직 잠잠합니다. 무력은 ${defensePower()}, 무사 ${fighters().length}명이 마을을 지킵니다.` });
       const next = S.rank + 1 < RANKS.length ? RANKS[S.rank + 1] : null;
       if (next) lines.push({ m: 'calm', t: `인구가 ${next.minPop}명이 되면 ${rankName(S.rank + 1)}${pp(next.name, '으로/로')} 오릅니다. 지금 ${pop}명입니다.` });
@@ -1936,7 +1942,7 @@ const Story = (() => {
     // 갈래를 정한다. 제4장(갈림길)부터는 굳힌 갈래, 그 전에는 잠정. 제5장 이후에 바뀌면 갈래 바꾸기 (§8.3)
     setRoute(key, prev) {
       const st = ST(), jh = S.jh, was = jh.route, wasOk = routeOk();
-      if (!ROUTES[key]) return;
+      if (!st || st.finished || !ROUTES[key]) return;   // 칭호를 얻은 뒤에는 갈래가 굳는다
       if (st.chapter >= 4 && was && was !== key) { this.switchRoute(key, prev); return; }
       jh.route = key;
       st.routeOk = st.chapter >= 3;
@@ -1960,6 +1966,7 @@ const Story = (() => {
     // 갈래 바꾸기 (§8.3): 한 번까지. 두 번째부터는 독립이 된다. 그 장의 목표는 새 갈래 것으로 처음부터
     switchRoute(key, prev) {
       const st = ST(), jh = S.jh, old = jh.route;
+      if (!st || st.finished) return;
       const forced = jh.routeSwitches >= 1;
       if (forced) key = 'free';
       if (key === old) return;
@@ -1987,6 +1994,8 @@ const Story = (() => {
       if (!st || !jhOn()) return;
       const prev = st.lord || (this._broke && this._broke.t === S.time ? this._broke.id : null);
       st.lord = k || null;
+      // 이야기가 끝난 뒤에도 주군은 바꿀 수 있지만, 이룬 갈래와 칭호는 그대로 둔다 (절정·장을 다시 열지 않는다)
+      if (st.finished) return;
       if (!k) {
         if (prev && !JH.isAlive(prev)) { this._broke = null; this.lordFell(prev); return; }
         this._broke = prev ? { id: prev, t: S.time } : null;
@@ -2001,6 +2010,7 @@ const Story = (() => {
     // 주군이 멸문했다 (§8.3): 거리 400 안의 같은 계열 가운데 가장 센 세력이 갈래를 잇는다. 없으면 독립
     lordFell(prev) {
       const st = ST(), c = JH.campOf(prev), k = route();
+      if (!st || st.finished) return;
       if (!st.routeOk) { if (k === campRoute(c)) { S.jh.route = null; UI.buildMenuDirty = true; } return; }
       if (k !== campRoute(c)) return;
       const heir = FACTION_ORDER.filter(id => id !== prev && JH.isAlive(id) && JH.campOf(id) === c && !FACTIONS[id].noLord && seatGap(id) <= 400).sort(byPower)[0];
@@ -2078,11 +2088,12 @@ const Story = (() => {
       return { lines: R.ch6.lines() || [] };
     },
     // 짜인 전쟁: 갈래 계열(주군 → 이웃 → 가까운 세력)과 숙적 계열(이웃 → 가까운 세력)이 맞선다. 전장은 고을 곁
-    // 이름은 갈래의 것(정마대전 따위). 맞수가 그 이름의 계열(only)이 아니면 JH 가 짓는다(정사대전·토벌전…)
+    // 이름은 갈래의 것(정마대전 따위). 맞수는 그 이름의 계열(only)에서 먼저 찾고(이웃이 없으면 가장 가까운 세력),
+    // 그 계열이 천하에 없을 때만 다른 숙적과 붙는다. 그러면 JH 가 이름을 짓는다(정사대전·토벌전…)
     openWar(again) {
       const cx = cxOf(), k = route(), R = ROUTES[k];
       if (!R || !R.war || cx.r !== k) return;
-      const a = campRep(k), b = a ? foeRep(R.foes, [a]) : null, h = homeSite();
+      const a = campRep(k), b = a ? ((R.war.only && foeRep([R.war.only], [a])) || foeRep(R.foes, [a])) : null, h = homeSite();
       const name = b && (!R.war.only || JH.campOf(b) === R.war.only) ? R.war.name : undefined;
       const w = a && b ? JH.startWar([a], [b], name, { scripted: true, front: { x: h.x + 34, y: h.y + 22 } }) : null;
       if (!w) {
@@ -2103,7 +2114,7 @@ const Story = (() => {
         cx.rk = cx.rk || []; cx.rb = cx.rb || [];
         foe = cx.rk.find(id => !cx.rb.includes(id) && armed(id)) || null;
         if (!foe) { foe = topNear(1, cx.rk.concat(cx.rb))[0] || null; if (foe) cx.rk.push(foe); }
-      } else foe = foeRep(R.raid);
+      } else foe = (R.raidFirst && foeRep([R.raidFirst])) || foeRep(R.raid);   // 사파의 토벌대는 정파부터
       if (!foe) {
         cx.rs = 'won'; if (k === 'free') cx.rw = 2;
         this.say([{ m: 'calm', t: '마을을 칠 만한 세력이 더는 남아 있지 않습니다. 이 고비는 저절로 넘었습니다.' }], { tag: 'route' });
@@ -2551,9 +2562,12 @@ const Story = (() => {
         card.style.bottom = Math.round(bottom) + 'px';
         if (!ph) card.style.width = Math.max(300, Math.min(470, W - cl - 200)) + 'px';
         else card.style.width = wide ? Math.min(560, W - 16) + 'px' : '';
+        // 제 키: 아래에서 키를 묶었어도(max-height) 풀지 않고 잰다 (풀었다 묶었다 하면 굴린 자리가 매번 맨 위로 돌아간다)
+        const sb = card.querySelector('.stw-body');
+        const natOf = r => r.height + (sb ? sb.scrollHeight - sb.clientHeight : 0);
         // 키가 낮은 화면: 세로 메뉴를 가리면 메뉴 오른쪽으로 비킨다
         let cr = card.getBoundingClientRect();
-        if (!ph && cr.top < mb.bottom + 6 && cr.left < mb.right + 4) {
+        if (!ph && cr.bottom - natOf(cr) < mb.bottom + 6 && cr.left < mb.right + 4) {
           cl = mb.right + 10;
           card.style.left = cl + 'px';
           card.style.width = Math.max(300, Math.min(470, W - cl - 190)) + 'px';
@@ -2562,6 +2576,15 @@ const Story = (() => {
         // 너무 높이 올라가 메뉴를 가리면 글만 남긴다
         const ceil = Math.max(mb.bottom, ph ? trk.getBoundingClientRect().bottom : 0) + 6;
         if (ph && cr.top < ceil && !mini) card.classList.add('mini');
+        // 그래도 위 띠(와 겹치는 메뉴) 밑으로 들어가면 (가로로 눕힌 폰·키 낮은 창) 글만 남기고, 모자라면 카드 키를 묶어 몸통을 굴린다
+        if (sb) {
+          cr = card.getBoundingClientRect();
+          const over = mb.right + 4 > cr.left && mb.left < cr.right;
+          const top = Math.max(byId('topbar').getBoundingClientRect().bottom, over ? mb.bottom : 0) + 6;
+          if (cr.bottom - natOf(cr) < top && !card.classList.contains('mini')) { card.classList.add('mini'); cr = card.getBoundingClientRect(); }
+          const mh = natOf(cr) > cr.bottom - top ? Math.max(120, Math.floor(cr.bottom - top)) + 'px' : '';
+          if (card.style.maxHeight !== mh) card.style.maxHeight = mh;
+        }
       }
       // 두루마리가 카드와 겹치면 두루마리 몸통을 줄인다
       const body = trk.querySelector('.trk-body');
