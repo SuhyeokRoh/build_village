@@ -109,7 +109,7 @@ const JH = (() => {
     return { name: `${A}${pp(A, '과/와')} ${B}의 싸움`, swap: false };
   }
 
-  // 혜택 기억: 주군·동맹·갈래·건물·날이 바뀌면 다시 셈한다
+  // 혜택 기억: 주군·동맹·갈래·건물·날, 일꾼(refreshAssign 끝의 touch)이 바뀌면 다시 셈한다
   let ver = 0;
   const memo = { S: null, ver: -1, day: -1, lord: null, route: null, np: -1, site: null, vals: {} };
   function perks() {
@@ -230,10 +230,10 @@ const JH = (() => {
       if (typeof Story === 'undefined') return true;
       const h = hook(Story, 'allowJianghu');
       if (h !== undefined) return !!h;
-      // 이야기 모듈에 훅이 아직 없을 때: 제3장(index 2) 이상, 또는 안내를 건너뛰고 8일째부터 (§0.1)
+      // 이야기 모듈에 훅이 아직 없을 때: 제4장(index 3) 이상, 또는 안내를 건너뛰고 8일째부터 (§0.1)
       const st = S && S.story;
       if (!st) return true;
-      return st.chapter >= 2 || (!!st.skipped && dayOf() >= 8);
+      return st.chapter >= 3 || (!!st.skipped && dayOf() >= 8);
     },
     near() { return S && S.jh ? S.jh.near.slice() : OLD_NEAR.slice(); },
     isNear(id) { return !!(S && S.jh && S.jh.near.includes(id)); },
@@ -256,6 +256,8 @@ const JH = (() => {
       if (v !== undefined) return v;
       return (name === 'heroEvery' || ADD.has(name)) ? 0 : 1;
     },
+    // refreshAssign 끝에 sim.js 가 부른다: 갈래 건물의 일꾼이 바뀌었을 수 있다
+    touch() { ver++; },
     happinessFactors() {
       if (!S || !S.jh) return [];
       const out = [], seen = new Set();
@@ -291,8 +293,9 @@ const JH = (() => {
       for (const id of S.jh.pacts) if (can(id) && !this.warOf(id)) return { id, n: Math.max(2, Math.round(n / 2)) };
       return null;
     },
-    // 고을 성질로 따로 오는 원군 (요하 변성의 진북군)
+    // 고을 성질로 따로 오는 원군 (요하 변성의 진북군). 튜토리얼에는 오지 않는다
     siteAid(k) {
+      if (!this.allowJianghu()) return null;
       const id = this.trait().aid;
       if (!id || id === k || id === S.vassal || !fac(id) || !fac(id).military || !alive(id) || rel(id) < -20) return null;
       return { id, n: Math.max(2, Math.round(Math.min(3 + Math.floor(dayOf() / 6), 10) / 2)) };
@@ -334,9 +337,9 @@ const JH = (() => {
         }
       }
       if (allow) {
-        // 멸문 30일 뒤 재기
+        // 멸문 30일 뒤 재기 (local 둘은 이야기만 멸문시키므로 다시 일어나지 않는다)
         for (const id in jh.dead) {
-          if (d - jh.dead[id] < 30 || !chance(0.3)) continue;
+          if (LOCAL.includes(id) || d - jh.dead[id] < 30 || !chance(0.3)) continue;
           delete jh.dead[id];
           jh.power[id] = 30;
           this.news(`${fac(id).name}${pp(fac(id).name, '이/가')} 잿더미 속에서 다시 일어섰다.`, 'rise', [id]);
@@ -447,8 +450,11 @@ const JH = (() => {
       jh.quests = jh.quests.filter(q => q.state !== 'open' || (q.fid !== id && q.target !== id));
       for (const q of jh.quests) if (q.fid === id) q.void = true;
       delete jh.spies[id]; delete jh.trade[id]; delete jh.grudge[id];
-      this.news(`${F.name}${pp(F.name, '이/가')} 멸문했다.`, 'fall', [id]);
-      if (wasNear) scroll('jh_survivors', { f: id });
+      // quiet: 이야기가 조용히 거둘 때 (흑도 갈래의 흑풍채 흡수). 소식도 두루마리도 없다
+      if (!opts.quiet) {
+        this.news(`${F.name}${pp(F.name, '이/가')} 멸문했다.`, 'fall', [id]);
+        if (wasNear) scroll('jh_survivors', { f: id });
+      }
       ver++;
       return true;
     },
@@ -763,8 +769,7 @@ const JH = (() => {
           return money(cost);
         }
         case 'trade': {
-          const cost = { silver: 60 };
-          if (!near) return r(false, '이웃하고만 교역 협정을 맺는다', cost);
+          const cost = { silver: 60 };   // 먼 세력과도 맺는다 (새외 갈래는 새외 둘이 필요하다)
           if (!TRADE_CAMPS.includes(F.camp)) return r(false, '상단·새외·세가와만 교역 협정을 맺는다', cost);
           if (jh.trade[id] > d) return r(false, `이미 교역 중이다 (${jh.trade[id] - d}일 남음)`, cost);
           if (Object.keys(jh.trade).filter(k => jh.trade[k] > d).length >= 2) return r(false, '교역 협정은 동시에 둘까지다', cost);

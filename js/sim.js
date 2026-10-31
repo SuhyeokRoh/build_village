@@ -341,6 +341,7 @@ function refreshAssign() {
     }
   }
   G.sites = S.buildings.filter(b => !b.done && !b.ruined);
+  hook(JH, 'touch');   // 갈래 건물의 일꾼이 바뀌면 혜택을 다시 셈한다
 }
 function refreshLive() {
   for (const b of S.buildings) { b._home = 0; b._manned = null; b._working = false; b._builders = 0; }
@@ -361,12 +362,19 @@ function refreshLive() {
 // ── 경제 ─────────────────────────────────
 const SEASON_FARM = [1.0, 1.25, 1.5, 0.35];
 function tradeMul() { return JH.perk('trade'); }
+// 고을 땅 생김이 먹을 것에 주는 배수 (모두 0.5면 예전 그대로). 육방의 식량 내다보기도 이것을 쓴다
+// 겨울이 없는 고을(trait.noWinter)의 넷째 철은 봄처럼 거둔다
+function isWinter(si = seasonIdx()) { return si === 3 && !JH.trait().noWinter; }
+function farmMul(si = seasonIdx()) {
+  const bio = JH.biome();
+  return (isWinter(si) ? SEASON_FARM[3] * (1 - 0.6 * (bio.cold - 0.5)) : SEASON_FARM[si === 3 ? 0 : si]) * (1 + 0.4 * (bio.fertile - 0.5));
+}
+function fishMul(si = seasonIdx()) { return (isWinter(si) ? 0.6 : 1) * JH.perk('fish'); }
+function foodUseMul(si = seasonIdx()) { return isWinter(si) ? 1 + 0.4 * (JH.biome().cold - 0.5) : 1; }
 function economyStep(dtH) {
   const season = seasonIdx();
   const pop = popCount();
-  // 고을 땅 생김: 기름진 들은 수확을, 추위는 겨울 논밭과 겨울 식량을 바꾼다 (모두 0.5면 예전 그대로)
-  const bio = JH.biome(), winter = season === 3 && !JH.trait().noWinter;
-  const farmMul = (winter ? SEASON_FARM[3] * (1 - 0.6 * (bio.cold - 0.5)) : SEASON_FARM[season === 3 ? 0 : season]) * (1 + 0.4 * (bio.fertile - 0.5));
+  const farmM = farmMul(season), fishM = fishMul(season);
   const tm = tradeMul(), shop = 0.36 + pop * 0.007;
   const drought = hasMod('drought') ? (hasMod('well_dug') ? 0.7 : 0.4) : 1;
   const harvest = hasMod('harvest') ? 1.4 : 1;
@@ -379,8 +387,8 @@ function economyStep(dtH) {
     if (!b || !b.active) continue;
     const m = quarantine * occ * dtH;
     switch (b.type) {
-      case 'farm': addRes('food', 0.66 * farmMul * drought * harvest * m); break;
-      case 'fishery': addRes('food', 0.56 * (winter ? 0.6 : 1) * JH.perk('fish') * m); break;
+      case 'farm': addRes('food', 0.66 * farmM * drought * harvest * m); break;
+      case 'fishery': addRes('food', 0.56 * fishM * m); break;
       case 'lumber': addRes('wood', 0.9 * (b._forest || 0.5) * m); break;
       case 'quarry': addRes('stone', 0.62 * (b._rock || 0.5) * m); break;
       case 'smithy':
@@ -404,7 +412,7 @@ function economyStep(dtH) {
     }
   }
   if (trade > 0) { addRes('silver', trade); if (S.dayAcc) S.dayAcc.trade = (S.dayAcc.trade || 0) + trade; }
-  S.res.food -= pop * dtH / 12 * (winter ? 1 + 0.4 * (bio.cold - 0.5) : 1);
+  S.res.food -= pop * dtH / 12 * foodUseMul(season);
   if (S.res.food < 0) { S.res.food = 0; S.starving += dtH; }
   const cap = storageCap();
   for (const k of ['food', 'wood', 'stone', 'weapons']) S.res[k] = Math.min(S.res[k], cap);

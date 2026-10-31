@@ -12,8 +12,9 @@
 
 ### 0.1 튜토리얼 보호 (가장 먼저 지킬 것)
 
-- 제1~3장은 지금처럼 흑풍채와 관부만으로 돌아가야 한다. `Story.allowJianghu()` 훅을 둔다. 제3장(index 2) 이상이면 참이고, 안내를 건너뛰었다면 8일째부터 참이다. 이야기 모듈이 없으면 참이다.
-- 이것이 거짓인 동안: 전쟁이 일어나지 않고, 의뢰가 붙지 않고, 새 외교 단추(사신·교역·동맹·현상금·첩자·지원·중재)를 쓸 수 없고, 강호에서 오는 두루마리와 소식 알림도 없다. 힘의 자연 성장만 돈다. 예물과 산하는 지금처럼 쓴다.
+- 제1~3장은 지금처럼 흑풍채와 관부만으로 돌아가야 한다. `Story.allowJianghu()` 훅을 둔다. 제4장(index 3) 이상이면 참이고, 안내를 건너뛰었다면 8일째부터 참이다. 이야기 모듈이 없으면 참이다.
+- 이것이 거짓인 동안: 전쟁이 일어나지 않고, 의뢰가 붙지 않고, 새 외교 단추(사신·교역·동맹·현상금·첩자·지원·중재)를 쓸 수 없고, 강호에서 오는 두루마리와 소식 알림도 없고, 고을 성질의 원군(요하 변성의 진북군, `JH.siteAid`)도 오지 않는다. 힘의 자연 성장만 돈다. 예물과 산하는 지금처럼 쓴다.
+- 흑풍채의 처음 힘은 100이다. §4.3의 힘 배수가 1이 되어 위협과 습격이 지금과 같다.
 - 흑풍채(`heukpung`)는 힘이 25 아래로 내려가지 않는다. 멸문시킬 수 있는 것은 이야기가 부를 때(`JH.dissolve`)뿐이다. 관부(`gwanbu`)는 10 아래로 내려가지 않는다.
 - 흑풍채 현상금은 `allowJianghu()`가 참일 때만 걸 수 있다.
 - 사건마다 `tier`를 둔다(§9). `Story.allowEvent`는 자기 id 목록에 없는 사건을 `tier`로 거른다. `tier`가 없으면 heavy로 친다.
@@ -145,6 +146,7 @@ SITES[key] = {
   - forest·water·hills → 지형(§11).
   - fertile → 논밭 수확 ×(1 + 0.4(f − 0.5)).
   - cold → 겨울 논밭 ×(1 − 0.6(c − 0.5)), 겨울 식량 소비 ×(1 + 0.4(c − 0.5)).
+  - 이 배수는 sim.js의 `farmMul(si)`, `fishMul(si)`(겨울 ×0.6과 `JH.perk('fish')`), `foodUseMul(si)`, `isWinter(si)`(넷째 철이고 `trait.noWinter`가 아님) 하나로 셈한다. economyStep과 육방의 식량 내다보기가 함께 쓴다. 겨울이 없는 고을은 넷째 철을 봄처럼 거두고 눈도 그리지 않는다.
 - `trait.perk`는 `JH.perk`에 그대로 접힌다. `trait.ev`는 events.js가 사건 가중치에 곱한다.
 
 ## 4. 천하 상태 (js/jianghu.js, `S.jh`)
@@ -195,7 +197,7 @@ S.jh = {
 
 sim.js `dailyTick`에서 관계 되돌림과 growthCheck 다음, `hook(Admin,'daily')` 앞에서 부른다. 그래야 자동 저장에 담긴다.
 
-- **힘**: `power += growth × 3 × (1 − power/200) × rnd(0.5, 1.5)`(로지스틱). 전쟁 결과로 오르내린다. 멸문 30일 뒤 30%의 확률로 힘 30으로 다시 일어난다(소식).
+- **힘**: `power += growth × 3 × (1 − power/200) × rnd(0.5, 1.5)`(로지스틱). 전쟁 결과로 오르내린다. 멸문 30일 뒤 30%의 확률로 힘 30으로 다시 일어난다(소식). local 둘은 이야기만 멸문시키므로 다시 일어나지 않는다.
 - **전쟁**(`allowJianghu()`일 때만): 사흘마다 새 전쟁을 따진다. 동시에 최대 셋이다. 후보는 거리 400 안의 두 세력이다. 계열끼리 `CAMP_ATT ≤ −40`이거나 `RIVALRIES` 짝이어야 한다(숙적 짝은 가중치 0.4). 갈래가 정해지기 전에는 local 세력을 빼고, 영주의 주군·동맹이 한쪽이면 가중치 ×0.5다. 이름: 정마대전(정파 대 마교), 정사대전(정파 대 사파·흑도), 토벌전(관 대 흑도·사파), 새외 침공(새외 대 관·정파), 세가 분쟁, 흑도 쟁패, 그 밖에는 '○○과 ○○의 싸움'.
 
 ```js
@@ -226,6 +228,8 @@ War = { id, a: [ids], b: [ids], name, since, score, mine: { a: 0, b: 0 }, front:
 - 힘 0, `dead[id] = day`, 이웃에서 뺀다(열흘 뒤 빈자리 채움), 전쟁에서 빼고, 걸린 습격(`S.scheduled`의 raid, `S.eventQueue`의 `_raid`)을 지운다.
 - 주군이었으면 `S.vassal = null`이 된다(관계·위협 벌칙 없음). `Bus.emit('vassal', null)`을 보내고, 이야기는 이것을 듣고 갈래를 옮긴다(§8.3). 동맹이었으면 동맹을 끝낸다. 점령군이었으면 점령이 끝나고 점령군은 달아난다.
 - 영주의 주군은 이야기가 부르지 않는 한 힘 25 아래로 내려가지 않는다(물러날 뿐 망하지 않는다). local 둘은 §0.1을 따른다.
+- 소식(`'○○이 멸문했다'`)을 남기고, 이웃이었으면 `jh_survivors` 두루마리를 띄운다. `opts.quiet`이면 둘 다 하지 않는다(이야기가 흑풍채를 조용히 흡수할 때, §8.2).
+- local 둘(흑풍채·관부)은 멸문하면 다시 일어나지 않는다(§4.2).
 
 ### 4.5 옛 저장
 
@@ -242,7 +246,7 @@ War = { id, a: [ids], b: [ids], name, since, score, mine: { a: 0, b: 0 }, front:
   - `heroEvery`: 동맹이면 ×2.
   - 동맹이 주군과 같은 계열이면 겹치지 않는다(주군 것만).
   - 고을 성질(`SITES[site].trait.perk`)과 갈래 건물(§8.4, 쓸 수 있고 일꾼이 하나 이상)도 여기에 접는다.
-  - 결과는 기억해 두고 주군·동맹·갈래·`built`·`buildingDestroyed`·`day` 때 다시 셈한다(사람마다 매 걸음 불러도 싸게).
+  - 결과는 기억해 두고 주군·동맹·갈래·`built`·`buildingDestroyed`·`day` 때, 그리고 일꾼이 다시 배치될 때(sim.js `refreshAssign` 끝의 `hook(JH, 'touch')`) 다시 셈한다(사람마다 매 걸음 불러도 싸게).
   - `JH.perk('aid')`는 쓰지 않는다. 원군은 `JH.aidFor`다.
 - sim.js `happinessFactors`의 훅 목록에 JH를 더한다. `JH.happinessFactors()`는 `['정파의 비호(청운검문)', 3]`처럼 주군·동맹·갈래 건물마다 줄을 따로 돌려준다. 지금의 `S.vassal === '…'` 줄은 지운다.
 
@@ -290,7 +294,7 @@ Quest = {
 | --- | --- | --- | --- |
 | `gift` 예물 | 하루 한 번 (`S.flags['gift_'+id]`) | 은자 50 | 관계 +6, 번짐 |
 | `envoy` 사신 | 관계 ≥ −60, 세력마다 5일 대기 | 은자 60 + 인구 | 관계 +10~+14, 위협 −15, 번짐 |
-| `trade` 교역 협정 | 관계 ≥ 20, 상단·새외·세가, 동시에 둘 | 은자 60 | 20일 동안 매일 은자 `2 + 시장 수 × 2`, 관계 +3 |
+| `trade` 교역 협정 | 관계 ≥ 20, 상단·새외·세가(이웃이 아니어도 된다), 동시에 둘 | 은자 60 | 20일 동안 매일 은자 `2 + 시장 수 × 2`, 관계 +3 |
 | `pact` 동맹 / `unpact` | §5 | — | 동맹을 맺는다(번짐 +25). 끊으면 관계 −25, 번짐 −40 |
 | `bounty` 현상금 | 관(관부·금의위) 관계 ≥ 20, 대상은 흑도·사파·마교 이웃. 대상마다 15일 대기. 관 계열 힘 합이 대상 힘×0.8 이상 | 은자 120 | 대상 힘 −20, 위협 0, 대상과 관계 −20, 관부 관계 −5, 10일 원한 |
 | `spy` 첩자 | 세력마다 10일 대기 | 은자 30 | 10일 동안 정확한 위협 %, 다음 습격 예상(날·길목·규모), 전쟁·동맹 계획을 보인다. 20% 들킴: 관계 −15 |
@@ -335,7 +339,7 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 | free 독립 | 누구의 깃발도 아니다: 진, 명성 200, 연무대, 이웃(noLord 빼고) 관계 모두 −30 이상 | 천하제일촌: 현성, 명성 400, 두 계열의 최후통첩 격퇴(짜인 습격 둘) | (가장 센 이웃 둘) | 천하제일촌 | 연무대 비무에서 굴복 |
 
 - **짜인 절정**: 제6장이 시작되면 이야기가 `JH.startWar(aIds, bIds, name, { scripted: true, front: 고을 곁 })`로 전쟁을 연다. 갈래 계열 이웃(없으면 가장 가까운 같은 계열)과 숙적 계열 이웃(없으면 가장 가까운)이 맞선다. 그리고 며칠 뒤 `Events.raidWarning(foeId, 1.3, { goal, delay })`로 대습격을 보낸다. 지더라도 갈래가 실패하지는 않는다. 열흘 뒤 총관이 말하고 다시 연다.
-- **흑풍채의 끝**: 제6장 목표 하나 또는 사건이다. 관은 `JH.dissolve('heukpung', { story: true })`, 흑도는 흡수(힘을 0으로 하고 매일 은자 3), 나머지는 사건 한 장면.
+- **흑풍채의 끝**: 제6장 목표 하나 또는 사건이다. 관은 `JH.dissolve('heukpung', { story: true })`, 흑도는 흡수(`JH.dissolve('heukpung', { story: true, quiet: true })`로 소식 없이 거두고 매일 은자 3), 나머지는 사건 한 장면.
 - **승리**: 마지막 장의 목표를 다 이루면 `finishChapter`가 `S.victory = true`, `S.victoryTitle = ROUTES[k].title`, `S.jh.victory = k`를 정하고 `Events.victory({ title, text, stamp })`를 부른다. 숙적 계열 이웃의 힘이 −50%가 되고, 천하도의 내 고을에 갈래 문장이 찍힌다.
 - sim.js의 '현성·명성 400 승리'는 `hook(Story, 'ownsVictory') !== true`일 때만 쓴다(이야기 모듈이 있으면 이야기가 승리를 맡는다).
 
@@ -437,7 +441,7 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 - **세력 창**(ui.js `factionsHTML`):
   - 맨 위에 탭 [세력 · 의뢰 · 소식]을 두고, 갈래가 정해졌으면 갈래 표를 둔다. 폰에서는 [천하도 펼치기] 단추도 둔다.
   - 세력 탭: **이웃** 카드를 먼저 보인다. 카드는 접힌 꼴(문장, 이름, 계열, 관계 막대, 위협 낱말, 주된 행동 하나)이고, 누르면 펼쳐져 단추가 나온다: 예물, 사신, 교역, 산하/동맹, 현상금, 첩자, 전쟁 지원, 중재. 단추마다 `JH.canAct`의 까닭을 말풍선으로 단다.
-  - 먼 세력은 계열별로 접힌 목록이다(관계, 힘, 전쟁만 보이고, 예물·사신만 할 수 있다).
+  - 먼 세력은 계열별로 접힌 목록이다(관계, 힘, 전쟁만 보이고, 예물·사신·교역만 할 수 있다. 교역은 상단·새외·세가에만 단다).
   - 의뢰 탭: 열린 의뢰 카드에서 보낼 사람(1~4)을 고른다. 성공 확률 %와 남는 무력이 바로 보이고, [보낸다]를 누른다. 다녀오는 중인 의뢰는 남은 날과 [불러들이기]가 있고, 지난 결과가 이어진다.
   - 소식 탭: `S.jh.news`.
   - [세력] 단추에는 `JH.badge()` 배지를 단다.
@@ -459,11 +463,11 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 
 2단계(나란히, 파일이 겹치지 않게):
 - **worldmap**: worldmap.js, css/worldmap.css, e2e 하네스의 고르기 단계.
-- **events**: events.js.
-- **story**: story.js, css/story.css.
+- **events**: events.js. 옛 세력 사건 셋(`gang_protection` `cheongun_offer` `hyeolwol_offer`)은 `cond: () => false`로 두고 `offer`가 `JH.pickNear`로 고른다(§9). 그래야 이웃이 아닌 세력이 주군이 되지 않는다.
+- **story**: story.js, css/story.css. `HANJA_GLOSS`에 더할 때 data.js의 풀이를 덮어쓰지 않는다(`上`·`樓`에는 세력 문장의 뜻이 함께 적혀 있다). `Story.allowJianghu()`는 §0.1(제4장, index 3)을 따른다.
 - **ui**: ui.js, css/style.css, tips.js.
-- **art**: sprites.js, render.js(갈래 건물 여덟, bald/fur/staff, leader.hat, 길목 문장).
-- **admin**: admin.js, petitions.js(ADM_EXIT_PREF → JH.exitFor, 병방이 이웃 위협을 본다, expectedIncome의 혜택, petFree, 상소 기한 petitionDays, 관 갈래의 상소).
+- **art**: sprites.js, render.js(갈래 건물 여덟, bald/fur/staff, leader.hat, 길목 문장). 넷째 철이라도 `isWinter()`가 거짓이면(겨울이 없는 고을) 눈 대신 가을로 그린다.
+- **admin**: admin.js, petitions.js(ADM_EXIT_PREF → JH.exitFor, 병방이 이웃 위협을 본다, expectedIncome의 혜택, petFree, 상소 기한 petitionDays, 관 갈래의 상소). 식량 내다보기는 sim.js의 `farmMul(si)`·`fishMul(si)`·`foodUseMul(si)`로 셈한다(§3).
 
 **Bus 새 이벤트**: `jhNews (item)`, `warStart (war)`, `warEnd (war, winnerSide)`, `questNew (q)`, `questDone (q, ok)`, `pactChanged (id, on)`, `routeChosen (route)`, `siteChosen (siteKey)`, `vassal (id|null)`(산하가 바뀔 때 sim.js가 보낸다).
 

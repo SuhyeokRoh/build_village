@@ -115,7 +115,8 @@
 | `JH.daily()` | `dailyTick`에서 관계 되돌림 → growthCheck 다음, `Admin.daily` 앞 (자동 저장에 담긴다) |
 | `JH.hourly()` | `hourlyTick`에서 `Admin.hourly` 앞. 의뢰에서 돌아오는 사람, 위협 상한 100 |
 | `JH.happinessFactors()` | 민심 요인 목록에 주군·동맹·갈래 건물마다 줄을 더한다 (예: `['정파의 비호(청운검문)', 3]`) |
-| `Story.allowJianghu()` → bool | false면 전쟁·의뢰·새 외교·강호 두루마리·소식 알림이 없다(힘의 자연 성장과 예물·산하만). **훅이 없으면** JH가 대신 정한다: 제3장(index 2) 이상, 또는 안내를 건너뛰고 8일째부터. 이야기 모듈이 없으면 true |
+| `JH.touch()` | `refreshAssign` 끝. 일꾼이 바뀌었을 수 있으니 `JH.perk` 기억을 지운다(갈래 건물은 일하는 사람이 있어야 혜택을 낸다) |
+| `Story.allowJianghu()` → bool | false면 전쟁·의뢰·새 외교·강호 두루마리·소식 알림이 없다(힘의 자연 성장과 예물·산하만). **훅이 없으면** JH가 대신 정한다: 제4장(index 3) 이상, 또는 안내를 건너뛰고 8일째부터. 이야기 모듈이 없으면 true. 거짓이면 고을 성질의 원군(`JH.siteAid`)도 없다 |
 | `Story.ownsVictory()` → bool | true면 sim.js의 '현성·명성 400 승리'를 쓰지 않는다(이야기가 승리를 정한다) |
 | `Story.routeCards()`, `Story.chooseRoute(k)` | 갈림길 카드와 고르기 (`docs/jianghu.md` §8.1) |
 
@@ -184,6 +185,7 @@
 
 - 시간: `dayOf()`, `hourOf()`, `seasonIdx()`, `dateText()`, `isNight()`
 - 자원: `S.res.{silver,food,wood,stone,weapons}`, `canAfford(cost)`, `pay(cost)`, `addRes(k, n)`, `costText(cost)`, `storageCap()`
+- 먹을 것의 철·땅 배수(sim.js, `si` 기본은 지금 철): `isWinter(si)`(넷째 철이고 고을에 겨울이 있음. 겨울이 없는 고을은 눈을 그리지 않는다), `farmMul(si)`(철·기름진 들·추위), `fishMul(si)`(겨울 ×0.6·`JH.perk('fish')`), `foodUseMul(si)`(추운 겨울의 식량 소비). economyStep과 육방의 내다보기가 같은 것을 쓴다
 - 사람: `popCount()`, `housingTotal()`, `livingVillagers()`, `newVillager(opts)`, `makeHero()`, `spawnHero(h, at)`, `fighters()`, `civilians()`
 - 건물: `BDEF`, `canPlace(type, x, y)` → `{ok, why, poor}`, `tryBuild(type, x, y)` → `{ok, b}`(비용 냄), `placeBuilding(type, x, y, done)`(비용 없음), `repair(b)`, `repairCost(b)`, `demolish(b)`, `getB(id)`, `usable(b)`, `countType(type)`, `setRoad(x, y, free)`, `canPlaceRoad(x, y)`, `doorOf(b)`, `countTilesNear(rect, T.FOREST, r)`, `World.tile/isRoad/bAt/occ`, `walkable(x, y)`, `findPath(...)`
 - 민심: `S.happy`, `happinessFactors()`, `happinessTarget()`, `addMod(id, days)`(이미 더 길게 걸린 효과는 줄이지 않는다), `hasMod(id)`, `S.tax`
@@ -192,12 +194,12 @@
   - 순수(S 없이): `makeWorld(seed)` → `{ seed, seats, power }`, `siteInfo(world, siteKey)` → `{ near, localSeats, stars, routes, rel }`(routes는 계열 다섯이고 독립은 늘 열린다)
   - 만들기·불러오기: `newWorld(siteKey, seed)`, `migrate()`, `onLoad()`, `attachExits()`
   - 조회: `allowJianghu()`, `near()`(복사본), `isNear(id)`, `campOf(id)`, `isAlive(id)`, `pickNear(camp|[camps]|null, filter?)` → id | null, `power(id)`, `biome()`, `trait()`(고을 성질: `perk ev quest noWinter aid`)
-  - 혜택: `perk(name)`(곱하는 값 기본 1: `train atk hp tax trade bandit fish escort` / 더하는 값 기본 0: `happy fame dailySilver gwanRel petitionDays tournament` / `heroEvery` 기본 0 = 없음), `happinessFactors()`, `relSpread(k, d)`
-  - 습격: `exitFor(id)` → 길목 번호 둘(좋은 순서, 흑풍채는 늘 `[2, 0]`), `aidFor(raidFaction)` → `{ id, n } | null`, `siteAid(raidFaction)`(고을 성질의 원군), `raidEstimate(id)`, `threatWord(id)`, `spied(id)`, `intel(id)`(첩자가 있을 때: `{ threat, eta, exitIdx, size, war }`)
+  - 혜택: `touch()`(기억 지우기), `perk(name)`(곱하는 값 기본 1: `train atk hp tax trade bandit fish escort` / 더하는 값 기본 0: `happy fame dailySilver gwanRel petitionDays tournament` / `heroEvery` 기본 0 = 없음), `happinessFactors()`, `relSpread(k, d)`
+  - 습격: `exitFor(id)` → 길목 번호 둘(좋은 순서, 흑풍채는 늘 `[2, 0]`), `aidFor(raidFaction)` → `{ id, n } | null`, `siteAid(raidFaction)`(고을 성질의 원군, `allowJianghu()`일 때만), `raidEstimate(id)`, `threatWord(id)`, `spied(id)`, `intel(id)`(첩자가 있을 때: `{ threat, eta, exitIdx, size, war }`)
   - 전쟁: `startWar(aIds, bIds, name?, { scripted, front })` → War, `addScore(war|id, side, amt, mine = true)`, `endWar(war|id, winner, how)`, `warOf(id)`, `warById(wid)`, `sideOf(war, id)`, `sidePower(war, side)`
-  - 소식·멸문: `news(text, kind, ids)`, `dissolve(id, { story })`(흑풍채·관부·주군은 `story`일 때만)
+  - 소식·멸문: `news(text, kind, ids)`, `dissolve(id, { story, quiet })`(흑풍채·관부·주군은 `story`일 때만. `quiet`이면 멸문 소식과 `jh_survivors`가 없다 — 흑도 갈래의 흑풍채 흡수). 흑풍채·관부는 멸문하면 다시 일어나지 않는다
   - 의뢰: `badge()`(열린 의뢰 수), `quest(qid)`, `canSend(v)`, `chance(qid, ids)`, `dispatchInfo(qid, ids)` → `{ p, spare, threat: { id, word, pct, n } }`, `dispatch(qid, ids)`, `recall(qid)` → `{ ok, text, why }`, `questCap()`, `partyCap()`, `makeQuest(fid, kind?)`
-  - 외교: `canAct(kind, id, opts)` → `{ ok, why, cost }`, `act(kind, id, opts)` → `{ ok, text, why }`. kind: `gift envoy trade pact unpact bounty spy support mediate`, 그리고 편의로 `vassal unvassal`(`becomeVassal`·`breakVassal`). `support`는 `id` = 도울 편의 세력, `opts = { war, silver, food, weapons }`. `mediate`는 `id` = 전쟁 id나 싸우는 세력 id. 예물·산하는 `allowJianghu()`가 거짓이어도 쓸 수 있다. 동맹의 명성 조건은 `S.flags['pact_nofame_' + id]`가 서 있으면 빠진다(세가 혼담).
+  - 외교: `canAct(kind, id, opts)` → `{ ok, why, cost }`, `act(kind, id, opts)` → `{ ok, text, why }`. kind: `gift envoy trade pact unpact bounty spy support mediate`, 그리고 편의로 `vassal unvassal`(`becomeVassal`·`breakVassal`). `support`는 `id` = 도울 편의 세력, `opts = { war, silver, food, weapons }`. `mediate`는 `id` = 전쟁 id나 싸우는 세력 id. 교역은 이웃이 아닌 상단·새외·세가와도 맺는다(사신·예물과 함께 먼 세력에 쓸 수 있는 셋). 예물·산하는 `allowJianghu()`가 거짓이어도 쓸 수 있다. 동맹의 명성 조건은 `S.flags['pact_nofame_' + id]`가 서 있으면 빠진다(세가 혼담).
   - 강호 두루마리 `jh_war_sides { war }`, `jh_survivors { f }`, `jh_surge { f }`, `jh_pact_call { war, f }`는 JH가 `S.eventQueue`에 바로 넣는다(하루 하나). `EV[id]`가 없으면 넣지 않는다.
 - 기타: `markDirty()`(일자리 다시 배치), `refreshAssign()`, `logMsg`, `UI.toast`, `UI.focusOn(tx, ty)`, `UI.select({b})`, `UI.setTool(key)`, `UI.openSheet(kind)`
 

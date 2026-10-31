@@ -342,14 +342,14 @@ const FACTIONS = {
     military: true, startRel: 0, baseSize: 6, growth: 0.32, goals: ['punish', 'loot'],
     home: 'jiangnan', power: 80, temper: { greed: 0.55, honor: 0.45, aggro: 0.4 },
   },
-  // 흑도
+  // 흑도 (흑풍채는 힘 100: 위협·습격 배수가 1이라 튜토리얼의 압박이 예전 그대로다)
   heukpung: {
     name: '흑풍채', hanja: '黑', camp: 'heuk', type: '녹림(綠林)', color: '#4a403a', dark: '#1c1714',
     desc: '뒷산 험한 산채에 터를 잡은 산적 떼. 약한 마을의 곡식과 은자를 노린다.',
     unit: { name: '흑풍채 산적', hp: 32, atk: 4, weapon: 'axe', hat: 'hood', cloth: '#5a4a3c', cloth2: '#26201b' },
     leader: { title: '흑풍채주', hp: 180, atk: 12, hat: 'band' },
     military: true, startRel: -30, baseSize: 4, growth: 0.3, goals: ['loot'], noLord: true,
-    home: 'local', power: 70, temper: { greed: 0.9, honor: 0.1, aggro: 0.7 },
+    home: 'local', power: 100, temper: { greed: 0.9, honor: 0.1, aggro: 0.7 },
   },
   heuksu: {
     name: '흑수채', hanja: '水', camp: 'heuk', color: '#2f4858', dark: '#0f1a22',
