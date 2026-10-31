@@ -487,6 +487,8 @@ const UI = {
     return `<div class="fx-head"><h2>강호의 세력</h2>${map}</div>${this.routeHTML()}
       <div class="fx-tabs" role="tablist">${tabs}</div>${body}`;
   },
+  // 갈래 이름: routeInfo.name 은 계열 이름(독립이면 '독립')이다 → '정파의 길', '홀로 서는 길'
+  routeName(ri) { return ri.key === 'free' ? '홀로 서는 길' : /길$/.test(ri.name) ? ri.name : `${ri.name}의 길`; },
   // 갈래 표: 이야기 모듈의 routeInfo, 없으면 S.jh.route 로 짐작한다
   routeHTML() {
     let ri = hook(Story, 'routeInfo');
@@ -498,7 +500,7 @@ const UI = {
     const sub = [ri.title ? `결말: ${escapeHtml(ri.title)}` : '', foes ? `숙적: ${foes}` : ''].filter(Boolean).join(' · ');
     return `<div class="fx-route${ri.provisional ? ' prov' : ''}" style="--fc:${C ? C.color : 'var(--gold-dim)'}">
       <span class="fx-route-seal" data-tip-title="${seal}">${seal}</span>
-      <div class="fx-route-txt"><b>${escapeHtml(ri.name)}</b>${ri.provisional ? '<span class="fx-prov" data-tip-title="잠정 갈래" data-tip="제4장 갈림길에 이르면 이 길을 확정할지 묻는다.">잠정</span>' : ''}${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+      <div class="fx-route-txt"><b>${escapeHtml(this.routeName(ri))}</b>${ri.provisional ? '<span class="fx-prov" data-tip-title="잠정 갈래" data-tip="제4장 갈림길에 이르면 이 길을 확정할지 묻는다.">잠정</span>' : ''}${sub ? `<small>${sub}</small>` : ''}</div></div>`;
   },
   // 외교 단추 하나. 못 쓰면 aria-disabled 로 두고 까닭을 말풍선(data-tip)과 누를 때의 알림(data-why)으로 단다
   actBtn(kind, id, o = {}) {
@@ -892,7 +894,7 @@ const UI = {
   // 마을 현황의 목표 한 줄: 갈래가 정해졌으면 그 결말
   goalText() {
     const ri = hook(Story, 'routeInfo');
-    if (ri && ri.title) return `${escapeHtml(ri.name)}${ri.provisional ? '(잠정)' : ''} · 마지막 장을 마치면 「${escapeHtml(ri.title)}」${pp(ri.title, '이/가')} 된다.`;
+    if (ri && ri.title) return `${escapeHtml(this.routeName(ri))}${ri.provisional ? '(잠정)' : ''} · 마지막 장을 마치면 「${escapeHtml(ri.title)}」${pp(ri.title, '이/가')} 된다.`;
     return '현성(인구 120)으로 키우고, 갈림길에서 고른 길의 마지막 장을 마치면 강호에 이름을 떨친다.';
   },
 

@@ -19,7 +19,7 @@
 | `js/jianghu.js` | **`JH`**: 천하의 세력·힘·이웃, 전쟁, 의뢰와 파견, 외교, 산하·동맹·고을·갈래 건물의 혜택 (`S.jh`). 설계는 `docs/jianghu.md` | 공통(엔진) |
 | `js/ui.js` | 상단 띠, 건설 메뉴, 선택 패널, 세력·현황 창, 사건 두루마리 | 공통 |
 | `js/tips.js` | `data-tip` 풀이 말풍선, 지도 위 풀이 | 공통 |
-| `js/story.js` + `css/story.css` | 이야기·튜토리얼·총관 | **이야기** |
+| `js/story.js` + `css/story.css` | 이야기·튜토리얼·총관, 갈림길과 여덟 갈래(`ROUTES`, 제5·6장, 절정, 결말). `S.jh.route`는 이야기만 바꾼다 | **이야기** |
 | `js/petitions.js` + `css/petitions.css` | 상소 | **상소** |
 | `js/admin.js` + `css/admin.css` | 육방과 예산, 자동 건설 | **육방** |
 | `js/worldmap.js` + `css/worldmap.css` | 천하도(天下圖): 새 게임의 고을 고르기, 천하의 판도 보기 | **천하도** |
@@ -79,6 +79,8 @@
 - 전역 `S`가 저장되는 게임 상태 전부다. `serialize()`가 `JSON.stringify(S)`로 저장하며 **이름이 `_`로 시작하는 키**와 `path, chat, wt, bmap, hitT, flash, exit`는 버린다.
   - 그래서 습격 길목은 객체 대신 번호로 남긴다: `S.raid.exitIdx`와 `S.scheduled`의 습격 항목 `exitIdx`는 `World.exits`의 번호이고, `deserialize()`가 이것으로 `exit`을 되살린다. 사람(유닛)의 `exit`은 그냥 버리고 다시 찾는다.
 - 모듈 상태는 `S.story`, `S.admin`, `S.petitions`에 **순수 JSON**(숫자·문자열·배열·객체)으로만 둔다. 함수·DOM·Map 금지. 다른 객체는 id로 가리킨다(`S.bmap.get(id)`, `S.villagers.find(v => v.id === id)`).
+  - `S.story`의 갈래 몫: `routeOk`(굳힌 갈래인가, 아니면 잠정), `lord`(마지막으로 본 주군), `cross`(갈림길을 펼쳤나), `pend`(사자를 보낸 계열), `cg`(이 장의 기록: 열린 날 `day`, 해낸 의뢰 `q`, 현상금 `b`, 교역 `t`, `mAt`), `cx`(제6장 절정: 짜인 전쟁 `war ws wn wa wb side wAt`, 대습격 `rs rAt rf rk rb rw`, 무림대회 `tAt tw`, 흑풍채 `hs hAt hq`), `heukGold`(흑풍채를 거두어 날마다 받는 은자). 승리하면 `S.victoryTitle`(결말 칭호)도 저장된다.
+  - `S.admin.workH = { farm, fishery }`: 일꾼 하나가 하루에 실제로 일하는 시간. 호방이 날마다 고쳐 식량 내다보기에 쓴다.
 - 저장되지 않는 일시 상태는 모듈 객체 안이나 `G`(렌더러용), 또는 `_` 접두 키에 둔다.
 - 불러온 뒤 `onLoad()`가 불린다. 옛 저장(모듈 상태 없음)도 받아들여야 한다.
 
@@ -109,7 +111,7 @@
 | `X.happinessFactors()` → `[[이름, 값], ...]` | 민심 목표치 계산에 더해짐(마을 현황 창에도 표시) |
 | `Story.isPausing()` → bool | true면 시간이 멈춘다(사건 두루마리처럼) |
 | `Story.allowThreat()` → bool | false면 세력의 위협이 쌓이지 않는다(튜토리얼 초반 보호) |
-| `Story.allowEvent(id)` → bool | false면 그 무작위 사건이 나오지 않는다 |
+| `Story.allowEvent(id)` → bool | false면 그 무작위 사건이 나오지 않는다. 이야기의 id 목록에 없는 사건은 `EV[id].tier`로 거른다(없으면 heavy) |
 | `Story.openAdvisor()` | 메뉴의 [총관] 버튼 |
 | `JH.onLoad()` | `deserialize`에서 `S = st` 바로 뒤(건물 사전·점유를 되살린 다음). 옛 저장 migrate, 빠진 키 채우기, 길목 `toward` 다시 붙이기 |
 | `JH.daily()` | `dailyTick`에서 관계 되돌림 → growthCheck 다음, `Admin.daily` 앞 (자동 저장에 담긴다) |
@@ -118,7 +120,9 @@
 | `JH.touch()` | `refreshAssign` 끝. 일꾼이 바뀌었을 수 있으니 `JH.perk` 기억을 지운다(갈래 건물은 일하는 사람이 있어야 혜택을 낸다) |
 | `Story.allowJianghu()` → bool | false면 전쟁·의뢰·새 외교·강호 두루마리·소식 알림이 없다(힘의 자연 성장과 예물·산하만). **훅이 없으면** JH가 대신 정한다: 제4장(index 3) 이상, 또는 안내를 건너뛰고 8일째부터. 이야기 모듈이 없으면 true. 거짓이면 고을 성질의 원군(`JH.siteAid`)도 없다 |
 | `Story.ownsVictory()` → bool | true면 sim.js의 '현성·명성 400 승리'를 쓰지 않는다(이야기가 승리를 정한다) |
-| `Story.routeCards()`, `Story.chooseRoute(k)` | 갈림길 카드와 고르기 (`docs/jianghu.md` §8.1) |
+| `Story.routeCards()` → `[{ camp, fid, perkText, tribute, foes: [ids], ch5, ch6, title }]` | 갈림길 카드 (`docs/jianghu.md` §8.1). `ch5`·`ch6`은 장 제목 |
+| `Story.chooseRoute(camp \| 'free')` | 갈림길에서 고른다. 계열이면 그 세력이 `offer { k, special: true }`를 보내고, 받아들여 `becomeVassal`이 `Bus 'vassal'`을 보내면 이야기가 갈래를 정한다. `'free'`는 바로 정한다 |
+| `Story.routeInfo()` → `null \| { key, name, seal, title, foes: [camps], provisional }` | 지금 갈래. `name`은 계열 이름(독립이면 '독립')이라 화면은 '○○의 길'·'홀로 서는 길'로 적는다. `provisional`은 제4장 전에 주군을 따라 정해진 잠정 갈래 |
 
 ### 4.1 호출 순서
 
@@ -148,10 +152,10 @@
 | `occupied` | `k` | 마을이 점령됨 |
 | `liberated` | `how` | `'uprising' / 'ransom' / 'dissolve'`(점령군의 세력이 멸문함) |
 | `vassal` | `k \| null` | 주군이 생기거나 끊김 (sim.js `becomeVassal`·`breakVassal`, 주군이 멸문하면 `JH.dissolve`) |
-| `eventResolved` | `id, label` | 사건 두루마리에서 선택함 |
+| `eventResolved` | `id, label` | 사건 두루마리에서 선택함. 이야기는 `('crossroads', '더 지켜보겠소')`와 `('offer', …)`, `('_raid', …)`를 듣는다(이 id 와 글은 바꾸지 않는다) |
 | `select` | `obj` | 지도에서 무엇을 고름(`{u}`/`{b}`/null) |
 | `tool` | `key \| null` | 건설 도구 고름 |
-| `sheetOpen` / `sheetClose` | `kind` | 큰 창 열고 닫음(`'factions','village','help','admin','petitions'`) |
+| `sheetOpen` / `sheetClose` | `kind` | 큰 창 열고 닫음(`'factions','village','help','admin','petitions'`), 천하도 보기(`'worldmap'`, 고르기 모드에서는 보내지 않는다) |
 | `camMoved` | – | 영주가 지도를 움직이거나 확대함 |
 | `budgetChanged` | `deptId, amount` | 육방 예산 바뀜 (**Admin이 보냄**) |
 | `deptBuilt` | `deptId, b` | 부서가 스스로 건물을 놓음 (**Admin**) |
@@ -164,7 +168,7 @@
 | `questNew` | `q` | 의뢰가 붙음 (**JH**) |
 | `questDone` | `q, ok` | 의뢰에서 돌아옴 (**JH**) |
 | `pactChanged` | `id, on` | 동맹을 맺거나 끊김 (**JH**·sim) |
-| `routeChosen` | `route` | 갈래가 정해짐 (**Story**) |
+| `routeChosen` | `route` | 갈래가 정해지거나 굳혀짐, 바뀜 (**Story**). ui.js 는 건설 띠를 다시 그린다. 잠정 갈래를 거둘 때는 보내지 않는다(`UI.buildMenuDirty`만) |
 | `siteChosen` | `siteKey` | 새 게임의 고을이 정해짐 (`newGame` 끝) |
 
 ## 6. 화면 통합
@@ -174,6 +178,16 @@
 - 메뉴: `#btn-story`(총관), `#btn-admin`(육방), `#btn-petitions`(상소함, 안의 `#petition-badge`에 미처리 수). 
 - 알림: `UI.toast(text, 'good'|'bad'|'')`, 기록: `logMsg(text, 'good'|'bad'|'war'|'')`, 사건 두루마리: `Events.notice(title, html, stampHanja)`, `Events.queue(id, data)`.
 - 모듈이 자기 DOM을 만들 때는 `#app` 안에 붙이고, 자기 CSS 파일에서만 꾸민다. `z-index`: 지도 위 띠·패널 14~20, 튜토리얼 강조(하이라이트) 25 근처, 천하도 보기 29, 큰 창 30, 사건 두루마리 35, 첫 화면 50, 천하도 고르기 52, 말풍선 `#tooltip` 60.
+- 세력 창(ui.js): 탭 [세력 · 의뢰 · 소식], 맨 위에 갈래 표(`routeInfo`)와 폰 전용 [천하도 펼치기](`.fx-mapbtn`). 클래스는 `fx-`로 시작한다. 카드는 `[data-fcard=id]`, 외교 단추는 `[data-act="fx-do"][data-kind][data-f]`(못 쓰면 `aria-disabled`와 까닭 `data-why`), 의뢰는 `.fx-pick`·`.fx-send`·`[data-act="fx-recall"]`. 보기 상태(탭·펼친 카드·고른 사람)는 `UI.fx`에 두고 저장하지 않는다. `#btn-factions` 안의 `#faction-badge`가 `JH.badge()`를 보인다.
+  - `UI.factionFocus = id` 를 두고 `UI.openSheet('factions')`를 부르면 세력 탭으로 가서 그 카드(먼 세력이면 계열 묶음)를 펼치고 스크롤한 뒤 값을 지운다. 천하도의 [세력 창에서 보기]가 이렇게 한다.
+  - 전역 `actTextOf(u)`(ui.js): 사람의 지금 하는 일 한 줄('○○의 의뢰로 길을 떠남' 포함). tips.js 도 쓴다.
+  - `.wide-only`(640px 이하에서 감춤)와 `.narrow-only`(641px 이상에서 감춤)는 style.css 에 있다.
+- 사건 두루마리(events.js): 모든 `EV`에 `tier`(`light hostile heavy gloomy`)가 있다. `Story.allowEvent`는 자기 id 목록을 먼저 보고 나머지는 `tier`로 거른다. 강호 사건(`jh: true`)은 `JH.allowJianghu()`가 참일 때만 나온다.
+  - 이야기가 넣는 것: `crossroads`(카드는 `Story.routeCards()`, 선택지 '○○의 길 · 세력' / '홀로 서겠소' / '더 지켜보겠소' / '천하도에서 보기'), `offer { k, special }`(받아들이면 선납 은자 100 뒤 `becomeVassal(k)`), `sega_marriage { k }`.
+  - JH 가 넣는 것: `jh_war_sides { war }`, `jh_pact_call { war, f }`, `jh_survivors { f }`, `jh_surge { f }`.
+  - [천하도에서 보기]: 그 두루마리를 `S.scheduled`에 `peek: true`로 맡기고 `WorldMap.open('view', { focus })`를 연다. `Bus 'sheetClose' 'worldmap'`에 곧바로 다시 펼친다. `UI.modalEntry`(지금 펼친 항목)는 이 때문에 남겨 둔다.
+  - `Events.victory({ title, text, stamp })`: 승리 두루마리. `text`는 HTML 로 들어가므로 마을 이름은 부르는 쪽이 `escapeHtml`한다. 값이 없으면 옛 글.
+  - 이어지는 사건은 `S.scheduled`의 `kind: 'event'`로 며칠 뒤 다음 장면을 넣는다(`processScheduled`).
 - 천하도: 겹은 `#worldmap`(index.html에 있다). 메뉴의 `#btn-worldmap`(`.wide-only`, 640px 이하에서 감춘다)은 main.js가 `WorldMap.open('view', {})`에 잇는다. 천하도가 열려 있으면 main.js 루프가 시간을 멈추고 지도 이동·확대 키를 마을에 보내지 않는다. Esc는 시트가 열려 있으면 main.js가 시트를 닫고 `e.preventDefault()`한다. worldmap.js는 `e.defaultPrevented`나 `UI.sheet`가 있으면 Esc를 넘기고, 키를 써 버렸으면 `e.preventDefault()`한다(main.js는 그 키를 무시한다).
 - 디자인 언어: 옻칠한 어두운 나무 패널(`--lacquer*`), 금박(`--gold`), 먹과 한지(`--paper`, `--ink`), 주홍 인장(`--cinnabar`). 글꼴 `--font-display`(Song Myung, 제목), `--font-body`(Gowun Batang, 본문), `--font-ui`(IBM Plex Sans KR, 숫자·라벨). 이모지 쓰지 말 것.
 - **한자에는 반드시 풀이를 단다**: `data-tip-title="賊 · 도둑 적"` `data-tip="설명"`. 한 글자는 `HANJA_GLOSS`에 있으면 `data-tip-title` 만 줘도 `glossOf`로 풀이된다. 새 한자를 쓰면 `HANJA_GLOSS`에 더한다.
@@ -186,14 +200,15 @@
 - 시간: `dayOf()`, `hourOf()`, `seasonIdx()`, `dateText()`, `isNight()`
 - 자원: `S.res.{silver,food,wood,stone,weapons}`, `canAfford(cost)`, `pay(cost)`, `addRes(k, n)`, `costText(cost)`, `storageCap()`
 - 먹을 것의 철·땅 배수(sim.js, `si` 기본은 지금 철): `isWinter(si)`(넷째 철이고 고을에 겨울이 있음. 겨울이 없는 고을은 눈을 그리지 않는다), `farmMul(si)`(철·기름진 들·추위), `fishMul(si)`(겨울 ×0.6·`JH.perk('fish')`), `foodUseMul(si)`(추운 겨울의 식량 소비). economyStep과 육방의 내다보기가 같은 것을 쓴다
-- 사람: `popCount()`, `housingTotal()`, `livingVillagers()`, `newVillager(opts)`, `makeHero()`, `spawnHero(h, at)`, `fighters()`, `civilians()`
+- 사람: `popCount()`, `housingTotal()`, `livingVillagers()`, `newVillager(opts)`, `makeHero()`, `spawnHero(h, at)`, `fighters()`, `civilians()`(둘 다 의뢰로 떠난 이는 뺀다)
+- 은자: `dailyTax()`(하루 세금: 인구·세율·민심 × `JH.perk('tax')` × 이방), `tributeDue()`(주군에게 바칠 공물). `dailyTick`과 육방의 장부가 같은 것을 부른다
 - 건물: `BDEF`, `canPlace(type, x, y)` → `{ok, why, poor}`, `tryBuild(type, x, y)` → `{ok, b}`(비용 냄), `placeBuilding(type, x, y, done)`(비용 없음), `repair(b)`, `repairCost(b)`, `demolish(b)`, `getB(id)`, `usable(b)`, `countType(type)`, `setRoad(x, y, free)`, `canPlaceRoad(x, y)`, `doorOf(b)`, `countTilesNear(rect, T.FOREST, r)`, `World.tile/isRoad/bAt/occ`, `walkable(x, y)`, `findPath(...)`
 - 민심: `S.happy`, `happinessFactors()`, `happinessTarget()`, `addMod(id, days)`(이미 더 길게 걸린 효과는 줄이지 않는다), `hasMod(id)`, `S.tax`
 - 강호: `rel(k)`, `changeRel(k, d)`, `addFame(n)`, `S.factions[k].threat`, `becomeVassal(k)`, `breakVassal(silent)`, `defensePower(excl?)`(파견 중인 사람과 `excl` Set의 id는 뺀다), `threatGain(k)`, `Events.raidWarning(k, mul, { goal, size, delay, exitIdx })`, `scheduleRaid`, `raidSize(k)`(힘을 곱한다), `pickExit(k)`, `S.raid`, `S.occupation`
 - 천하(`JH`, `docs/jianghu.md` §4~§7):
   - 순수(S 없이): `makeWorld(seed)` → `{ seed, seats, power }`, `siteInfo(world, siteKey)` → `{ near, localSeats, stars, routes, rel }`(routes는 계열 다섯이고 독립은 늘 열린다)
   - 만들기·불러오기: `newWorld(siteKey, seed)`, `migrate()`, `onLoad()`, `attachExits()`
-  - 조회: `allowJianghu()`, `near()`(복사본), `isNear(id)`, `campOf(id)`, `isAlive(id)`, `pickNear(camp|[camps]|null, filter?)` → id | null, `power(id)`, `biome()`, `trait()`(고을 성질: `perk ev quest noWinter aid`)
+  - 조회: `allowJianghu()`, `near()`(복사본), `isNear(id)`, `campOf(id)`, `isAlive(id)`, `pickNear(camp|[camps]|null, filter?)` → id | null, `power(id)`, `setPower(id, p)`(0..200, 흑풍채·주군 25·관부 10의 바닥, 0이면 멸문. 이야기의 승리가 숙적 이웃의 힘을 꺾을 때), `biome()`, `trait()`(고을 성질: `perk ev quest noWinter aid`)
   - 혜택: `touch()`(기억 지우기), `perk(name)`(곱하는 값 기본 1: `train atk hp tax trade bandit fish escort` / 더하는 값 기본 0: `happy fame dailySilver gwanRel petitionDays tournament` / `heroEvery` 기본 0 = 없음), `happinessFactors()`, `relSpread(k, d)`
   - 습격: `exitFor(id)` → 길목 번호 둘(좋은 순서, 흑풍채는 늘 `[2, 0]`), `aidFor(raidFaction)` → `{ id, n } | null`, `siteAid(raidFaction)`(고을 성질의 원군, `allowJianghu()`일 때만), `raidEstimate(id)`, `threatWord(id)`, `spied(id)`, `intel(id)`(첩자가 있을 때: `{ threat, eta, exitIdx, size, war }`)
   - 전쟁: `startWar(aIds, bIds, name?, { scripted, front })` → War, `addScore(war|id, side, amt, mine = true)`, `endWar(war|id, winner, how)`, `warOf(id)`, `warById(wid)`, `sideOf(war, id)`, `sidePower(war, side)`
@@ -201,12 +216,14 @@
   - 의뢰: `badge()`(열린 의뢰 수), `quest(qid)`, `canSend(v)`, `chance(qid, ids)`, `dispatchInfo(qid, ids)` → `{ p, spare, threat: { id, word, pct, n } }`, `dispatch(qid, ids)`, `recall(qid)` → `{ ok, text, why }`, `questCap()`, `partyCap()`, `makeQuest(fid, kind?)`
   - 외교: `canAct(kind, id, opts)` → `{ ok, why, cost }`, `act(kind, id, opts)` → `{ ok, text, why }`. kind: `gift envoy trade pact unpact bounty spy support mediate`, 그리고 편의로 `vassal unvassal`(`becomeVassal`·`breakVassal`). `support`는 `id` = 도울 편의 세력, `opts = { war, silver, food, weapons }`. `mediate`는 `id` = 전쟁 id나 싸우는 세력 id. 교역은 이웃이 아닌 상단·새외·세가와도 맺는다(사신·예물과 함께 먼 세력에 쓸 수 있는 셋). 예물·산하는 `allowJianghu()`가 거짓이어도 쓸 수 있다. 동맹의 명성 조건은 `S.flags['pact_nofame_' + id]`가 서 있으면 빠진다(세가 혼담).
   - 강호 두루마리 `jh_war_sides { war }`, `jh_survivors { f }`, `jh_surge { f }`, `jh_pact_call { war, f }`는 JH가 `S.eventQueue`에 바로 넣는다(하루 하나). `EV[id]`가 없으면 넣지 않는다.
+- 육방(admin.js, 읽기만): `Admin.threats()` → `[{ k, threat, n, exitIdx, word, spied }]`(위협이 큰 순서의 군사 이웃), `Admin.defenders()`(마을에 있는 무사·객경 수), `Admin.awayFighters()`, `Admin.watchText()`, `Admin.wages()`, `Admin.tribute()`, `Admin.expectedIncome()` → `{ tax, trade, jh, wages, tribute, upkeep, gross, net }`
+- 그림(sprites.js·render.js): `sealSprite(id)`(세력 문장, 64px), `exitPostSprite(snow)`·`EXIT_POST_H`(길목 말뚝), `SPRITE_META[type].sign`·`.light`(갈래 건물의 현판과 밤 불빛), `renSeason()`(그릴 철: 겨울이 없는 고을의 넷째 철은 가을빛), `renGone(u)`(죽었거나 안에 있거나 의뢰로 떠나 숨은 사람), `exitCrestAt(sx, sy)` → `{ i, name, ids } | null`(길목 문장판·말뚝. tips.js 의 길목 풀이가 먼저 본다)
 - 기타: `markDirty()`(일자리 다시 배치), `refreshAssign()`, `logMsg`, `UI.toast`, `UI.focusOn(tx, ty)`, `UI.select({b})`, `UI.setTool(key)`, `UI.openSheet(kind)`
 
 ## 8. 시험하기
 
 헤드리스 Chromium + Playwright(`require('playwright')`, 설치돼 있음)로 `file://<저장소>/index.html`을 연다.
-`#btn-new` → 천하도 고르기(`WorldMap.open('pick')`, 자리 채움은 곧바로 낙수 들녘을 고른다) → 총관의 첫 인사로 게임에 들어간다(이야기 모듈이 바뀌면 그 흐름을 따른다). 고을을 정해 바로 들어가려면 `enterGame(true, siteKey, seed)`.
+`#btn-new` → 천하도 고르기(`WorldMap.open('pick')`: 고을 표시 `[data-site=KEY]`, 띠 카드 `[data-pick=KEY]`, `#wm-prev`·`#wm-next`, [이곳에 부임한다] `#wm-go`, `#wm-random`, `#wm-back`) → 총관의 첫 인사로 게임에 들어간다. 천하도 보기에서는 문장이 `.wm-seat[data-f=ID]`, 전쟁이 `.wm-war[data-w=ID]`, 보기 전환이 `.wm-seg [data-view=camp|rel|threat]`, 카드의 [세력 창에서 보기]가 `.wm-tosheet`, 닫기가 `.wm-close`다. 고을을 정해 바로 들어가려면 `enterGame(true, siteKey, seed)`.
 빨리 감기: `page.evaluate(() => { for (let i = 0; i < N; i++) { PF.budget = 40; simStep(0.02); } })`.
 사건 자동 처리: `S.eventQueue`의 첫 항목을 `Events.build(entry)`로 만들고 `choices[i].run()` 후 `S.eventQueue.shift()`.
 콘솔 오류(`pageerror`, `console.error`)가 하나도 없어야 한다. 화면은 스크린숏으로 직접 확인한다.

@@ -586,11 +586,7 @@ const Admin = {
     return w;
   },
   // 주군에게 바치는 공물: (4 + 인구×0.25) × 계열의 공물 배수 (상단은 0.6)
-  tribute() {
-    if (!S.vassal) return 0;
-    const C = FACTIONS[S.vassal] && CAMPS[FACTIONS[S.vassal].camp];
-    return Math.round((4 + popCount() * 0.25) * (C ? C.tribute : 1));
-  },
+  tribute() { return tributeDue(); },
   // 이방·형방·예방이 날마다 쓰는 경비
   dailyNeed(id) {
     const pop = popCount();
@@ -1527,7 +1523,7 @@ const Admin = {
   expectedIncome() {
     const pop = popCount();
     // 세금: 인구·세율·민심 × 혜택(주군·동맹·고을 성질·관아의 tax) × 이방
-    const tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100) * JH.perk('tax') * this.taxMul();
+    const tax = dailyTax();
     // 강호의 날마다 몫: 계열·혈제단이 내리는 은자(인구당), 교역 협정 (다음 묘시에도 살아 있는 것만)
     let jh = JH.perk('dailySilver') * pop;
     if (S.jh) {

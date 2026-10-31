@@ -249,6 +249,8 @@ const JH = (() => {
     biome() { return (S && S.jh && SITES[S.jh.site] && SITES[S.jh.site].biome) || HALF; },
     trait() { return (S && S.jh && SITES[S.jh.site] && SITES[S.jh.site].trait) || {}; },
     power(id) { return S && S.jh ? Math.round(S.jh.power[id] || 0) : 0; },
+    // 힘을 바로 정한다 (0..200, 흑풍채·주군 25·관부 10의 바닥, 0이면 멸문). 이야기의 승리가 숙적 이웃의 힘을 꺾을 때
+    setPower(id, p) { if (S && S.jh && fac(id)) setPower(id, p); },
 
     // 혜택 (§5): 곱하는 값은 기본 1, 더하는 값·heroEvery 는 기본 0
     perk(name) {

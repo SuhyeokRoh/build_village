@@ -956,7 +956,8 @@ const WorldMap = (() => {
     const ri = hook(typeof Story === 'undefined' ? null : Story, 'routeInfo');
     const name = (ri && ri.name) || (jh.route === 'free' ? '독립' : CAMPS[jh.route] ? CAMPS[jh.route].name : jh.route);
     const seal = (ri && ri.seal) || (CAMPS[jh.route] ? CAMPS[jh.route].seal : '獨');
-    return `<span class="wm-route"><i ${gl(seal)}>${seal}</i>${escapeHtml(name)}의 길${ri && ri.provisional ? ' (잠정)' : ''}</span>`;
+    const full = jh.route === 'free' ? '홀로 서는 길' : `${escapeHtml(name)}의 길`;
+    return `<span class="wm-route"><i ${gl(seal)}>${seal}</i>${full}${ri && ri.provisional ? ' (잠정)' : ''}</span>`;
   }
   function viewPanel() {
     const sel = st.sel && fac(st.sel) ? factionCard(st.sel) : st.selWar ? warCard(st.selWar, true) : '<p class="wm-empty">지도에서 문장이나 땅을 누르면 그 세력을 살핀다.</p>';

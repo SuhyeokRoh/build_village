@@ -1,7 +1,6 @@
 /* 천하도(天下圖) — 옻칠한 판 위에 펼친 한지 지도. 고르기(새 게임)와 보기(천하의 판도). js/worldmap.js */
 
-/* 고르기 화면(z 52)에서도 풀이 말풍선이 보이게 (docs/jianghu.md §10) */
-#tooltip { z-index: 60; }
+/* 풀이 말풍선 #tooltip 은 style.css 에서 z-index 60 이라 고르기 화면(z 52) 위에도 뜬다 */
 
 #worldmap {
   position: absolute; inset: 0; z-index: 29;

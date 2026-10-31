@@ -92,7 +92,7 @@ const Tips = {
     const lines = [];
     const g = HANJA_GLOSS[def.hanja];
     if (g) lines.push(`${def.hanja} (${g[0]})`);
-    const sign = SIGN_OF[b.type];
+    const sign = SIGN_OF[b.type] || (typeof SPRITE_META !== 'undefined' && SPRITE_META[b.type] || {}).sign;
     if (sign) { const sg = glossOf(sign); if (sg) lines.push(`현판 ${sign}: ${HANJA_GLOSS[sign] ? HANJA_GLOSS[sign][1] : sg.body}`); }
     // 지붕 위 깃발의 글자: 객잔의 술 깃발, 영주관 깃발(마을 등급·주군·점령군)
     const up = b.done && !b.ruined;
@@ -114,9 +114,11 @@ const Tips = {
   },
   // 지도 가장자리 길목: 그 방향의 이웃 ('북쪽 산길 — 흑풍채, 칠살문 쪽'). toward 는 JH.attachExits 가 붙인다
   exitInfo(sx, sy) {
+    // 길목 말뚝 위 문장판이 먼저 (멀리 보면 판이 길목 칸에서 2.6칸보다 멀리 그려진다)
+    const hc = typeof exitCrestAt === 'function' && exitCrestAt(sx, sy);
     const t = screenToTile(sx, sy);
-    let best = null, bd = 2.6;
-    for (const ex of World.exits) {
+    let best = hc ? World.exits[hc.i] : null, bd = 2.6;
+    if (!best) for (const ex of World.exits) {
       const d = Math.hypot(t.x - (ex.x + 0.5), t.y - (ex.y + 0.5));
       if (d < bd && ex.toward && ex.toward.length) { bd = d; best = ex; }
     }

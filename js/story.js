@@ -696,6 +696,9 @@ const Story = (() => {
   function wmGuide() {
     const b = byId('btn-worldmap');
     if (b && b.getClientRects().length) return { sel: '#btn-worldmap', tag: '천하도', sub: '[천하도]를 열어 천하의 판도와 이웃 세력의 자리를 살펴보십시오.' };
+    // 폰: [세력] 창이 열려 있으면 그 맨 위의 [천하도 펼치기]를 짚는다
+    const m = UI.sheet === 'factions' && document.querySelector('#sheet .fx-mapbtn');
+    if (m && m.getClientRects().length) return { sel: '#sheet .fx-mapbtn', tag: '천하도', sub: '[천하도 펼치기]를 눌러 천하의 판도를 살펴보십시오.' };
     return { sel: '#btn-factions', tag: '세력', sub: '[세력] 창 맨 위의 [천하도 펼치기]를 눌러 천하의 판도를 살펴보십시오.' };
   }
   function crossGuide() {

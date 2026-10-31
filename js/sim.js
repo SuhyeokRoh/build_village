@@ -563,16 +563,23 @@ function hourlyTick() {
   // 승리 (이야기 모듈이 승리를 맡으면 그쪽이 정한다)
   if (!S.victory && S.rank >= 4 && S.fame >= 400 && hook(Story, 'ownsVictory') !== true) { S.victory = true; Events.victory(); }
 }
+// 하루 세금: 인구·세율·민심 × 혜택(JH.perk tax) × 이방. 육방의 장부도 이것을 부른다
+function dailyTax() {
+  return popCount() * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100) * JH.perk('tax') * (hook(Admin, 'taxMul') || 1);
+}
+// 주군에게 바칠 공물: (4 + 인구×0.25) × 계열의 공물 배수 (상단 0.6)
+function tributeDue() {
+  if (!S.vassal) return 0;
+  const C = FACTIONS[S.vassal] && CAMPS[FACTIONS[S.vassal].camp];
+  return Math.round((4 + popCount() * 0.25) * (C ? C.tribute : 1));
+}
 function dailyTick() {
   const pop = popCount();
   const day = dayOf();
   S.lastFlow = S.dayAcc || {};
   S.dayAcc = {};
   // 세금
-  let tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100);
-  tax *= JH.perk('tax');
-  tax *= hook(Admin, 'taxMul') || 1;
-  addRes('silver', tax);
+  addRes('silver', dailyTax());
   // 무사 품삯
   let wage = 0;
   for (const v of S.villagers) {
@@ -589,9 +596,7 @@ function dailyTick() {
   }
   // 주군에게 공물 (계열의 공물 배수). 계열 혜택의 날마다 몫(은자·명성·관부의 눈총)은 JH.daily 가 준다
   if (S.vassal) {
-    const C = FACTIONS[S.vassal] && CAMPS[FACTIONS[S.vassal].camp];
-    const trib = Math.round((4 + pop * 0.25) * (C ? C.tribute : 1));
-    S.res.silver = Math.max(0, S.res.silver - trib);
+    S.res.silver = Math.max(0, S.res.silver - tributeDue());
     changeRel(S.vassal, 1);
   }
   // 점령 수탈
@@ -605,7 +610,7 @@ function dailyTick() {
   // 수정자 만료
   const expired = S.mods.filter(m => m.until <= day);
   S.mods = S.mods.filter(m => m.until > day);
-  for (const m of expired) if (m.id === 'disciples') { for (const a of S.allies) if (a.stayUntil) a.stayUntil = 0; logMsg('청운검문 제자들이 수련을 마치고 돌아갔다.'); }
+  for (const m of expired) if (m.id === 'disciples') { for (const a of S.allies) if (a.stayUntil) a.stayUntil = 0; logMsg(`${(FACTIONS[m.faction] || FACTIONS.cheongun).name} 제자들이 수련을 마치고 돌아갔다.`); }
   // 역병
   if (hasMod('plague')) {
     const clinic = S.buildings.some(b => usable(b) && b.type === 'clinic' && b._workers && b._workers.length);
@@ -640,8 +645,10 @@ function dailyTick() {
   for (const b of S.buildings) updateSiteFactors(b);
   if (S.time > 30) { saveGame(true); }
   if (day % DAYS_PER_SEASON === 0 && day > 0) {
-    logMsg(`${SEASONS[seasonIdx()]}${pp(SEASONS[seasonIdx()], '이/가')} 왔다.`, '');
-    UI.toast(`${yearOf()}년 ${SEASONS[seasonIdx()]}`, '');
+    // 겨울이 없는 고을: 달력은 겨울이어도 눈이 오지 않고 논밭도 쉬지 않는다 (그림은 늦가을빛)
+    const warm = seasonIdx() === 3 && !isWinter();
+    logMsg(warm ? '겨울이 왔지만 이 고을에는 눈이 내리지 않는다. 논밭도 쉬지 않는다.' : `${SEASONS[seasonIdx()]}${pp(SEASONS[seasonIdx()], '이/가')} 왔다.`, '');
+    UI.toast(`${yearOf()}년 ${SEASONS[seasonIdx()]}${warm ? ' · 눈이 오지 않는 고을' : ''}`, '');
   }
   if (seasonIdx() === 2 && day % DAYS_PER_SEASON === 6 && !JH.trait().noWinter) {
     logMsg('나흘 뒤면 겨울이다. 겨울에는 논밭 수확이 크게 준다. 곳간을 채워 두자.', 'war');

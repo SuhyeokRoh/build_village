@@ -244,7 +244,8 @@ function loop(t) {
     const steps = Math.max(1, Math.ceil(dtH / 0.02));
     for (let i = 0; i < steps; i++) simStep(dtH / steps);
   }
-  render(t);
+  // 천하도 보기가 화면을 덮고 있으면 마을은 그리지 않는다 (천하도가 제 루프로 그린다)
+  if (!(worldMapOpen() && WorldMap.mode() === 'view')) render(t);
   UI.tick(t);
 }
 

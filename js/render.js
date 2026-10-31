@@ -1326,7 +1326,7 @@ function fxPos(f) { return { x: (f.tx - f.ty) * 32, y: (f.tx + f.ty) * 16 - (f.l
 function drawFx(c, now) {
   for (let i = G.fx.length - 1; i >= 0; i--) {
     const f = G.fx[i];
-    const t = (now - f.t0) / f.dur;
+    const t = Math.max(0, (now - f.t0) / f.dur);   // 시각이 거꾸로 와도(바깥에서 그린 프레임) 반지름이 음수가 되지 않게
     if (t >= 1) { G.fx.splice(i, 1); continue; }
     const { x: fx, y: fy } = fxPos(f);
     if (f.kind === 'slash') {
