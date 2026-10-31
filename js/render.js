@@ -27,6 +27,7 @@ const R = {
   view: { x0: 0, y0: 0, x1: 0, y1: 0 },   // 지금 보이는 월드 사각형
   stamp: null, frame: 1,                  // 바위 덮개 중복 방지
   grounds: [], lights: [], lightN: 0, hole: null, glow: new Map(),
+  crests: [],                             // 길목 표지 (그 프레임에 보이는 것만 on)
 };
 // 일시적인 효과 (저장하지 않음)
 const G = { fx: [], particles: [], projectiles: [] };
@@ -92,14 +93,14 @@ function pickAt(sx, sy) {
   const fz = REN_FIG * Cam.zoom, rx = Math.max(6, 8 * fz), ry = Math.max(9, 14 * fz);
   let best = null, bd = 1;
   for (const arr of [S.enemies, S.allies, S.villagers]) for (const u of arr) {
-    if (u.dead || u.inside) continue;
+    if (renGone(u)) continue;
     const p = worldToScreen((u.x - u.y) * 32 + renJx(u), (u.x + u.y) * 16 + renJy(u));
     const d = Math.hypot((p.x - sx) / rx, (p.y - 11 * fz - sy) / ry);
     if (d < bd) { bd = d; best = u; }
   }
   if (best) return { u: best };
   const w = screenToWorld(sx, sy), t = tileOfWorld(w.x, w.y);
-  const season = seasonIdx();
+  const season = renSeason();
   let pick = null, pk = -Infinity;
   for (const b of S.buildings) {
     const s = renSpriteOf(b, season);
@@ -218,6 +219,13 @@ function renRoundRect(c, x, y, w, h, r) {
   c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
+// 그릴 철: 겨울이 없는 고을(isWinter 가 거짓)의 넷째 철은 눈 대신 가을로 그린다 (땅·나무·건물·날씨 모두)
+function renSeason() {
+  const s = seasonIdx();
+  return s === 3 && typeof isWinter === 'function' && !isWinter(s) ? 2 : s;
+}
+// 그리지 않는 사람: 죽었거나 건물 안, 또는 의뢰로 길목 밖에 나가 있는 이(v.away.gone)
+function renGone(u) { return u.dead || u.inside || !!(u.away && u.away.gone); }
 // 화면 픽셀 → 월드 픽셀 (확대와 상관없이 비슷한 굵기·크기로)
 function renPx(n) { return n / Cam.zoom; }
 function renJx(u) { return (u.ox || 0) * 0.9; }
@@ -249,7 +257,7 @@ function renRockHeights() {
 }
 // 지형 캐시 갱신: 바뀐 칸이 적으면 그 둘레만, 계절·판이 바뀌면 전부 다시 그린다
 function updateTerrain() {
-  const season = seasonIdx();
+  const season = renSeason();
   const full = R.season !== season || R.snapS !== S || R.snapSeed !== S.seed;
   World.terrainDirty = false;
   if (full) { redrawTerrain(); return; }
@@ -280,7 +288,7 @@ function updateTerrain() {
   renMiniBase();
 }
 function redrawTerrain() {
-  const season = seasonIdx();
+  const season = renSeason();
   R.season = season;
   if (R.snapSeed !== S.seed || !R.noise) R.noise = makeNoise((S.seed | 0) + 101);
   renRockHeights();
@@ -824,7 +832,7 @@ function renUnitKey(u) {
 }
 const REN_POOL = [], REN_LIST = [];
 let renPoolN = 0;
-// o: 1 건물, 1.5 바위 덮개, 2 나무, 3 사람
+// o: 1 건물, 1.5 바위 덮개, 2 나무, 2.2 길목 표지, 3 사람
 function renPush(k, o, b, u, s, tx, ty) {
   let it = REN_POOL[renPoolN];
   if (!it) { it = { k: 0, o: 0, b: null, u: null, s: null, tx: 0, ty: 0 }; REN_POOL.push(it); }
@@ -885,7 +893,7 @@ function render(nowMs) {
   c.fillStyle = R.bg;
   c.fillRect(0, 0, R.canvas.width, R.canvas.height);
   if (!S) return;
-  if (World.terrainDirty || R.season !== seasonIdx() || R.snapS !== S) updateTerrain();
+  if (World.terrainDirty || R.season !== renSeason() || R.snapS !== S) updateTerrain();
   const z = Cam.zoom * Cam.dpr;
   const ox = (Cam.vw / 2 - Cam.x * Cam.zoom) * Cam.dpr, oy = (Cam.vh / 2 - Cam.y * Cam.zoom) * Cam.dpr;
   c.setTransform(z, 0, 0, z, ox, oy);
@@ -897,7 +905,7 @@ function render(nowMs) {
   const sx0 = Math.max(0, Math.floor(V.x0 - R.tox) - 1), sy0 = Math.max(0, Math.floor(V.y0 - R.toy) - 1);
   const sx1 = Math.min(R.terrain.width, Math.ceil(V.x1 - R.tox) + 1), sy1 = Math.min(R.terrain.height, Math.ceil(V.y1 - R.toy) + 1);
   if (sx1 > sx0 && sy1 > sy0) c.drawImage(R.terrain, sx0, sy0, sx1 - sx0, sy1 - sy0, sx0 + R.tox, sy0 + R.toy, sx1 - sx0, sy1 - sy0);
-  const season = seasonIdx();
+  const season = renSeason();
   R.frame++;
   renPoolN = 0; REN_LIST.length = 0;
 
@@ -943,8 +951,9 @@ function render(nowMs) {
     for (let xx = b.x; xx < b.x + b.w; xx++) renMarkRock(xx, b.y + b.h);
   }
   for (const b of grounds) drawBuilding(c, b, renSpriteOf(b, season), season, now);
+  renExitCrests(V);
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) {
-    if (u.inside || u.dead) continue;
+    if (renGone(u)) continue;
     const px = (u.x - u.y) * 32, py = (u.x + u.y) * 16;
     if (px < V.x0 - 24 || px > V.x1 + 24 || py < V.y0 - 8 || py > V.y1 + 44) continue;
     renPush(renUnitKey(u), 3, null, u, null, 0, 0);
@@ -955,6 +964,7 @@ function render(nowMs) {
   for (let n = 0; n < REN_LIST.length; n++) {
     const it = REN_LIST[n];
     if (it.o === 3) drawUnit(c, it.u, now);
+    else if (it.o === 2.2) drawExitPost(c, R.crests[it.tx], season);
     else if (it.o === 2) {
       const i = it.ty * MW + it.tx, v = World.tvar[i], s = it.s;
       const u = it.tx + 0.5 + renTreeDu(v), w = it.ty + 0.5 + renTreeDv(v);
@@ -973,6 +983,7 @@ function render(nowMs) {
 
   // 조명 위에 그리는 표시들
   c.setTransform(z, 0, 0, z, ox, oy);
+  drawExitSeals(c);
   drawOverlays(c, now);
   drawFloaters(c, now);
   c.setTransform(Cam.dpr, 0, 0, Cam.dpr, 0, 0);
@@ -989,6 +1000,71 @@ function wallMask(b) {
   if (at(b.x, b.y + 1)) m |= 4;
   if (at(b.x - 1, b.y)) m |= 8;
   return m;
+}
+// ── 길목 표지: 그 방향 이웃의 문장 ───────────────
+// World.exits[i].toward(JH.attachExits 가 붙이고 불러올 때 다시 붙인다)의 살아 있는 이웃만.
+// 길목 칸의 길섶에 이정표 기둥(그림 캐시)을 세우고 깊이 정렬에 넣는다. 기둥 끝 널판의 문장은 조명 위에
+// 그려(drawExitSeals) 숲에 가리거나 밤에 묻히지 않게 하고, 확대해도 줄여도 읽히게 크기를 고른다. 한 줄에 셋까지
+const REN_SEAL_ROW = 3;
+function renExitSpot(ex) {
+  const out = ex.x === 0 ? [-1, 0] : ex.x === MW - 1 ? [1, 0] : ex.y === 0 ? [0, -1] : [0, 1];
+  const alongU = out[0] !== 0;
+  const road = (x, y) => World.inb(x, y) && World.road[y * MW + x] === 1;
+  // 뒤쪽(화면 위쪽) 길섶이 먼저. 그쪽으로 길이 갈라지면 앞쪽
+  const side = (alongU ? road(ex.x, ex.y - 1) : road(ex.x - 1, ex.y)) ? 1 : -1;
+  return { u: ex.x + 0.5 + out[0] * 0.26 + (alongU ? 0 : side * 0.36), v: ex.y + 0.5 + out[1] * 0.26 + (alongU ? side * 0.36 : 0) };
+}
+function renExitCrests(V) {
+  const r = clamp(renPx(9), 8, 18);
+  for (let i = 0; i < World.exits.length; i++) {
+    const ex = World.exits[i];
+    const cr = R.crests[i] || (R.crests[i] = { i, on: false, x: 0, y: 0, r: 0, w: 0, h: 0, ids: [] });
+    cr.on = false;
+    if (!S.jh || !ex.toward || !ex.toward.length) continue;
+    cr.ids = ex.toward.filter(id => FACTIONS[id] && JH.isAlive(id));
+    if (!cr.ids.length) continue;
+    const p = renExitSpot(ex), n = Math.min(REN_SEAL_ROW, cr.ids.length), rows = Math.ceil(cr.ids.length / REN_SEAL_ROW);
+    cr.x = (p.u - p.v) * 32; cr.y = (p.u + p.v) * 16; cr.r = r;
+    cr.w = n * 2 * r + (n - 1) * r * 0.3; cr.h = rows * r * 2.06 + 3;
+    if (cr.x + cr.w / 2 < V.x0 - 8 || cr.x - cr.w / 2 > V.x1 + 8 || cr.y < V.y0 - 8 || cr.y - EXIT_POST_H - cr.h > V.y1 + 8) continue;
+    cr.on = true;
+    renPush(p.u + p.v, 2.2, null, null, null, i, 0);
+    const fx = Math.floor(p.u), fy = Math.floor(p.v);
+    renMarkRock(fx + 1, fy); renMarkRock(fx, fy + 1); renMarkRock(fx + 1, fy + 1);
+  }
+  for (let i = World.exits.length; i < R.crests.length; i++) R.crests[i].on = false;
+}
+function drawExitPost(c, cr, season) {
+  const s = exitPostSprite(season === 3);
+  c.drawImage(s.c, cr.x - s.ax, cr.y - s.ay, s.w, s.h);
+}
+// 기둥 끝 널판과 문장 (조명 위)
+function drawExitSeals(c) {
+  for (const cr of R.crests) {
+    if (!cr.on) continue;
+    const r = cr.r, top = cr.y - EXIT_POST_H, d = r * 64 / 30;
+    renBox(c, 'rgba(0,0,0,0.35)', cr.x - cr.w / 2 - 1.5, top - 1.4, cr.w + 4, 2.6);
+    renBox(c, '#4a2e1a', cr.x - cr.w / 2 - 2, top - 2, cr.w + 4, 2.6);
+    renBox(c, 'rgba(255,220,170,0.3)', cr.x - cr.w / 2 - 2, top - 2, cr.w + 4, 0.7);
+    for (let k = 0; k < cr.ids.length; k++) {
+      const row = Math.floor(k / REN_SEAL_ROW), inRow = Math.min(REN_SEAL_ROW, cr.ids.length - row * REN_SEAL_ROW), col = k % REN_SEAL_ROW;
+      const cx = cr.x - (inRow - 1) * r * 1.15 + col * r * 2.3, cy = top - 2 - r * 0.96 - row * r * 2.06;
+      c.drawImage(sealSprite(cr.ids[k]).c, cx - d / 2, cy - d / 2, d, d);
+    }
+  }
+}
+// 화면 점이 길목 표지 위인가: { i, name, ids } | null (풀이 말풍선이 '북쪽 산길 — 흑풍채·칠살문 쪽'을 띄울 때)
+function exitCrestAt(sx, sy) {
+  if (!S) return null;
+  const w = screenToWorld(sx, sy);
+  for (const cr of R.crests) {
+    if (!cr.on) continue;
+    const top = cr.y - EXIT_POST_H;
+    const onBoard = w.x >= cr.x - cr.w / 2 - 3 && w.x <= cr.x + cr.w / 2 + 3 && w.y >= top - 2 - cr.h && w.y <= top + 1;
+    const onPost = Math.abs(w.x - cr.x) <= 4 && w.y >= top && w.y <= cr.y + 2;
+    if (onBoard || onPost) return { i: cr.i, name: World.exits[cr.i].name, ids: cr.ids.slice() };
+  }
+  return null;
 }
 // 맞은 건물을 붉게 비추는 그림 (그림마다 한 번 만들어 둔다)
 const REN_TINT = new WeakMap();
@@ -1030,6 +1106,7 @@ function drawBuilding(c, b, s, season, now) {
   if (sm && b.done && !b.ruined && Math.random() < 0.06) {
     if (b.type === 'smithy' && b._working) emitSmoke(nx + sm[0], ny + sm[1], 'rgba(90,90,96,', 1);
     if (b.type === 'shrine') emitSmoke(nx + sm[0], ny + sm[1] - 4, 'rgba(220,220,230,', 0.4);
+    if (b.type === 'altar_ma') emitSmoke(nx + sm[0] + rnd(-4, 4), ny + sm[1] - 8, 'rgba(110,36,44,', 0.75);
   }
   if (b.ruined && Math.random() < 0.08) {
     const tx = b.x + rnd(0.2, b.w - 0.2), ty = b.y + rnd(0.2, b.h - 0.2);
@@ -1193,8 +1270,10 @@ function collectLights() {
     if (b.burning) renLight(cx, cy - 22, 3 + b.w, '#ff6a2a', 3, 0.95);
     if (!b.done || b.ruined) continue;
     const def = BDEF[b.type];
-    if (def.light) {
-      for (const L of def.light) {
+    // 불빛 자리는 BDEF 가 먼저, 없으면 그림이 알려 준 자리 (갈래 건물)
+    const lights = def.light || (SPRITE_META[b.type] || {}).light;
+    if (lights) {
+      for (const L of lights) {
         const lx = b.x + L[0], ly = b.y + L[1];
         const lift = L.length > 4 ? L[4] : (def.lightLift || 16);
         renLight((lx - ly) * 32, (lx + ly) * 16 - lift, L[2], L[3], 1, 0.95);
@@ -1205,8 +1284,10 @@ function collectLights() {
       renLight((lx - ly) * 32, (lx + ly) * 16 - 11, 1.7, '#ffc070', 0, 0.75);
     }
   }
+  // 길목 이정표의 등롱
+  for (const cr of R.crests) if (cr.on) renLight(cr.x + 6.4, cr.y - 16, 1.3, '#ffb060', 1, 0.8);
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) {
-    if (u.dead || u.inside || !u.torch) continue;
+    if (renGone(u) || !u.torch) continue;
     const px = (u.x - u.y) * 32 + renJx(u), py = (u.x + u.y) * 16 + renJy(u);
     if (px < V.x0 - m || px > V.x1 + m || py < V.y0 - m || py > V.y1 + m) continue;
     renLight(px + 3 * REN_FIG, py - 15 * REN_FIG, 2.4, '#ffa040', 4, 0.95);
@@ -1303,7 +1384,7 @@ function drawProjectiles(c) {
 
 // ── 선택 표시, 건설 미리보기, 체력바, 이름, 표지 ──
 function drawOverlays(c, now) {
-  const season = seasonIdx();
+  const season = renSeason();
   const V = R.view;
   const sel = UI.sel;
   if (sel && sel.b && S.bmap.get(sel.b.id)) {
@@ -1316,7 +1397,7 @@ function drawOverlays(c, now) {
     c.setLineDash([]); c.lineDashOffset = 0;
     if (b.type === 'tower') rangeCircle(c, b.x + 0.5, b.y + 0.5, BDEF.tower.range);
   }
-  if (sel && sel.u && !sel.u.dead && !sel.u.inside) {
+  if (sel && sel.u && !renGone(sel.u)) {
     const u = sel.u;
     const px = (u.x - u.y) * 32 + renJx(u), py = (u.x + u.y) * 16 + renJy(u);
     c.strokeStyle = REN_GOLD; c.lineWidth = Math.max(1.2, renPx(1.4));
@@ -1325,7 +1406,7 @@ function drawOverlays(c, now) {
   // 사람 체력바·이름
   const lfs = Math.max(8, renPx(10.5));
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) {
-    if (u.dead || u.inside) continue;
+    if (renGone(u)) continue;
     const px = (u.x - u.y) * 32 + renJx(u), py = (u.x + u.y) * 16 + renJy(u);
     if (px < V.x0 - 60 || px > V.x1 + 60 || py < V.y0 - 10 || py > V.y1 + 50) continue;
     const show = u.hp < u.maxHp && !u.down && (S.raid || u.kind === 'e');
@@ -1385,7 +1466,7 @@ function drawOverlays(c, now) {
 // 이야기(튜토리얼)가 가리키는 곳: G.markers = [{x, y, text}] (타일 좌표, 보통 건물 가운데)
 function drawMarkers(c, now, season) {
   if (!G.markers || !G.markers.length) return;
-  if (season === undefined) season = seasonIdx();
+  if (season === undefined) season = renSeason();
   const k = Math.max(1, 0.9 / Cam.zoom);
   for (const m of G.markers) {
     const px = (m.x - m.y) * 32;
@@ -1521,7 +1602,7 @@ function drawMinimap() {
     m.fillRect(b.x * 2, b.y * 2, b.w * 2, b.h * 2);
   }
   m.fillStyle = '#ffffff';
-  for (const v of S.villagers) if (!v.inside && !v.dead) m.fillRect(v.x * 2 - 0.5, v.y * 2 - 0.5, 1.5, 1.5);
+  for (const v of S.villagers) if (!renGone(v)) m.fillRect(v.x * 2 - 0.5, v.y * 2 - 0.5, 1.5, 1.5);
   m.fillStyle = '#7ab8ff';
   for (const a of S.allies) if (!a.dead) m.fillRect(a.x * 2 - 1, a.y * 2 - 1, 2.5, 2.5);
   m.fillStyle = '#ff3a2a';
