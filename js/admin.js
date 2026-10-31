@@ -1399,7 +1399,7 @@ const Admin = {
         const n = 8, cost = n * ADM_PRICE.weapons;
         d.fund -= cost; d.spent += cost;
         addRes('weapons', n);
-        this.note('byeong', `${tn}${pp(tn, '이/가')} 칼을 갈아 병장기 ${n}자루를 ${cost}냥에 사 두었다`, true);
+        this.note('byeong', `${tn}${pp(tn, '이/가')} 칼을 갈고 있어 병장기 ${n}자루를 ${cost}냥에 사 두었다`, true);
         return { did: true, status: `${tn}에 대비해 병장기를 사들였다.` };
       }
       if (towers < target && labor >= 1) {
