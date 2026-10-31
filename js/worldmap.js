@@ -171,7 +171,7 @@ const WorldMap = (() => {
     sel: null, selWar: null, view: 'camp', hiCamp: null, fold: false,                  // 보기
     cam: { x: WW / 2, y: WH / 2, k: 1 }, minK: 1, vw: 0, vh: 0, dpr: 1,
     dirty: true, domDirty: true, anim: false, raf: 0, panelAt: 0, settleAt: 0, lastPanel: '', lastSig: '',
-    stat: null, statSig: '', res: 0, own: null, ownSig: '', land: null, landKey: '', spots: null, spotKey: '',
+    stat: null, statSig: '', res: 0, own: null, ownSig: '', land: null, landKey: '', spots: null, spotKey: '', geo: null, geoKey: '', tintCv: null,
     ptr: new Map(), drag: null, pinch: null, disp: {}, m: null, cover: false,
   };
   let D = null;   // DOM 참조
@@ -298,71 +298,42 @@ const WorldMap = (() => {
     if (!pickMode() && st.view === 'threat') s += '|' + S.jh.near.map(id => { const l = threatLevel(id); return l ? (l.spied ? l.pct : l.n) : '-'; }).join(',');
     return s;
   }
-  function ensureStatic(exact) {
+  // 정적 겹의 배율을 맞춘다. fit: 새로 열거나 창 크기가 바뀌었다(딱 맞춘다), exact: 움직임이 멎었다, 그 밖에는 크게 벗어날 때만
+  function ensureStatic(exact, fit) {
     owners();
-    const want = clamp(st.cam.k * st.dpr, 0.35, RMAX);
+    // 폰(좁은 화면)은 겹을 덜 키우고(dpr 을 2로 묶어 두어 거의 티 나지 않는다), 확대할 때는 한 걸음(+ 한 번 = 1.45배) 앞서 만들어
+    // + 를 거푸 눌러도 덜 다시 만든다. 축소는 꽤 작아져야 다시 만든다 (부드럽게 줄여 그리면 볼 만하다)
+    const narrow = st.vw < 640, cap = narrow ? 2 : RMAX, ahead = narrow ? 1.45 : 1, low = narrow ? 0.62 : 0.92;
+    const want = clamp(st.cam.k * st.dpr, 0.35, cap);
     let res = st.res;
-    if (!st.stat || (exact ? Math.abs(want - res) / want > 0.08 : (want > res * 1.3 || want < res * 0.55))) res = want;
+    if (!st.stat || (fit && Math.abs(want - res) / want > 0.08)) res = want;
+    else if (!st.ptr.size) {   // 손가락이 닿아 있는 동안은 배율을 묶어 둔다 (뗀 뒤에 맞춘다)
+      if (want > res * (exact ? 1.08 : 1.3)) res = Math.min(cap, want * ahead);
+      else if (want < res * (exact ? low : 0.55)) res = want;
+    }
     const sig = staticSig();
     if (st.stat && res === st.res && sig === st.statSig) return;
     st.res = res; st.statSig = sig;
     buildStatic();
     st.dirty = true;
   }
-  function buildStatic() {
-    const r = st.res, u = st.dpr / r;   // u: 화면 1px 의 천하도 길이 (정적 겹을 만든 배율에서)
-    const W = Math.ceil((WW + 2 * PAD) * r), H = Math.ceil((WH + 2 * PAD) * r);
-    const cv = st.stat || (st.stat = document.createElement('canvas'));
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-    const c = cv.getContext('2d');
-    c.setTransform(1, 0, 0, 1, 0, 0);
-    c.clearRect(0, 0, W, H);
-    c.setTransform(r, 0, 0, r, PAD * r, PAD * r);
-    c.lineJoin = c.lineCap = 'round';
-    // 땅만 남기는 자르기 (바다는 둘레 사각형과 겹쳐 빠지고, 섬은 그 안에서 다시 든다)
-    const landClip = isle => {
-      c.beginPath(); c.rect(0, 0, WW, WH); c.clip();
-      c.beginPath(); c.rect(-PAD, -PAD, WW + 2 * PAD, WH + 2 * PAD); seaPath(c);
-      if (isle) for (const p of isl) smooth(c, p, true);
-      c.clip('evenodd');
-    };
-    const isl = islands();
-
-    // 종이 (그림자, 바탕, 결, 가장자리 그을림)
-    c.save();
-    c.shadowColor = 'rgba(0,0,0,0.55)'; c.shadowBlur = 18 * st.dpr; c.shadowOffsetY = 5 * st.dpr;
-    c.fillStyle = PAPER; c.fillRect(0, 0, WW, WH);
-    c.restore();
-    const pat = c.createPattern(paperTexture(), 'repeat');
-    if (pat && pat.setTransform && typeof DOMMatrix === 'function') pat.setTransform(new DOMMatrix().scale(1 / r * st.dpr));
-    c.fillStyle = pat; c.fillRect(0, 0, WW, WH);
-    // 새외는 조금 누렇게
-    c.save(); c.beginPath(); c.rect(0, 0, WW, WH); c.clip();
-    c.fillStyle = 'rgba(150,112,60,0.09)';
-    for (const R of REG) if (R.outer) { c.beginPath(); R.poly.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath(); c.fill(); }
-    c.restore();
-
-    // 바다: 엷은 쪽빛, 물결 무늬, 물가 띠
-    c.save(); c.beginPath(); c.rect(0, 0, WW, WH); c.clip();
-    c.beginPath(); seaPath(c); c.fillStyle = 'rgba(92,128,140,0.30)'; c.fill();
-    c.save(); c.beginPath(); seaPath(c); c.clip();
-    c.strokeStyle = 'rgba(48,82,96,0.28)'; c.lineWidth = 0.9 * u;
-    const land = landMask();
+  // 정적 겹 가운데 배율과 상관없는 자리: 물결·모래 점·봉우리, 영역 빛깔, 세력 경계.
+  // 판도(staticSig, 본산 자리)가 바뀔 때만 다시 센다. 확대·축소로 다시 만들 때는 새 배율의 굵기로 칠하기만 한다
+  function staticGeo(isl) {
+    const seats = FACTION_ORDER.map(seatOf).filter(Boolean);
+    const key = st.statSig + '|' + seats.map(s => s.x + ',' + s.y).join(';');
+    if (st.geo && st.geoKey === key) return st.geo;
+    const o = owners(), land = landMask();
+    // 바다 물결 무늬 자리 (땅·섬 위는 건너뛴다)
+    const waves = [];
     for (let y = 150, row = 0; y < WH + 20; y += 17, row++) for (let x = 560 + (row % 2) * 13; x < WW + 20; x += 26) {
       const i = Math.round(x / G), j = Math.round(y / G);
       if (i < GX && j < GY && land[j * GX + i]) continue;
       if (isl.some(p => p.some(q => Math.hypot(q[0] - x, q[1] - y) < 14))) continue;
-      c.beginPath(); c.arc(x - 3.5, y, 3.5, Math.PI * 1.1, Math.PI * 1.9); c.arc(x + 3.5, y, 3.5, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+      waves.push([x, y]);
     }
-    c.lineWidth = 7 * u; c.strokeStyle = 'rgba(70,108,120,0.20)';
-    c.beginPath(); seaPath(c); c.stroke();
-    c.restore();
-    for (const p of isl) { c.beginPath(); smooth(c, p, true); c.fillStyle = PAPER; c.fill(); c.fillStyle = pat; c.fill(); }
-    c.restore();
-
-    // 영역 (계열 빛깔, 먹물처럼 번지게). 땅 안에만
-    const o = owners();
-    const img = document.createElement('canvas');
+    // 영역 빛깔: 격자 한 점이 한 화소 (작은 캔버스 하나를 돌려 쓴다)
+    const img = st.tintCv || (st.tintCv = document.createElement('canvas'));
     img.width = GX; img.height = GY;
     const ic = img.getContext('2d'), id = ic.createImageData(GX, GY), px = id.data;
     const tints = o.ids.map(tint);
@@ -373,44 +344,14 @@ const WorldMap = (() => {
       px[n * 4] = t[0]; px[n * 4 + 1] = t[1]; px[n * 4 + 2] = t[2]; px[n * 4 + 3] = Math.round(a * 255);
     }
     ic.putImageData(id, 0, 0);
-    c.save(); landClip(true);
-    c.globalCompositeOperation = 'multiply';
-    c.imageSmoothingEnabled = true;
-    c.drawImage(img, 0, 0, GX, GY, -G / 2, -G / 2, GX * G, GY * G);
-    c.globalCompositeOperation = 'source-over';
-    c.restore();
-
-    // 사막 (서역의 모래 점)
-    c.save(); landClip();
-    c.fillStyle = 'rgba(112,84,46,0.32)';
-    const R = mulberry32(31);
+    // 사막 모래 점 [x, y, 크기 배수] (황하 곁은 비운다)
+    const dots = [], R = mulberry32(31);
     for (let i = 0; i < 420; i++) {
       const x = 20 + R() * 280, y = 150 + R() * 190;
       if (RIV[0].dense.some(p => Math.hypot(p[0] - x, p[1] - y) < 9)) continue;
-      c.beginPath(); c.arc(x, y, (0.5 + R() * 0.5) * u * 1.2, 0, Math.PI * 2); c.fill();
+      dots.push([x, y, 0.5 + R() * 0.5]);
     }
-    c.restore();
-
-    // 강: 먹빛 쪽물, 하구로 갈수록 굵게
-    c.save(); landClip();
-    for (const rv of RIV) {
-      const P = rv.dense, n = P.length, L = [], Rr = [];
-      for (let i = 0; i < n; i++) {
-        const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)], len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-        const w = (rv.w[0] + (rv.w[1] - rv.w[0]) * Math.pow(i / (n - 1), 0.8)) / 2 + 0.25 * u;
-        const nx = -(b[1] - a[1]) / len * w, ny = (b[0] - a[0]) / len * w;
-        L.push([P[i][0] + nx, P[i][1] + ny]); Rr.push([P[i][0] - nx, P[i][1] - ny]);
-      }
-      c.beginPath(); smooth(c, P, false); c.strokeStyle = 'rgba(246,240,224,0.7)'; c.lineWidth = rv.w[1] + 3 * u; c.stroke();
-      c.beginPath(); c.moveTo(L[0][0], L[0][1]);
-      for (const p of L) c.lineTo(p[0], p[1]);
-      for (let i = n - 1; i >= 0; i--) c.lineTo(Rr[i][0], Rr[i][1]);
-      c.closePath(); c.fillStyle = 'rgba(52,96,112,0.82)'; c.fill();
-    }
-    c.restore();
-
-    // 산: 먹 봉우리. 본산·고을·강 위에는 찍지 않는다
-    const seats = FACTION_ORDER.map(seatOf).filter(Boolean);
+    // 봉우리 [x, y, 크기]. 본산·고을·강 위에는 찍지 않는다
     const sites = siteKeys().map(k => ({ x: SITES[k].x, y: SITES[k].y }));
     const clearOf = (x, y) => seats.every(s => Math.hypot(s.x - x, s.y - y) > 17) && sites.every(s => Math.hypot(s.x - x, s.y - y) > 15)
       && RIV.every(rv => rv.dense.every(p => Math.hypot(p[0] - x, p[1] - y) > 7));
@@ -422,29 +363,7 @@ const WorldMap = (() => {
     const R2 = mulberry32(19);
     for (let i = 0; i < 26; i++) peaks.push([70 + R2() * 180, 410 + R2() * 150, 5 + R2() * 4]);
     peaks.sort((a, b) => a[1] - b[1]);
-    c.save(); landClip();
-    for (const [x, y, s] of peaks) {
-      if (!clearOf(x, y)) continue;
-      c.beginPath(); c.moveTo(x, y - s * 1.05); c.quadraticCurveTo(x + s * 0.4, y - s * 0.5, x + s * 1.05, y); c.lineTo(x + s * 0.1, y); c.closePath();
-      c.fillStyle = 'rgba(70,52,34,0.22)'; c.fill();
-      c.beginPath(); c.moveTo(x - s, y); c.quadraticCurveTo(x - s * 0.35, y - s * 0.55, x, y - s * 1.05); c.quadraticCurveTo(x + s * 0.4, y - s * 0.5, x + s * 1.05, y);
-      c.strokeStyle = 'rgba(52,38,26,0.78)'; c.lineWidth = 1.05 * u; c.stroke();
-      c.beginPath(); c.moveTo(x - s * 0.12, y - s * 0.62); c.lineTo(x + s * 0.18, y - s * 0.2); c.lineWidth = 0.7 * u; c.stroke();
-    }
-    c.restore();
-
-    // 지역 경계 (일점쇄선), 중원과 새외 사이는 겹선
-    c.save(); landClip();
-    for (const e of REG_EDGES) {
-      if (e.frontier) { c.beginPath(); smooth(c, e.pts, false); c.setLineDash([]); c.strokeStyle = 'rgba(90,66,44,0.22)'; c.lineWidth = 3.6 * u; c.stroke(); }
-      c.beginPath(); smooth(c, e.pts, false);
-      c.setLineDash([7 * u, 2.6 * u, 1.3 * u, 2.6 * u]);
-      c.strokeStyle = e.frontier ? 'rgba(70,48,30,0.62)' : 'rgba(80,58,38,0.48)'; c.lineWidth = (e.frontier ? 1.2 : 0.95) * u; c.stroke();
-    }
-    c.setLineDash([]);
-    c.restore();
-
-    // 세력 경계: 격자의 두 이웃 점 임자가 다르면, 두 세력의 영향이 같아지는 자리를 찾아 잇는다 (계열이 다르면 진하게)
+    // 세력 경계: 격자의 두 이웃 점 임자가 다르면, 두 세력의 영향이 같아지는 자리를 찾아 잇는다 (계열이 다르면 진한 선)
     const weak = new Path2D(), strong = new Path2D();
     const lab = o.lab, campOf = l => (l >= 0 ? fac(o.ids[l]).camp : null);
     const infAt = (l, x, y) => { if (l < 0) return INF_MIN; const s = o.src[l], dx = x - s.x, dy = y - s.y; return s.P / (1 + (dx * dx + dy * dy) * s.q); };
@@ -470,9 +389,114 @@ const WorldMap = (() => {
         for (const m of pts) { P.moveTo(cx, cy); P.lineTo(m[0], m[1]); }
       }
     }
+    st.geo = { waves, tint: img, dots, peaks: peaks.filter(([x, y]) => clearOf(x, y)), weak, strong }; st.geoKey = key;
+    return st.geo;
+  }
+  function buildStatic() {
+    const r = st.res, u = st.dpr / r;   // u: 화면 1px 의 천하도 길이 (정적 겹을 만든 배율에서)
+    const W = Math.ceil((WW + 2 * PAD) * r), H = Math.ceil((WH + 2 * PAD) * r);
+    const cv = st.stat || (st.stat = document.createElement('canvas'));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    const c = cv.getContext('2d');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, W, H);
+    c.setTransform(r, 0, 0, r, PAD * r, PAD * r);
+    c.lineJoin = c.lineCap = 'round';
+    // 땅만 남기는 자르기 (바다는 둘레 사각형과 겹쳐 빠지고, 섬은 그 안에서 다시 든다)
+    const landClip = isle => {
+      c.beginPath(); c.rect(0, 0, WW, WH); c.clip();
+      c.beginPath(); c.rect(-PAD, -PAD, WW + 2 * PAD, WH + 2 * PAD); seaPath(c);
+      if (isle) for (const p of isl) smooth(c, p, true);
+      c.clip('evenodd');
+    };
+    const isl = islands(), geo = staticGeo(isl);
+
+    // 종이 (그림자, 바탕, 결, 가장자리 그을림)
+    c.save();
+    c.shadowColor = 'rgba(0,0,0,0.55)'; c.shadowBlur = 18 * st.dpr; c.shadowOffsetY = 5 * st.dpr;
+    c.fillStyle = PAPER; c.fillRect(0, 0, WW, WH);
+    c.restore();
+    const pat = c.createPattern(paperTexture(), 'repeat');
+    if (pat && pat.setTransform && typeof DOMMatrix === 'function') pat.setTransform(new DOMMatrix().scale(1 / r * st.dpr));
+    c.fillStyle = pat; c.fillRect(0, 0, WW, WH);
+    // 새외는 조금 누렇게
+    c.save(); c.beginPath(); c.rect(0, 0, WW, WH); c.clip();
+    c.fillStyle = 'rgba(150,112,60,0.09)';
+    for (const R of REG) if (R.outer) { c.beginPath(); R.poly.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath(); c.fill(); }
+    c.restore();
+
+    // 바다: 엷은 쪽빛, 물결 무늬, 물가 띠
+    c.save(); c.beginPath(); c.rect(0, 0, WW, WH); c.clip();
+    c.beginPath(); seaPath(c); c.fillStyle = 'rgba(92,128,140,0.30)'; c.fill();
+    c.save(); c.beginPath(); seaPath(c); c.clip();
+    c.strokeStyle = 'rgba(48,82,96,0.28)'; c.lineWidth = 0.9 * u;
+    for (const [x, y] of geo.waves) {
+      c.beginPath(); c.arc(x - 3.5, y, 3.5, Math.PI * 1.1, Math.PI * 1.9); c.arc(x + 3.5, y, 3.5, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+    }
+    c.lineWidth = 7 * u; c.strokeStyle = 'rgba(70,108,120,0.20)';
+    c.beginPath(); seaPath(c); c.stroke();
+    c.restore();
+    for (const p of isl) { c.beginPath(); smooth(c, p, true); c.fillStyle = PAPER; c.fill(); c.fillStyle = pat; c.fill(); }
+    c.restore();
+
+    // 영역 (계열 빛깔, 먹물처럼 번지게). 땅 안에만
     c.save(); landClip(true);
-    c.strokeStyle = 'rgba(46,32,22,0.26)'; c.lineWidth = 0.7 * u; c.stroke(weak);
-    c.strokeStyle = 'rgba(46,32,22,0.5)'; c.lineWidth = 1.05 * u; c.stroke(strong);
+    c.globalCompositeOperation = 'multiply';
+    c.imageSmoothingEnabled = true;
+    c.drawImage(geo.tint, 0, 0, GX, GY, -G / 2, -G / 2, GX * G, GY * G);
+    c.globalCompositeOperation = 'source-over';
+    c.restore();
+
+    // 사막 (서역의 모래 점)
+    c.save(); landClip();
+    c.fillStyle = 'rgba(112,84,46,0.32)';
+    for (const [x, y, f] of geo.dots) { c.beginPath(); c.arc(x, y, f * u * 1.2, 0, Math.PI * 2); c.fill(); }
+    c.restore();
+
+    // 강: 먹빛 쪽물, 하구로 갈수록 굵게
+    c.save(); landClip();
+    for (const rv of RIV) {
+      const P = rv.dense, n = P.length, L = [], Rr = [];
+      for (let i = 0; i < n; i++) {
+        const a = P[Math.max(0, i - 1)], b = P[Math.min(n - 1, i + 1)], len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        const w = (rv.w[0] + (rv.w[1] - rv.w[0]) * Math.pow(i / (n - 1), 0.8)) / 2 + 0.25 * u;
+        const nx = -(b[1] - a[1]) / len * w, ny = (b[0] - a[0]) / len * w;
+        L.push([P[i][0] + nx, P[i][1] + ny]); Rr.push([P[i][0] - nx, P[i][1] - ny]);
+      }
+      c.beginPath(); smooth(c, P, false); c.strokeStyle = 'rgba(246,240,224,0.7)'; c.lineWidth = rv.w[1] + 3 * u; c.stroke();
+      c.beginPath(); c.moveTo(L[0][0], L[0][1]);
+      for (const p of L) c.lineTo(p[0], p[1]);
+      for (let i = n - 1; i >= 0; i--) c.lineTo(Rr[i][0], Rr[i][1]);
+      c.closePath(); c.fillStyle = 'rgba(52,96,112,0.82)'; c.fill();
+    }
+    c.restore();
+
+    // 산: 먹 봉우리. 본산·고을·강 위에는 찍지 않는다
+    c.save(); landClip();
+    for (const [x, y, s] of geo.peaks) {
+      c.beginPath(); c.moveTo(x, y - s * 1.05); c.quadraticCurveTo(x + s * 0.4, y - s * 0.5, x + s * 1.05, y); c.lineTo(x + s * 0.1, y); c.closePath();
+      c.fillStyle = 'rgba(70,52,34,0.22)'; c.fill();
+      c.beginPath(); c.moveTo(x - s, y); c.quadraticCurveTo(x - s * 0.35, y - s * 0.55, x, y - s * 1.05); c.quadraticCurveTo(x + s * 0.4, y - s * 0.5, x + s * 1.05, y);
+      c.strokeStyle = 'rgba(52,38,26,0.78)'; c.lineWidth = 1.05 * u; c.stroke();
+      c.beginPath(); c.moveTo(x - s * 0.12, y - s * 0.62); c.lineTo(x + s * 0.18, y - s * 0.2); c.lineWidth = 0.7 * u; c.stroke();
+    }
+    c.restore();
+
+    // 지역 경계 (일점쇄선), 중원과 새외 사이는 겹선
+    c.save(); landClip();
+    for (const e of REG_EDGES) {
+      if (e.frontier) { c.beginPath(); smooth(c, e.pts, false); c.setLineDash([]); c.strokeStyle = 'rgba(90,66,44,0.22)'; c.lineWidth = 3.6 * u; c.stroke(); }
+      c.beginPath(); smooth(c, e.pts, false);
+      c.setLineDash([7 * u, 2.6 * u, 1.3 * u, 2.6 * u]);
+      c.strokeStyle = e.frontier ? 'rgba(70,48,30,0.62)' : 'rgba(80,58,38,0.48)'; c.lineWidth = (e.frontier ? 1.2 : 0.95) * u; c.stroke();
+    }
+    c.setLineDash([]);
+    c.restore();
+
+    // 세력 경계 (계열이 다르면 진하게)
+    c.save(); landClip(true);
+    c.strokeStyle = 'rgba(46,32,22,0.26)'; c.lineWidth = 0.7 * u; c.stroke(geo.weak);
+    c.strokeStyle = 'rgba(46,32,22,0.5)'; c.lineWidth = 1.05 * u; c.stroke(geo.strong);
     c.restore();
 
     // 물가 먹선
@@ -530,7 +554,7 @@ const WorldMap = (() => {
     if (!first && st.cover) st.cam.k = Math.max(st.cam.k, h / (WH + 2 * PAD) * 0.95);
     st.cover = false;
     clampCam();
-    if (!noStatic) ensureStatic(true);
+    if (!noStatic) ensureStatic(true, true);
     moved();
     return true;
   }
@@ -977,8 +1001,12 @@ const WorldMap = (() => {
     if (!st.open) return;
     const html = pickMode() ? pickPanel() : viewPanel();
     if (!force && html === st.lastPanel) return;
+    // 다시 그려도 판을 내려 읽던 자리는 지킨다 (새로 열 때와 고르기에서 고을을 바꿀 때는 맨 위부터)
+    const sc0 = D.sideIn.querySelector('.wm-scroll'), keep = st.lastPanel && !pickMode() && sc0 ? sc0.scrollTop : 0;
     st.lastPanel = html;
     D.sideIn.innerHTML = html;
+    const sc = keep && D.sideIn.querySelector('.wm-scroll');
+    if (sc) sc.scrollTop = keep;
   }
 
   // ── 판 (고르기) ──
@@ -1142,6 +1170,8 @@ const WorldMap = (() => {
     const up = e => {
       if (!st.ptr.has(e.pointerId)) return;
       st.ptr.delete(e.pointerId);
+      // 손을 다 떼면 그때 정적 겹의 배율을 맞춘다 (닿아 있는 동안은 ensureStatic 이 배율을 묶어 둔다)
+      if (!st.ptr.size) st.settleAt = performance.now() + 120;
       if (st.pinch) { if (st.ptr.size < 2) { st.pinch = null; st.drag = null; } return; }
       const g = st.drag;
       st.drag = null;
@@ -1318,7 +1348,8 @@ const WorldMap = (() => {
     }
     st.mode = mode;
     st.open = true;
-    st.own = null; st.stat = null; st.res = 0; st.lastPanel = ''; st.lastSig = ''; st.panelAt = 0;
+    // 영역 격자(owners)와 남겨 둔 정적 겹은 그대로 둔다: 표식(ownSig·staticSig)과 배율이 맞으면 다시 쓰고, 아니면 ensureStatic 이 다시 만든다
+    st.lastPanel = ''; st.lastSig = ''; st.panelAt = 0;
     const root = D.root;
     root.className = mode === 'pick' ? 'wm-pick' : 'wm-view';
     root.classList.toggle('fold', st.fold);
@@ -1330,9 +1361,11 @@ const WorldMap = (() => {
     buildMarkers();
     renderPanel(true);
     // 처음 자리: 고르기는 온 천하, 보기는 데스크톱은 온 천하·폰은 높이에 맞춰 내 고을 가운데
+    // 고르기라도 지도 칸이 좁고 세로로 길면(세로 태블릿) 높이에 맞춰 고른 고을 가운데 (너비에 맞추면 위아래가 텅 빈다)
     if (!was) {
       st.cam.k = st.minK;
       if (mode === 'view' && st.vw < 640) { const hs = homeSite(); centerOn(hs.x, hs.y, Math.max(st.minK, st.vh / (WH + 2 * PAD) * 0.95)); }
+      else if (mode === 'pick' && st.vw < 640 && st.vh > st.vw) { const s = SITES[st.site]; centerOn(s.x, s.y, Math.max(st.minK, st.vh / (WH + 2 * PAD) * 0.95)); }
       else centerOn(WW / 2, WH / 2);
     }
     if (mode === 'view') {
@@ -1341,7 +1374,7 @@ const WorldMap = (() => {
       else if (f && JH.warById(f)) { selectWar(f); const w = JH.warById(f); centerOn(w.front.x, w.front.y, Math.max(st.cam.k, st.minK * 1.8)); }
       if (!was) Bus.emit('sheetOpen', 'worldmap');
     }
-    ensureStatic(true);
+    ensureStatic(true, true);
     st.dirty = st.domDirty = true;
     if (!st.raf) st.raf = requestAnimationFrame(frame);
   }
@@ -1353,7 +1386,9 @@ const WorldMap = (() => {
     st.ptr.clear(); st.drag = st.pinch = null;
     D.root.hidden = true;
     D.layer.innerHTML = ''; st.m = null;
-    st.stat = null; D.cv.width = D.cv.height = 1;   // 큰 캔버스는 놓아 준다
+    // 큰 캔버스는 놓아 준다. 온 천하 배율쯤의 작은 정적 겹(150만 화소 이하)은 남겨 다음에 열 때 다시 쓴다
+    if (st.stat && st.stat.width * st.stat.height > 1.5e6) st.stat = null;
+    D.cv.width = D.cv.height = 1;
     hook(typeof Tips === 'undefined' ? null : Tips, 'hide');
     if (mode === 'pick') st.world = null;
     if (mode === 'view') Bus.emit('sheetClose', 'worldmap');
