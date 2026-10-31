@@ -6,7 +6,8 @@
 // 상태는 S.petitions 에 순수 JSON 으로만 둔다 (docs/architecture.md 3절).
 // ───────────────────────────────────────────────
 
-Object.assign(HANJA_GLOSS, {
+// 한자 풀이: 다른 모듈이 먼저 단 풀이는 덮어쓰지 않는다
+const PET_GLOSS = {
   '上疏函': ['상소함', '백성이 올린 상소를 모아 두는 함. 들어주면 민심이 오르고, 물리치거나 묵혀 두면 민심이 가라앉는다.'],
   '上疏': ['상소', '백성이 영주에게 올리는 글.'],
   '允': ['허락할 윤', '윤허(允許). 영주가 상소를 들어주었다.'],
@@ -17,7 +18,12 @@ Object.assign(HANJA_GLOSS, {
   '冤': ['원통할 원', '원통한 일. 억울함을 풀어 달라는 하소연.'],
   '寡': ['적을 과', '과부(寡婦). 지아비를 잃고 홀로 된 이.'],
   '書': ['글 서', '글과 책. 선비와 글공부에 얽힌 일.'],
-});
+  '捕': ['잡을 포', '포박(捕縛). 관아의 방에 얼굴이 붙은 수배자를 잡아들이는 일.'],
+  '減': ['덜 감', '감세(減稅). 무거운 세금을 덜어 달라는 청.'],
+  '俠': ['의기로울 협', '협객(俠客). 의를 위해 칼을 드는 정파의 무인.'],
+  '譜': ['족보 보', '족보(族譜). 한 가문의 핏줄을 적은 책. 세가는 이름 한 줄을 무겁게 여긴다.'],
+};
+for (const [k, v] of Object.entries(PET_GLOSS)) if (!HANJA_GLOSS[k]) HANJA_GLOSS[k] = v;
 
 const PET_MAX = 6;          // 한꺼번에 쌓일 수 있는 상소
 const PET_DECAY_H = 120;    // 처결의 여운이 사라지는 시간 (게임 시간 5일)
@@ -50,12 +56,14 @@ function petBusy() {
   }
   return { ids, names };
 }
-// 상소를 올릴 만한 사람 (객경·막 도착한 이·이미 상소에 얽힌 이 제외)
+// 상소를 올릴 만한 사람 (객경·막 도착한 이·의뢰로 떠난 이·이미 상소에 얽힌 이 제외)
 function petFree(filter) {
   const busy = petBusy();
-  return S.villagers.filter(v => !v.dead && !v.leaving && !v.arriving && !v.hero && !v.petition
+  return S.villagers.filter(v => !v.dead && !v.leaving && !v.arriving && !v.away && !v.hero && !v.petition
     && !busy.ids.has(v.id) && !busy.names.has(v.name) && (!filter || filter(v)));
 }
+// 마을에 남아 있는 무사·객경 (의뢰로 떠난 이, 쓰러진 이는 빼고)
+function petFighters() { return S.villagers.filter(v => !v.dead && !v.down && !v.leaving && !v.away && (v.role === 'guard' || v.hero)); }
 function petPick(filter) { const a = petFree(filter); return a.length ? pick(a) : null; }
 function petJob(v) {
   if (v.jobType && typeof JOB_NAME !== 'undefined' && JOB_NAME[v.jobType]) return JOB_NAME[v.jobType];
@@ -66,7 +74,7 @@ function petGroup(name, note) { return { name, id: 0, note: note || '' }; }
 function petHomeless() { let n = 0; for (const v of S.villagers) if (!v.dead && !v.leaving && !v.arriving && !v.home) n++; return n; }
 function petCount(type) { let n = 0; for (const b of S.buildings) if (b.type === type && !b.ruined) n++; return n; }
 function petHomes() { let n = 0; for (const b of S.buildings) if (!b.ruined && BDEF[b.type].housing) n++; return n; }
-function petInjured() { return S.villagers.filter(v => !v.dead && !v.leaving && (v.down || v.hp < v.maxHp * 0.7)).length; }
+function petInjured() { return S.villagers.filter(v => !v.dead && !v.leaving && !v.away && (v.down || v.hp < v.maxHp * 0.7)).length; }
 function petHasDojo() { return S.buildings.some(b => usable(b) && b.type === 'dojo' && b.active); }
 // 짝이 살아 있어야 지아비·지어미가 있는 것
 function petHasSpouse(v) { return !!v.spouse && !!petLiving(v.spouse); }
@@ -117,6 +125,29 @@ function petWalkToManor(v) {
   const d = doorOf(m);
   if (goTo(v, d.x, d.y, 0, buildingApproachGoal(m)) === 'ok') { v.phase = 'go'; v.wt = null; }
 }
+
+// ── 강호: 이웃 세력과 갈래 (세력이 무너졌으면 조용히 물러선다) ──
+function petAlive(k) { return !!k && !!FACTIONS[k] && (!S.jh || JH.isAlive(k)); }
+function petFname(k) { return FACTIONS[k] ? FACTIONS[k].name : ''; }
+// 이웃 상단 (고을마다 하나). 없으면 null
+function petSang() { return JH.near().find(id => JH.campOf(id) === 'sang' && petAlive(id)) || null; }
+function petSangName() { const k = petSang(); return k ? petFname(k) : '이웃 고을 장사치'; }
+// 장터에서 시비를 거는 패거리: 이웃 흑도·사파 가운데 산채 떼가 아니고 내 주군·동맹도 아닌 무리
+function petGangs() {
+  const pacts = S.jh ? S.jh.pacts : [];
+  return JH.near().filter(id => ['heuk', 'sa'].includes(JH.campOf(id)) && !FACTIONS[id].noLord && petAlive(id) && id !== S.vassal && !pacts.includes(id));
+}
+// 갈래 상소: 강호가 열렸고 갈래가 key 일 때만
+function petRoute(key) { return !!(S.jh && S.jh.route === key) && JH.allowJianghu(); }
+// 그 계열의 윗선: 주군이 그 계열이면 주군, 아니면 같은 계열 동맹, 아니면 그 계열 이웃
+function petLordOf(camp) {
+  if (S.vassal && JH.campOf(S.vassal) === camp && petAlive(S.vassal)) return S.vassal;
+  const pact = S.jh ? S.jh.pacts.find(id => JH.campOf(id) === camp && petAlive(id)) : null;
+  return pact || JH.pickNear(camp, id => !FACTIONS[id].noLord) || null;
+}
+// 갈래가 바뀌었거나 얽힌 세력이 무너지면 갈래 상소는 거두어진다
+function petRouteGone(p, key) { return !S.jh || S.jh.route !== key || (!!p.data.k && !petAlive(p.data.k)); }
+function petRel(k, d) { if (k && S.factions[k]) changeRel(k, d); }
 
 // ── 육방(Admin)과의 연결: 실제 모듈이 없으면 조용히 물러선다 ──
 function petAdminReal() { return typeof Admin !== 'undefined' && typeof Admin.fund === 'function' && typeof Admin.spendFund === 'function'; }
@@ -333,14 +364,13 @@ function petAdmitDojo(v, dTalent, dMartial) {
   const dojos = S.buildings.filter(b => usable(b) && b.type === 'dojo' && b.active)
     .map(b => ({ b, ws: S.villagers.filter(o => !o.dead && o !== v && o.job === b.id) }))
     .sort((a, b) => a.ws.length - b.ws.length);
-  const d = dojos[0];
+  let d = dojos[0];
+  if (d && d.ws.length >= cap) {
+    // 자리가 차 있으면 가장 무공이 낮은 이가 다른 일로 옮긴다 (의뢰로 떠난 이의 자리는 비우지 않는다)
+    const weak = d.ws.filter(o => !o.away).sort((a, b) => a.martial - b.martial)[0];
+    if (weak) { weak.job = 0; weak.act = null; d.ws.splice(d.ws.indexOf(weak), 1); } else d = null;
+  }
   if (d) {
-    if (d.ws.length >= cap) {
-      // 자리가 차 있으면 가장 무공이 낮은 이가 다른 일로 옮긴다
-      const weak = d.ws.sort((a, b) => a.martial - b.martial)[0];
-      weak.job = 0; weak.act = null;
-      d.ws.splice(d.ws.indexOf(weak), 1);
-    }
     d.b.want = Math.min(cap, Math.max(d.b.want || 0, d.ws.length + 1));
     v.job = d.b.id; v.act = null;
   }
@@ -432,7 +462,7 @@ const PET_TYPES = {
       const { amt, cost } = p.data;
       return [
         { id: 'buy', kind: 'grant', label: '은자로 곡식을 사들인다', sub: `은자 ${cost} · 식량 +${amt}`, ok: () => S.res.silver >= cost,
-          run: () => { S.res.silver -= cost; addRes('food', amt); return '금룡상회 배에서 쌀섬이 내려졌다. 오랜만에 집집마다 밥 짓는 연기가 오른다.'; } },
+          run: () => { S.res.silver -= cost; addRes('food', amt); return `${petSangName()}의 짐수레에서 쌀섬이 내려졌다. 오랜만에 집집마다 밥 짓는 연기가 오른다.`; } },
         petBuildChoice('farm', '논밭을 새로 일군다', '일꾼 셋이 곡식을 기른다',
           b => `${petWhere(b)} 새 논밭을 일구기 시작했다. 당장 배는 고파도 사람들 눈에 희망이 돈다.`, 2),
         petDept('ho', cost, `식량 +${amt}`, () => { addRes('food', amt); return '호방 아전들이 이웃 고을에서 곡식을 사 와 집집마다 나누어 주었다.'; }),
@@ -516,7 +546,7 @@ const PET_TYPES = {
       for (const b of cands.slice(0, 6)) {
         const plan = petRoadPlan(b);
         if (!plan || !plan.tiles.length || plan.tiles.length > 16) continue;
-        const ws = (b._workers || []).concat(b._residents || []).filter(v => !v.petition && !v.hero && !v.dead && !v.leaving && !v.arriving);
+        const ws = (b._workers || []).concat(b._residents || []).filter(v => !v.petition && !v.hero && !v.dead && !v.leaving && !v.arriving && !v.away);
         const v = ws.length ? pick(ws) : petPick(x => x.age >= 18);
         p.petitioner = v ? petWho(v) : petGroup('마을 사람들', '');
         p.data.bid = b.id;
@@ -632,7 +662,7 @@ const PET_TYPES = {
     name: '도둑', hanja: '賊', tip: '밤도둑을 잡아 달라는 상소.', cd: 3, days: [2, 3],
     say: ['도둑이 들었어!', '간밤에 다 털렸소'],
     cond: () => { const h = hourOf(); return popCount() >= 15 && h >= 5 && h <= 11 && !hasMod('pet_watch'); },
-    weight: () => 1 + (fighters().length ? 0 : 0.5),
+    weight: () => 1 + (petFighters().length ? 0 : 0.5),
     make(p) {
       const v = petPick(x => x.age >= 18);
       p.petitioner = v ? petWho(v) : petGroup(makeName('m'), '마을 사람');
@@ -644,12 +674,12 @@ const PET_TYPES = {
     },
     choices(p) {
       const it = p.data.item, val = p.data.val, who = p.petitioner.name;
-      const nf = fighters().length;
+      const nf = petFighters().length;
       return [
         { id: 'catch', kind: 'grant', label: '무사들을 풀어 도둑을 쫓는다', sub: nf ? `무사 ${nf}명 · 잡으면 물건을 되찾는다` : '무사가 없다',
-          ok: () => fighters().length > 0,
+          ok: () => petFighters().length > 0,
           run: () => {
-            if (chance(Math.min(0.85, 0.4 + fighters().length * 0.1))) {
+            if (chance(Math.min(0.85, 0.4 + petFighters().length * 0.1))) {
               addFame(1);
               return { text: `무사들이 산기슭 움막에서 도둑을 붙잡았다. ${it}${pp(it, '은/는')} 주인에게 돌아갔다. 명성 +1.`, mood: 3 };
             }
@@ -727,7 +757,7 @@ const PET_TYPES = {
             S.res.silver -= 25;
             let n = 0;
             for (const v of S.villagers) {
-              if (v.dead) continue;
+              if (v.dead || v.away) continue;
               if (v.down) { v.downT = Math.min(v.downT || 0, 0.5); n++; } else if (v.hp < v.maxHp) { v.hp = v.maxHp; n++; }
             }
             return n ? `떠돌이 의원이 사흘을 머물며 ${n}명을 돌보고 떠났다.` : '떠돌이 의원이 집집마다 맥을 짚어 주고 떠났다.';
@@ -855,9 +885,9 @@ const PET_TYPES = {
   },
 
   wrongful: {
-    name: '원통한 일', hanja: '冤', tip: '억울한 옥살이를 풀어 달라는 상소. 관부·철혈방과의 관계가 얽혀 있다.', cd: 8, days: [2, 3], expireMood: -3.5,
+    name: '원통한 일', hanja: '冤', tip: '억울한 옥살이를 풀어 달라는 상소. 관부와 장터 패거리 사이에 얽혀 있다.', cd: 8, days: [2, 3], expireMood: -3.5,
     say: ['억울하옵니다!', '내 아들을 살려 주시오'],
-    cond: () => dayOf() >= 4 && popCount() >= 10 && !S.occupation && S.vassal !== 'cheolhyeol' && petFree(v => v.age >= 38).length > 0,
+    cond: () => dayOf() >= 4 && popCount() >= 10 && !S.occupation && petFree(v => v.age >= 38).length > 0,
     weight: () => 0.45,
     make(p) {
       const v = petPick(x => x.age >= 38) || petPick(x => x.age >= 30);
@@ -865,24 +895,32 @@ const PET_TYPES = {
       p.data.son = v ? petSonName(v) : pick(FOLK_M);
       p.data.ma = v && v.sex === 'f' ? '어미' : '아비';
       p.data.bail = rel('gwanbu') >= 15 ? 20 : 35;
-      const son = p.data.son;
+      // 강호가 열리면 이웃 흑도·사파의 패거리, 그 전에는 이름 없는 장터 왈패
+      const gangs = JH.allowJianghu() ? petGangs() : [];
+      p.data.k = gangs.length ? pick(gangs) : null;
+      const son = p.data.son, g = p.data.k ? `${petFname(p.data.k)} 패거리` : '장터 왈패들';
       p.title = '옥에 갇힌 아들을 살려 주십시오';
-      p.text = `영주님, 제 아들 ${son}${pp(son, '이/가')} 장터에서 철혈방 패거리와 시비가 붙었다가 도리어 관부에 끌려갔습니다. 먼저 손을 댄 것은 그놈들인데, 관부는 철혈방 눈치만 보고 제 아들만 옥에 가두었습니다. 부디 이 억울함을 풀어 주십시오.`;
+      p.text = `영주님, 제 아들 ${son}${pp(son, '이/가')} 장터에서 ${g}${pp(g, '과/와')} 시비가 붙었다가 도리어 관부에 끌려갔습니다. 먼저 손을 댄 것은 그놈들인데, 관부는 그쪽 눈치만 보고 제 아들만 옥에 가두었습니다. 부디 이 억울함을 풀어 주십시오.`;
       return true;
     },
     choices(p) {
       const { son, ma, bail } = p.data, who = p.petitioner.name;
+      // 옛 저장의 상소는 철혈방이었다. 그 패거리가 무너졌으면 이름 없는 무리로 친다
+      const k0 = 'k' in p.data ? p.data.k : 'cheolhyeol';
+      const k = petAlive(k0) ? k0 : null, kn = k ? petFname(k) : '';
       const back = () => petNewcomer(son, { sex: 'm', age: rndi(17, 23) });
       return [
         { id: 'plead', kind: 'grant', label: '관부에 탄원서를 올린다', sub: `은자 ${bail} 보석금 · 관부 관계 +1 · 아들이 돌아온다`, mood: 3, ok: () => S.res.silver >= bail,
           run: () => { S.res.silver -= bail; changeRel('gwanbu', 1); back(); return `현청에 탄원서와 보석금이 올라갔다. 이윽고 ${son}${pp(son, '이/가')} 절뚝이며 마을 어귀에 나타나자 ${ma}${pp(ma, '이/가')} 맨발로 뛰어나갔다.`; } },
-        { id: 'confront', kind: 'grant', label: '철혈방에 따진다', sub: '철혈방 관계 -10 · 관부 관계 +4 · 명성 +3', mood: 3,
+        { id: 'confront', kind: 'grant', label: k ? `${kn}에 따진다` : '왈패 두목을 다그친다', sub: `${k ? `${kn} 관계 -10 · ` : ''}관부 관계 +4 · 명성 +3`, mood: 3,
           run: () => {
-            changeRel('cheolhyeol', -10); S.factions.cheolhyeol.threat += 15; changeRel('gwanbu', 4); addFame(3); back();
-            return `영주가 증인들을 앞세워 철혈방 향주를 다그치자 향주는 마지못해 수하의 잘못을 인정했다. 관부도 더는 버티지 못하고 ${son}${pp(son, '을/를')} 풀어 주었다. 명성 +3. 다만 철혈방의 눈빛이 곱지 않다.`;
+            if (k) { changeRel(k, -10); S.factions[k].threat = Math.min(100, S.factions[k].threat + 15); }
+            changeRel('gwanbu', 4); addFame(3); back();
+            return k ? `영주가 증인들을 앞세워 ${kn} 향주를 다그치자 향주는 마지못해 수하의 잘못을 인정했다. 관부도 더는 버티지 못하고 ${son}${pp(son, '을/를')} 풀어 주었다. 명성 +3. 다만 ${kn}의 눈빛이 곱지 않다.`
+              : `영주가 증인들을 앞세워 왈패 두목을 다그치자 두목은 꽁무니를 뺐다. 관부도 더는 버티지 못하고 ${son}${pp(son, '을/를')} 풀어 주었다. 명성 +3.`;
           } },
         petDept('hyeong', 25, '진상을 밝혀 아들을 빼낸다', () => {
-          changeRel('gwanbu', 3); changeRel('cheolhyeol', -4); back();
+          changeRel('gwanbu', 3); if (k) changeRel(k, -4); back();
           return `형방 아전이 장터 사람들의 증언을 모아 현청에 올렸다. 시비의 진상이 드러나 ${son}${pp(son, '이/가')} 풀려났다.`;
         }, { mood: 3 }),
         { id: 'deny', kind: 'deny', label: '관부의 일에는 끼지 않는다', sub: '관부 관계 +2 · 민심 하락', mood: -2.5,
@@ -981,32 +1019,366 @@ const PET_TYPES = {
   },
 
   merchant: {
-    name: '장사 허가', hanja: '商', tip: '금룡상회 상인이 좌판 허가를 청하는 글. 은자와 상회의 호의를 얻는다.', cd: 5, days: [2, 3], expireMood: -0.5,
+    name: '장사 허가', hanja: '商', tip: '이웃 상단의 상인이 좌판 허가를 청하는 글. 은자와 상단의 호의를 얻는다.', cd: 5, days: [2, 3], expireMood: -0.5,
     say: [],
-    cond: () => (S.rank >= 1 || popCount() >= 12) && rel('geumryong') > -40 && !hasMod('pet_stall'),
+    cond: () => { const k = petSang(); return (S.rank >= 1 || popCount() >= 12) && !!k && rel(k) > -40 && !hasMod('pet_stall'); },
     weight: () => 0.6,
     make(p) {
-      const name = makeName('m');
-      p.petitioner = petGroup(name, '금룡상회 상인');
+      const k = petSang();
+      if (!k) return false;
+      const name = makeName('m'), fn = petFname(k);
+      p.data.k = k;
+      p.petitioner = petGroup(name, `${fn} 상인`);
       p.data.n = Math.round(30 + popCount() * 1.2);
       p.title = '좌판을 벌이게 해 주십시오';
-      p.text = `금룡상회의 ${name}${pp(name, '이라/라')} 하옵니다. 마을 어귀에 좌판 몇 개를 벌일 허가를 주시면 허가 값으로 은자 ${p.data.n}냥을 바로 올리겠습니다. 비단이며 소금이며 귀한 물건을 들여오면 마을 사람들도 반길 것입니다.`;
+      p.text = `${fn}의 ${name}${pp(name, '이라/라')} 하옵니다. 마을 어귀에 좌판 몇 개를 벌일 허가를 주시면 허가 값으로 은자 ${p.data.n}냥을 바로 올리겠습니다. 비단이며 소금이며 귀한 물건을 들여오면 마을 사람들도 반길 것입니다.`;
       return true;
     },
-    onExpire: () => changeRel('geumryong', -2),
+    // 옛 저장의 상소는 금룡상회였다
+    onExpire: p => petRel(p.data.k || 'geumryong', -2),
     choices(p) {
       const n = p.data.n, hi = Math.round(n * 1.8);
+      const k = p.data.k || 'geumryong', fn = petFname(k);
       return [
-        { id: 'permit', kind: 'grant', label: '허가해 준다', sub: `은자 +${n} · 금룡상회 관계 +6 · 여드레간 좌판 세금`, mood: 1,
-          run: () => { addRes('silver', n); changeRel('geumryong', 6); addMod('pet_stall', 8); return '마을 어귀에 비단과 소금을 늘어놓은 좌판이 섰다. 아낙들이 구경하느라 발길을 멈춘다.'; } },
+        { id: 'permit', kind: 'grant', label: '허가해 준다', sub: `은자 +${n} · ${fn} 관계 +6 · 여드레간 좌판 세금`, mood: 1,
+          run: () => { addRes('silver', n); petRel(k, 6); addMod('pet_stall', 8); return '마을 어귀에 비단과 소금을 늘어놓은 좌판이 섰다. 아낙들이 구경하느라 발길을 멈춘다.'; } },
         { id: 'haggle', kind: 'grant', label: '허가 값을 올려 부른다', sub: `은자 +${hi} · 거절당할 수도 있다`, mood: 0.5,
           run: () => {
-            if (chance(0.6)) { addRes('silver', hi); changeRel('geumryong', 1); addMod('pet_stall', 8); return `상인은 한참 주판을 튕기더니 은자 ${hi}냥을 내놓았다.`; }
-            changeRel('geumryong', -3);
+            if (chance(0.6)) { addRes('silver', hi); petRel(k, 1); addMod('pet_stall', 8); return `상인은 한참 주판을 튕기더니 은자 ${hi}냥을 내놓았다.`; }
+            petRel(k, -3);
             return { text: '「장사를 하자는 게 아니라 털어 가시겠다는 말씀이군요.」 상인은 혀를 차며 떠났다.', mood: 0, outcome: 'denied' };
           } },
-        { id: 'deny', kind: 'deny', label: '마을 장사꾼들을 지킨다', sub: '금룡상회 관계 -4', mood: -0.5,
-          run: () => { changeRel('geumryong', -4); return '상인은 정중히 인사하고 물러갔다. 마을 장사꾼들은 내심 반기는 눈치다.'; } },
+        { id: 'deny', kind: 'deny', label: '마을 장사꾼들을 지킨다', sub: `${fn} 관계 -4`, mood: -0.5,
+          run: () => { petRel(k, -4); return '상인은 정중히 인사하고 물러갔다. 마을 장사꾼들은 내심 반기는 눈치다.'; } },
+      ];
+    },
+  },
+
+  // ── 갈래 상소: 강호가 열리고 그 갈래를 걷는 동안에만 온다 (갈래가 바뀌거나 얽힌 세력이 무너지면 거두어진다) ──
+  gwan_suit: {
+    name: '관아 송사', hanja: '衙', tip: '관의 고을이 되자 백성들이 관아에 송사를 건다. 나랏법대로 가리면 관의 신임을 얻는다.', cd: 6, days: [2, 3], expireMood: -2,
+    say: ['관아에서 가려 주십시오', '나랏법이 있지 않소'],
+    cond: () => petRoute('gwan') && popCount() >= 12 && petFree(v => v.age >= 20).length > 0,
+    weight: () => 0.7,
+    make(p) {
+      const v = petPick(x => x.age >= 20);
+      if (!v) return false;
+      p.petitioner = petWho(v);
+      p.data.k = petLordOf('gwan');
+      p.data.debt = Math.round(30 + popCount() * 0.4);
+      const a = v.name, lord = p.data.k ? petFname(p.data.k) : '관부';
+      p.title = '장리 빚 송사를 가려 주십시오';
+      p.text = `소인 ${a}${pp(a, '은/는')} 지난 흉년에 이웃 고을 객주에게 쌀 닷 섬을 꾸었습니다. 그런데 객주가 이자에 이자를 붙여 은자 ${p.data.debt}냥을 내놓으라며 관아에 송사를 걸었습니다. 이제 이 고을이 ${lord}의 다스림을 받으니, 나랏법대로 가려 주실 줄 믿습니다.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'gwan'),
+    choices(p) {
+      const a = p.petitioner.name, debt = p.data.debt, k = p.data.k, lord = k ? petFname(k) : '관부';
+      return [
+        { id: 'trial', kind: 'grant', label: '관아에서 정식으로 재판을 연다', sub: `은자 12 · 이자는 원금을 넘지 못한다 · 명성 +2 · ${lord} 관계 +3`, mood: 3, ok: () => S.res.silver >= 12,
+          run: () => { S.res.silver -= 12; addFame(2); petRel(k, 3); return `관아 대청에 법전이 펼쳐졌다. 「이자는 원금을 넘지 못한다.」 판결이 떨어지자 객주는 얼굴이 벌게져 물러갔고, ${a}${pp(a, '은/는')} 쌀 닷 섬 값만 갚기로 했다. 명성 +2.`; } },
+        { id: 'pay', kind: 'grant', label: '빚을 곳간에서 갚아 준다', sub: `은자 ${debt}`, ok: () => S.res.silver >= debt,
+          run: () => { S.res.silver -= debt; return `곳간에서 은자가 나가 빚 문서가 불살라졌다. ${a}의 식구들이 영주관 쪽을 향해 몇 번이고 절을 했다.`; } },
+        petDept('hyeong', 10, '객주의 장부를 따진다', () => { addFame(1); petRel(k, 2); return '형방 아전이 객주의 장부를 들춰 이자를 몰래 부풀린 대목을 찾아냈다. 객주는 송사를 거두고 줄행랑을 놓았다. 명성 +1.'; },
+          { mood: 3, label: '형방에 맡겨 따지게 한다' }),
+        { id: 'deny', kind: 'deny', label: '빚은 갚아야 한다', sub: '민심 하락', mood: -2,
+          run: () => `「빌린 것은 갚는 것이 법도다.」 ${a}${pp(a, '은/는')} 집문서를 끌어안고 울며 돌아갔다.` },
+      ];
+    },
+  },
+
+  gwan_fugitive: {
+    name: '수배자', hanja: '捕', tip: '관아 방에 얼굴이 붙은 수배자가 마을에 숨어들었다. 관의 고을로서 어찌할지 정해야 한다.', cd: 9, days: [2, 3], expireMood: -2.5,
+    say: ['방에 붙은 그 얼굴이오!', '헛간에 누가 숨어 있소'],
+    cond: () => petRoute('gwan') && popCount() >= 10 && petFree(v => v.age >= 18).length > 0,
+    weight: () => 0.55,
+    make(p) {
+      const v = petPick(x => x.age >= 18);
+      p.petitioner = v ? petWho(v) : petGroup('마을 사람들', '');
+      p.data.k = petLordOf('gwan');
+      // 쫓기는 자의 뒷배: 관의 숙적인 흑도·사파·마교 이웃 (없으면 이름 없는 도적)
+      const foes = JH.near().filter(id => ['heuk', 'sa', 'ma'].includes(JH.campOf(id)) && petAlive(id) && id !== S.vassal);
+      p.data.foe = foes.length ? pick(foes) : null;
+      p.data.reward = rndi(25, 45);
+      const by = p.data.foe ? `${petFname(p.data.foe)}의 일을 하다` : '도둑질을 하다';
+      p.title = '방에 붙은 얼굴을 보았습니다';
+      p.text = `영주님, 관아 앞에 붙은 수배 방의 얼굴을 마을 뒤 헛간에서 보았습니다. ${by} 쫓기는 자라는데, 다친 몸으로 숨어 사흘째 부엌의 먹을 것을 훔쳐 갑니다. 아이들이 무서워 밖에 나가지를 못합니다. 관의 고을이 되었으니 영을 내려 주십시오.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'gwan'),
+    choices(p) {
+      const { k, foe, reward } = p.data, lord = k ? petFname(k) : '관부';
+      const fn = foe && petAlive(foe) ? petFname(foe) : '';
+      return [
+        { id: 'arrest', kind: 'grant', label: '무사를 풀어 포박한다', sub: `무사가 있어야 한다 · 현상금 은자 +${reward} · ${lord} 관계 +4${fn ? ` · ${fn} 관계 -6` : ''}`, mood: 2.5,
+          ok: () => petFighters().length > 0,
+          run: () => {
+            addRes('silver', reward); petRel(k, 4);
+            if (fn) { petRel(foe, -6); S.factions[foe].threat = Math.min(100, S.factions[foe].threat + 8); }
+            return `무사들이 헛간을 에워싸자 수배자는 칼을 내던지고 무릎을 꿇었다. 포박된 자는 관아로 넘겨지고 현상금이 내려왔다.${fn ? ` ${fn}에서는 이 일을 곱게 보지 않는다.` : ''}`;
+          } },
+        { id: 'mercy', kind: 'grant', label: '상처를 돌봐 주고 자수를 권한다', sub: `은자 10 · 명성 +3 · ${lord} 관계 +1`, mood: 2, ok: () => S.res.silver >= 10,
+          run: () => { S.res.silver -= 10; addFame(3); petRel(k, 1); return '의원이 상처를 싸매 주고 따뜻한 밥을 먹이자, 수배자는 사흘 뒤 제 발로 관아를 찾아가 죄를 털어놓았다. 영주의 너그러움이 소문난다. 명성 +3.'; } },
+        petDept('hyeong', 12, '현상금 절반이 마을 몫', () => {
+          addRes('silver', Math.round(reward / 2)); petRel(k, 3); if (fn) petRel(foe, -4);
+          return '형방 포졸들이 밤길을 막고 수배자를 잡아들였다. 현상금 절반이 마을 몫으로 내려왔다.';
+        }, { mood: 2.5, label: '형방 포졸에게 맡긴다' }),
+        { id: 'deny', kind: 'deny', label: '못 본 척 길을 열어 준다', sub: `${lord} 관계 -4${fn ? ` · ${fn} 관계 +3` : ''} · 민심 조금 하락`, mood: -1,
+          run: () => { petRel(k, -4); if (fn) petRel(foe, 3); return '그날 밤 헛간은 비어 있었다. 관아에서 나온 포교가 마을을 한참 노려보다 돌아갔다.'; } },
+      ];
+    },
+  },
+
+  gwan_rebate: {
+    name: '감세 청원', hanja: '減', tip: '관의 고을이 되어 세금이 빈틈없이 걷히자, 어려운 집의 세금을 얼마간 돌려 달라는 청원.', cd: 9, days: [3, 4], expireMood: -2,
+    say: ['세금이 한 푼도 안 새니…', '관례대로 돌려주시오'],
+    // 세금을 덜어 달라는 상소가 이미 올라와 있으면 겹쳐 오지 않는다
+    cond: () => petRoute('gwan') && popCount() >= 15 && (S.happy < 65 || S.tax >= 1) && !S.petitions.list.some(p => p.type === 'tax_relief'),
+    weight: () => 0.5 + S.tax * 0.2,
+    make(p) {
+      const v = petPick(x => x.age >= 40);
+      p.petitioner = v && chance(0.5) ? petWho(v) : petGroup('마을 어른들', '나이 지긋한 이들');
+      p.data.k = petLordOf('gwan');
+      p.data.n = Math.max(15, Math.round(popCount() * 1.2));
+      const why = S.lastRaidEnd !== undefined && S.time - S.lastRaidEnd < 240 ? '지난 습격' : isWinter() ? '긴 겨울' : seasonIdx() === 1 ? '장마' : '흉작';
+      p.title = '어려운 집의 세금을 돌려주십시오';
+      p.text = `관의 고을이 되고부터 세금이 한 푼도 새지 않고 걷힙니다. 장부가 맑아진 것은 고마운 일이나, 올해는 ${why} 탓에 끼니가 어려운 집이 많습니다. 관례대로 어려운 집의 세금을 얼마간 돌려주시면 나라님의 은혜를 오래 기억하겠습니다.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'gwan'),
+    choices(p) {
+      const n = p.data.n, half = Math.round(n / 2), k = p.data.k, lord = k ? petFname(k) : '관부';
+      return [
+        { id: 'rebate', kind: 'grant', label: '세금 일부를 돌려준다', sub: `은자 ${n}`, mood: 3, ok: () => S.res.silver >= n,
+          run: () => { S.res.silver -= n; return '어려운 집마다 아전이 찾아가 세금 일부를 돌려주었다. 장터에서 「관의 고을이라 다르다」는 말이 돈다.'; } },
+        { id: 'memorial', kind: 'grant', label: `${lord}에 감면을 아뢴다`, sub: `은자 ${half} · ${lord} 관계 -3`, mood: 2.5, ok: () => S.res.silver >= half,
+          run: () => { S.res.silver -= half; petRel(k, -3); return `영주가 ${lord}에 글을 올려 감면을 청했다. 위에서는 눈살을 찌푸렸으나 절반은 나라 곳간에서 메워 주었다.`; } },
+        petDept('ho', Math.round(n * 0.8), '어려운 집 세금을 장부에서 덜어 준다', () => '호방이 장부를 맞춰 어려운 집의 세금을 예산으로 덜어 주었다.'),
+        { id: 'deny', kind: 'deny', label: '나라 세금은 깎을 수 없다', sub: `${lord} 관계 +1 · 민심 하락`, mood: -2,
+          run: () => { petRel(k, 1); return '「나라의 법은 고을마다 같다.」 어른들은 고개를 저으며 물러갔다.'; } },
+      ];
+    },
+  },
+
+  jeong_disciple: {
+    name: '입문 청', hanja: '俠', tip: '정파 문하에 들고 싶다는 젊은이의 청. 들어주면 주군과의 정이 두터워지고 마을에 쓸 만한 무사가 하나 는다.', cd: 8, days: [2, 4], expireMood: -1.5,
+    say: ['협객이 되고 싶습니다', '산문에 들게 해 주십시오'],
+    cond: () => petRoute('jeong') && petFree(petYouth).length > 0,
+    weight: () => 0.6,
+    make(p) {
+      const v = petPick(petYouth), k = petLordOf('jeong');
+      if (!v || !k) return false;
+      p.petitioner = petWho(v);
+      p.data.vid = v.id; p.data.k = k;
+      const n = v.name, fn = petFname(k);
+      p.title = `${fn}에 들게 해 주십시오`;
+      p.text = `소인 ${n}, 올해 ${v.age}살입니다. ${fn}의 협객들이 마을을 지나갈 때마다 그 칼끝에 넋을 잃었습니다. 영주님께서 천거하는 글 한 장만 써 주시면, 산문 앞에 사흘 밤낮 꿇어앉아서라도 입문을 청하겠습니다.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'jeong'),
+    choices(p) {
+      const n = p.petitioner.name, k = p.data.k, fn = petFname(k);
+      return [
+        { id: 'letter', kind: 'grant', label: '천거하는 글과 예물을 들려 보낸다', sub: `은자 30 · ${fn} 관계 +4 · 무공과 재능이 크게 오른다`, mood: 3, ok: () => S.res.silver >= 30,
+          run: () => {
+            S.res.silver -= 30; petRel(k, 4);
+            const v = petLiving(p.data.vid);
+            if (v) petAdmitDojo(v, 0.3, 0.8);
+            return `${n}${pp(n, '은/는')} 영주의 글을 품고 산문을 두드렸다. 보름 만에 돌아온 그의 걸음걸이가 달라져 있었다. 정파의 기초 심법을 전수받았다고 한다.`;
+          } },
+        { id: 'dojo', kind: 'grant', label: '마을 무관에서 먼저 닦으라 한다', sub: petHasDojo() ? '무관에 들어 무사가 된다' : '무관이 없다', mood: 1.5, ok: petHasDojo,
+          run: () => { const v = petLiving(p.data.vid); if (v) petAdmitDojo(v, 0.15, 0.2); return `${n}${pp(n, '은/는')} 무관에서 기본기부터 닦기로 했다. 「언젠가는 산문에 들 것이다.」`; } },
+        { id: 'deny', kind: 'deny', label: '집안일이 먼저다', sub: '민심 조금 하락', mood: -1.5,
+          run: () => `${n}${pp(n, '은/는')} 고개를 숙이고 물러갔지만, 밤마다 뒷산에서 나뭇가지를 휘두르는 소리가 들린다.` },
+      ];
+    },
+  },
+
+  ma_tithe: {
+    name: '혈제 공물', hanja: '祭', tip: '마교의 사자들이 제단에 바칠 공물을 거둬 간다는 하소연. 마교를 주군으로 둔 값이다.', cd: 8, days: [2, 3], expireMood: -3,
+    say: ['붉은 칠을 해 놓고 갔어', '바칠 닭도 없소'],
+    cond: () => petRoute('ma') && popCount() >= 10,
+    weight: () => 0.65,
+    make(p) {
+      const k = petLordOf('ma');
+      if (!k) return false;
+      const v = petPick(x => x.age >= 25);
+      p.petitioner = v && chance(0.5) ? petWho(v) : petGroup('아낙들', '마을의 어미들');
+      p.data.k = k;
+      p.data.n = Math.round(20 + popCount() * 0.6);
+      p.data.f = Math.round(15 + popCount() * 0.5);
+      const fn = petFname(k);
+      p.title = '제단에 바칠 공물을 거두지 말아 주십시오';
+      p.text = `영주님, ${fn}의 사자들이 붉은 달이 찰 때마다 제단에 바칠 공물이라며 집집마다 닭이며 쌀을 거둬 갑니다. 내지 못한 집 문간에는 붉은 칠을 해 놓고 갑니다. 아이들이 밤마다 경기를 일으킵니다. 부디 저희를 지켜 주십시오.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'ma'),
+    choices(p) {
+      const { n, f, k } = p.data, fn = petFname(k);
+      return [
+        { id: 'pay', kind: 'grant', label: '곳간에서 공물을 대신 바친다', sub: `은자 ${n} · 식량 ${f} · ${fn} 관계 +3`, mood: 3, ok: () => S.res.silver >= n && S.res.food >= f,
+          run: () => { S.res.silver -= n; S.res.food -= f; petRel(k, 3); return '영주관 수레가 공물을 싣고 제단으로 올라갔다. 그날부터 문간의 붉은 칠이 하나둘 지워졌다.'; } },
+        { id: 'plead', kind: 'grant', label: '교주에게 공물을 덜어 달라 청한다', sub: `${fn} 관계 -6`, mood: 2.5,
+          run: () => { petRel(k, -6); return `사자들이 돌아가 교주의 말을 전했다. 「이번만은 그 고을의 몫을 덜어 주마.」 마을 사람들은 숨을 돌렸지만, ${fn}의 눈길이 싸늘해졌다.`; } },
+        { id: 'deny', kind: 'deny', label: '교의 법도를 따르라 한다', sub: `${fn} 관계 +2 · 민심 하락`, mood: -3,
+          run: () => { petRel(k, 2); return '「붉은 달 아래 사는 이상 교의 법도를 따라야 한다.」 아낙들은 아이들을 끌어안고 울며 돌아갔다.'; } },
+      ];
+    },
+  },
+
+  sega_lineage: {
+    name: '족보', hanja: '譜', tip: '세가의 먼 핏줄이라며 족보에 이름을 올려 달라는 청. 세가는 이름 한 줄을 무겁게 여긴다.', cd: 8, days: [3, 4], expireMood: -1.5,
+    say: ['할머니가 그 집안 핏줄이오', '족보에 이름 한 줄만…'],
+    cond: () => petRoute('sega') && petFree(v => v.age >= 30).length > 0,
+    weight: () => 0.55,
+    make(p) {
+      const k = petLordOf('sega'), v = petPick(x => x.age >= 30);
+      if (!k || !v) return false;
+      p.petitioner = petWho(v);
+      p.data.k = k;
+      const fn = petFname(k);
+      p.title = '족보에 이름 한 줄을';
+      p.text = `소인의 할머니가 ${fn} 방계의 먼 핏줄이라 합니다. 이 마을이 ${fn}${pp(fn, '과/와')} 손잡았으니, 영주님께서 말씀 한마디 넣어 주시면 족보 끝자락에 저희 집 이름 한 줄이 오를 수 있을 것입니다. 그리되면 아이들 혼처 걱정은 덜겠습니다.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'sega'),
+    choices(p) {
+      const who = p.petitioner.name, k = p.data.k, fn = petFname(k);
+      return [
+        { id: 'letter', kind: 'grant', label: '세가에 서찰을 넣는다', sub: '은자 20 · 받아들여질지는 알 수 없다', mood: 2, ok: () => S.res.silver >= 20,
+          run: () => {
+            S.res.silver -= 20;
+            if (chance(0.6)) { addFame(2); petRel(k, 2); return { text: `${fn} 가주가 서찰을 읽고 족보 끝에 ${who}의 집 이름을 올리라 일렀다. 명성 +2.`, mood: 3 }; }
+            return { text: `${fn} 집사가 정중한 답서와 함께 서찰을 돌려보냈다. 「족보는 함부로 고칠 수 없습니다.」`, mood: 0.5 };
+          } },
+        { id: 'gift', kind: 'grant', label: '예물을 갖춰 몸소 찾아간다', sub: `은자 50 · 명성 +3 · ${fn} 관계 +5`, mood: 3, ok: () => S.res.silver >= 50,
+          run: () => { S.res.silver -= 50; addFame(3); petRel(k, 5); return `영주가 예물을 갖춰 ${fn} 종가를 찾자 가주가 몸소 맞았다. ${who}의 집 이름이 족보 끝에 올랐다. 명성 +3.`; } },
+        { id: 'deny', kind: 'deny', label: '핏줄보다 사람됨이다', sub: '명성 +1 · 민심 조금 하락', mood: -1,
+          run: () => { addFame(1); return `「이 마을에서는 핏줄보다 사람됨을 본다.」 ${who}${pp(who, '은/는')} 서운해했지만, 그 말은 장터에 두고두고 돌았다. 명성 +1.`; } },
+      ];
+    },
+  },
+
+  heuk_levy: {
+    name: '자릿세', hanja: '黑', tip: '흑도 왈패들이 장날마다 자릿세를 뜯어 간다는 하소연. 밤의 장부를 쥔 갈래의 그늘이다.', cd: 8, days: [2, 3], expireMood: -2.5,
+    say: ['자릿세를 또 뜯겼소', '좌판을 엎어 버렸어'],
+    cond: () => petRoute('heuk') && popCount() >= 12,
+    weight: () => 0.65,
+    make(p) {
+      const k = petLordOf('heuk');
+      if (!k) return false;
+      const v = petPick(x => x.age >= 20);
+      p.petitioner = v && chance(0.5) ? petWho(v) : petGroup('장사꾼들', '좌판 장수와 보부상');
+      p.data.k = k;
+      const fn = petFname(k);
+      p.title = '장터 자릿세를 거둬 가지 말게 해 주십시오';
+      p.text = `영주님, ${fn}의 왈패들이 장날마다 좌판 하나에 엽전 몇 닢씩 자릿세를 뜯어 갑니다. 이제 한 식구라고들 하니 대들지도 못하고, 안 내면 좌판을 엎어 버립니다. 이러다 장사꾼들이 하나둘 발길을 끊을까 걱정입니다.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'heuk'),
+    choices(p) {
+      const k = p.data.k, fn = petFname(k);
+      return [
+        { id: 'feast', kind: 'grant', label: '두목에게 술상을 내고 말을 넣는다', sub: `은자 25 · ${fn} 관계 +2`, mood: 2.5, ok: () => S.res.silver >= 25,
+          run: () => { S.res.silver -= 25; petRel(k, 2); return `${fn} 두목이 술잔을 비우며 껄껄 웃었다. 「영주의 장터는 우리 장터지.」 그날부터 왈패들은 장터를 그냥 지나다닌다.`; } },
+        { id: 'stand', kind: 'grant', label: '마을 장터에는 손대지 말라 못 박는다', sub: `${fn} 관계 -8 · 명성 +2`, mood: 3,
+          run: () => { petRel(k, -8); addFame(2); return '영주가 무사들을 세워 두고 왈패들 앞에서 못을 박았다. 왈패들은 침을 뱉고 돌아섰고, 장사꾼들은 어깨를 폈다. 명성 +2.'; } },
+        petDept('hyeong', 15, '장날마다 포졸이 장터를 지킨다', () => { petRel(k, -3); return '형방 포졸들이 장날마다 장터 어귀를 지키자 왈패들의 발길이 뜸해졌다.'; }, { mood: 2.5 }),
+        { id: 'deny', kind: 'deny', label: '어느 장터나 다 그렇다', sub: '민심 하락', mood: -2,
+          run: () => '장사꾼들은 쓴웃음을 지으며 엽전 몇 닢을 또 꺼냈다.' },
+      ];
+    },
+  },
+
+  sa_debt: {
+    name: '노름빚', hanja: '賭', tip: '사파의 투전판에서 진 빚으로 집문서를 잡혔다는 하소연.', cd: 8, days: [2, 3], expireMood: -2.5,
+    say: ['집문서를 잡혔소', '투전판이 원수지…'],
+    cond: () => petRoute('sa') && petFree(v => v.age >= 20).length > 0,
+    weight: () => 0.6,
+    make(p) {
+      const k = petLordOf('sa'), v = petPick(x => x.age >= 20);
+      if (!k || !v) return false;
+      p.petitioner = petWho(v);
+      p.data.k = k;
+      p.data.n = rndi(30, 50);
+      const fn = petFname(k), kin = v.sex === 'f' ? '지아비' : '아우';
+      p.title = '노름빚에 집문서를 잡혔습니다';
+      p.text = `영주님, 소인의 ${kin}${pp(kin, '이/가')} ${fn}의 투전판에 드나들더니 끝내 집문서를 잡히고 말았습니다. 보름 안에 은자 ${p.data.n}냥을 갚지 못하면 식구들이 길바닥에 나앉습니다. 그 사람들도 영주님 말씀이라면 귀를 기울일 것입니다.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'sa'),
+    choices(p) {
+      const n = p.data.n, half = Math.round(n / 2), k = p.data.k, fn = petFname(k), who = p.petitioner.name;
+      return [
+        { id: 'pay', kind: 'grant', label: '빚을 대신 갚아 준다', sub: `은자 ${n}`, mood: 2.5, ok: () => S.res.silver >= n,
+          run: () => { S.res.silver -= n; return `영주관에서 은자를 보내 집문서를 되찾아 왔다. ${who}${pp(who, '은/는')} 문서를 아궁이에 넣고 한참을 울었다.`; } },
+        { id: 'talk', kind: 'grant', label: '방주에게 빚을 탕감해 달라 청한다', sub: `${fn} 관계 -6`, mood: 3,
+          run: () => { petRel(k, -6); return `${fn} 방주가 코웃음을 치더니 집문서를 던져 주었다. 「영주의 얼굴을 봐서다. 다음은 없다.」`; } },
+        { id: 'half', kind: 'grant', label: '빚 절반을 갚고 투전판 출입을 막는다', sub: `은자 ${half} · ${fn} 관계 -2`, mood: 2.5, ok: () => S.res.silver >= half,
+          run: () => { S.res.silver -= half; petRel(k, -2); return '빚 절반을 치르고 집문서를 찾아왔다. 영주는 마을 사람의 투전판 출입을 막는 방을 붙였다.'; } },
+        { id: 'deny', kind: 'deny', label: '제 손으로 진 빚이다', sub: '민심 하락', mood: -2,
+          run: () => `${who}${pp(who, '은/는')} 빈손으로 돌아갔다. 사흘 뒤 그 집 대문에 낯선 자물쇠가 걸렸다.` },
+      ];
+    },
+  },
+
+  saeoe_horse: {
+    name: '변경 말', hanja: '互', tip: '새외와 길이 트이자 변경의 말을 들여오자는 청. 들어주면 한동안 일손이 가벼워져 민심이 오른다.', cd: 9, days: [3, 4], expireMood: -1.5,
+    say: ['그 말들은 지칠 줄을 몰라', '말 한 필만 있으면…'],
+    cond: () => petRoute('saeoe') && popCount() >= 10 && !hasMod('pet_horses'),
+    weight: () => 0.55,
+    make(p) {
+      const k = petLordOf('saeoe');
+      if (!k) return false;
+      const v = petPick(x => x.age >= 20);
+      p.petitioner = v && chance(0.6) ? petWho(v) : petGroup('농민들', '마을의 농사꾼들');
+      p.data.k = k;
+      const fn = petFname(k);
+      p.title = '변경의 말을 들여오게 해 주십시오';
+      p.text = `영주님, ${fn}${pp(fn, '과/와')} 길이 트이고 나서 새외 말장수들이 드나듭니다. 그 말들은 키는 작아도 지칠 줄을 몰라, 몇 필만 들여오면 쟁기질도 짐 나르기도 한결 수월할 것입니다. 값을 조금만 보태 주십시오.`;
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'saeoe'),
+    choices(p) {
+      const k = p.data.k, fn = petFname(k);
+      return [
+        { id: 'buy', kind: 'grant', label: '말 몇 필을 사 준다', sub: `은자 40 · ${fn} 관계 +3 · 열흘간 민심 +2`, mood: 2.5, ok: () => S.res.silver >= 40,
+          run: () => { S.res.silver -= 40; petRel(k, 3); petMod('pet_horses', 10); return '갈기가 덥수룩한 변경 말 네 필이 마을에 들어왔다. 아이들이 말꼬리를 따라다니며 깔깔댄다.'; } },
+        { id: 'barter', kind: 'grant', label: '곡식과 맞바꾼다', sub: `식량 40 · ${fn} 관계 +3 · 열흘간 민심 +2`, mood: 2.5, ok: () => S.res.food >= 40,
+          run: () => { S.res.food -= 40; petRel(k, 3); petMod('pet_horses', 10); return '곡식 마흔 섬을 실어 보내고 변경 말 네 필을 받았다. 말장수가 「좋은 거래였소」 하며 웃었다.'; } },
+        { id: 'deny', kind: 'deny', label: '중원 소로도 넉넉하다', sub: '민심 조금 하락', mood: -1.5,
+          run: () => '말장수들은 어깨를 으쓱하고 다음 고을로 떠났다.' },
+      ];
+    },
+  },
+
+  free_militia: {
+    name: '자위단', hanja: '團', tip: '누구의 깃발도 들지 않은 마을이라 원군이 없으니, 장정들이 스스로 마을을 지키겠다는 청.', cd: 9, days: [3, 4], expireMood: -1.5,
+    say: ['우리 손으로 지킵시다', '몽둥이라도 들겠소'],
+    cond: () => petRoute('free') && popCount() >= 14 && !hasMod('pet_militia') && petFree(petYouth).length >= 2,
+    weight: () => 0.55,
+    make(p) {
+      p.petitioner = petGroup('젊은이들', '마을의 장정들');
+      p.title = '장정들로 자위단을 꾸리게 해 주십시오';
+      p.text = '영주님, 이 마을은 누구의 깃발도 들지 않았으니 위급할 때 달려와 줄 원군도 없습니다. 장정들이 낮에는 밭을 갈고 밤에는 몽둥이라도 들고 마을을 지키겠다 합니다. 병장기와 조련을 조금만 내려 주십시오.';
+      return true;
+    },
+    withdraw: p => petRouteGone(p, 'free'),
+    choices() {
+      // 장정 넷까지 무공이 조금 오르고, 열흘 동안 밤 순라를 돈다
+      const drill = () => {
+        const ys = shuffle(petFree(petYouth)).slice(0, 4);
+        for (const v of ys) { v.martial = Math.min(S.martialCap, (v.martial || 0) + 0.3); updateStats(v); }
+        petMod('pet_militia', 10);
+        return ys.length ? `장정 ${ys.length}명이` : '장정들이';
+      };
+      return [
+        { id: 'arm', kind: 'grant', label: '병장기를 나눠 주고 조련한다', sub: '병장기 6 · 은자 20 · 장정 넷의 무공 상승 · 열흘간 민심 +2', mood: 3,
+          ok: () => S.res.weapons >= 6 && S.res.silver >= 20,
+          run: () => { S.res.weapons -= 6; S.res.silver -= 20; return `${drill()} 창과 몽둥이를 받아 들고 무사들에게 조련을 받았다. 밤마다 횃불을 든 자위단이 마을 둘레를 돈다.`; } },
+        petDept('byeong', 25, '장정 넷의 무공 상승 · 열흘간 민심 +2', () => `병방이 병장기를 내주고 조련을 맡았다. ${drill()} 저녁마다 구령 소리를 울린다.`, { mood: 3, label: '병방에 조련을 맡긴다' }),
+        { id: 'deny', kind: 'deny', label: '싸움은 무사들에게 맡겨 두라', sub: '민심 조금 하락', mood: -1.5,
+          run: () => '장정들은 몽둥이를 내려놓고 저마다 밭으로 돌아갔다.' },
       ];
     },
   },
@@ -1064,6 +1436,9 @@ const Petitions = {
     UI.registerSheet('petitions', { html: () => this.sheetHTML(), onClick: e => this.onSheetClick(e), live: true });
     this._ui = true;
   },
+
+  // 혜택이 늘려 주는 상소 기한 (날)
+  extraDays() { return Math.max(0, Math.round(Number(hook(JH, 'perk', 'petitionDays')) || 0)); },
 
   // ── 공개 API ──
   pending() { return S && S.petitions ? S.petitions.list.length : 0; },
@@ -1145,7 +1520,8 @@ const Petitions = {
     }
     if (o.data && typeof o.data === 'object') Object.assign(p.data, o.data);
     if (!p.petitioner) p.petitioner = petGroup('마을 사람들', '');
-    const days = o.days !== undefined ? Number(o.days) : rndi(T.days[0], T.days[1]);
+    // 관아가 있으면 상소 기한이 늘어난다 (JH.perk('petitionDays'))
+    const days = (o.days !== undefined ? Number(o.days) : rndi(T.days[0], T.days[1])) + this.extraDays();
     p.deadline = o.deadline !== undefined ? Number(o.deadline) : S.time + days * 24;
     st.list.push(p);
     st.cd[type] = dayOf();
@@ -1246,7 +1622,7 @@ const Petitions = {
     const st = S.petitions;
     if (!st) return;
     st.recent = st.recent.filter(r => S.time - r.t < PET_DECAY_H);
-    // 금룡상회 좌판 세금
+    // 상단 좌판 세금
     if (hasMod('pet_stall')) {
       const n = Math.round(2 + popCount() * 0.1);
       addRes('silver', n);
@@ -1270,6 +1646,8 @@ const Petitions = {
     if (hasMod('pet_watch')) f.push(['야경 강화', 2]);
     if (hasMod('pet_study')) f.push(['글 읽는 소리', 3]);
     if (hasMod('pet_rite')) f.push(['조상께 올린 제사', 3]);
+    if (hasMod('pet_horses')) f.push(['변경 말의 힘', 2]);
+    if (hasMod('pet_militia')) f.push(['자위단의 순라', 2]);
     return f;
   },
   uiTick() {
@@ -1306,6 +1684,7 @@ const Petitions = {
     const s = st.stats;
     const eff = Math.round(this.effect());
     const effCls = eff > 0 ? 'pos' : eff < 0 ? 'neg' : '';
+    const extra = this.extraDays();
     return `<div class="pet-sheet">
       <header class="pet-top">
         <span class="pet-box" data-tip-title="疏 · 트일 소" data-tip="상소함(上疏函). 백성이 영주께 올린 글을 모아 두는 함이다.">疏</span>
@@ -1316,6 +1695,7 @@ const Petitions = {
         <span><b>${st.list.length}</b> 기다리는 상소</span>
         <span>들어줌 <b>${s.granted}</b></span><span>물리침 <b>${s.denied}</b></span><span>묵살 <b>${s.expired}</b></span>
         <span class="pet-eff ${effCls}" data-tip="상소 처결이 지금 민심에 더하거나 빼는 값. 처결의 여운은 닷새에 걸쳐 옅어지고, 상소가 셋 넘게 쌓이면 그것만으로도 민심이 내려간다.">민심 <b>${eff > 0 ? '+' : ''}${eff}</b></span>
+        ${extra ? `<span class="pet-extra" data-tip="관아에서 아전들이 상소를 미리 받아 적어 두므로, 새 상소의 기한이 그만큼 늘어난다.">기한 +<b>${extra}</b>일</span>` : ''}
       </div>
       ${items.length ? `<div class="pet-list">${items.map(i => i.html).join('')}</div>` : this.emptyHTML()}
       ${this.historyHTML()}
@@ -1337,6 +1717,13 @@ const Petitions = {
     const g = HANJA_GLOSS[T.hanja];
     return `<span class="pet-kind" data-tip-title="${T.hanja}${g ? ' · ' + g[0] : ''}" data-tip="${escapeHtml(T.tip)}">${T.hanja}</span>`;
   },
+  // 상소에 얽힌 세력의 문장 (세력 색). 무너진 세력은 보이지 않는다
+  facHTML(k) {
+    const F = k && FACTIONS[k];
+    if (!F || !petAlive(k)) return '';
+    const g = HANJA_GLOSS[F.hanja];
+    return `<span class="pet-fac" style="--fc:${F.color}" data-tip-title="${F.hanja} · ${g ? g[0] : F.name}" data-tip="${escapeHtml(`${F.name} — ${F.type}. 이 상소에 얽힌 세력이다.`)}"><i>${F.hanja}</i>${escapeHtml(F.name)}</span>`;
+  },
   whoHTML(who) {
     return `<p class="pet-who">${escapeHtml(who.name)}${who.note ? ` <small>${escapeHtml(who.note)}</small>` : ''}</p>`;
   },
@@ -1356,7 +1743,7 @@ const Petitions = {
       <header class="pet-card-head">${this.kindHTML(p.type)}<div class="pet-titles"><h4>${escapeHtml(p.title)}</h4>${this.whoHTML(p.petitioner)}</div></header>
       <p class="pet-text">${escapeHtml(p.text)}</p>
       ${p.data.hint ? `<p class="pet-hint">${escapeHtml(p.data.hint)}</p>` : ''}
-      <div class="pet-meta"><span class="pet-due${due.urgent ? ' urgent' : ''}">${due.t}</span>${isNew ? '<span class="pet-newtag">새 상소</span>' : ''}${loc}</div>
+      <div class="pet-meta"><span class="pet-due${due.urgent ? ' urgent' : ''}">${due.t}</span>${isNew ? '<span class="pet-newtag">새 상소</span>' : ''}${this.facHTML(p.data.k)}${loc}</div>
       <div class="pet-choices">${btns}</div>
     </article>`;
   },

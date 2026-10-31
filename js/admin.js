@@ -4,7 +4,8 @@
 // 영주가 부서마다 하루 예산을 내려 주면 부서는 그 은자를 기금으로 모아
 // 스스로 필요한 것을 살피고 짓는다. 저장 상태는 S.admin (순수 JSON).
 // ───────────────────────────────────────────────
-Object.assign(HANJA_GLOSS, {
+// 한자 풀이: 다른 모듈이 먼저 단 풀이는 덮어쓰지 않는다
+const ADM_GLOSS = {
   '六房': ['육방', '관아의 여섯 부서. 이방·호방·예방·병방·형방·공방을 함께 이르는 말.'],
   '吏房': ['이방', '인사와 행정을 맡는 부서. 장부를 맞춰 세금을 빈틈없이 거두고 일손을 고루 나눈다.'],
   '戶房': ['호방', '호구·세금·곡식을 맡는 부서. 겨울을 내다보고 논밭과 어장, 창고를 늘린다.'],
@@ -13,7 +14,8 @@ Object.assign(HANJA_GLOSS, {
   '刑房': ['형방', '치안과 재판을 맡는 부서. 순라를 돌리고 송사와 도둑을 다스린다.'],
   '工房': ['공방', '건설과 길을 맡는 부서. 집을 짓고 길을 닦으며 폐허를 다시 세운다.'],
   '衙前': ['아전', '관아에서 실무를 보는 구실아치. 부서마다 우두머리 아전이 일을 맡는다.'],
-});
+};
+for (const [k, v] of Object.entries(ADM_GLOSS)) if (!HANJA_GLOSS[k]) HANJA_GLOSS[k] = v;
 
 // 부서 정보 (배열이면서 id로도 꺼낼 수 있다: Admin.DEPTS.gong)
 const ADM_DEPTS = [
@@ -51,9 +53,12 @@ const ADM_NO_ROAD = new Set(['tower', 'wall', 'stonewall', 'gate', 'well', 'mano
 // 길을 이어 줄 순서
 const ADM_CONNECT = ['house', 'house2', 'market', 'inn', 'warehouse', 'clinic', 'smithy', 'dojo', 'escort', 'shrine', 'pavilion',
   'lumber', 'quarry', 'fishery', 'farm'];
-const ADM_WORK_H = 8.5;   // 일꾼 한 사람이 하루에 실제로 일하는 시간 (어림)
-// 세력이 주로 넘어오는 출입구 (sim.js pickExit 과 같다)
-const ADM_EXIT_PREF = { heukpung: [2, 0], hyeolwol: [2, 1], cheolhyeol: [1, 3], gwanbu: [0, 3], cheongun: [0, 2] };
+// 형방이 맡을 만한 상소: 송사·도둑, 억울한 옥살이, 관아 송사·수배자, 장터 자릿세
+const ADM_HYEONG_PET = new Set(['dispute', 'thief', 'wrongful', 'gwan_suit', 'gwan_fugitive', 'heuk_levy']);
+// 일꾼 한 사람이 하루에 실제로 일하는 시간의 첫 어림 (오가는 걸음, 습격 때 숨는 틈을 뺐다).
+// 논밭은 밭 안을 옮겨 다니고, 어장은 물가를 찾아 오가느라 짧고, 장사 일터는 안에 머물러 길다. 호방이 둘러보며 고친다
+const ADM_WORK_H = { farm: 8, fishery: 6.5, shop: 9 };
+// 세력이 넘어오는 출입구는 JH.exitFor(id) (sim.js pickExit 과 같다: 좋은 순서 둘 가운데 하나로 온다)
 
 // 터 고르기 성향
 // wd: 마을 가운데에서 멀수록 깎는 정도, road: 길까지 새로 깔 칸마다 깎는 정도, front: 길가에 문을 내면 덤
@@ -359,13 +364,13 @@ const AdmSite = {
     const towers = ctx.blds.filter(b => b.type === 'tower');
     const cover = p => towers.filter(t => Math.hypot(t.x + 0.5 - p.x, t.y + 0.5 - p.y) < 6.5).length;
     if (opts.exitIdx !== undefined && opts.exitIdx >= 0 && pts[opts.exitIdx]) return [pts[opts.exitIdx]];
-    // 위협이 큰 세력이 넘어오는 길목일수록 무겁다
+    // 위협이 큰 이웃이 넘어오는 길목일수록 무겁다 (쳐들어올 무리가 클수록 더). 습격은 좋은 길목 둘 가운데 하나로 온다
     const wt = World.exits.map(() => 1);
-    for (const k in ADM_EXIT_PREF) {
-      if (!S.factions[k] || k === S.vassal) continue;
-      const f = S.factions[k];
-      const w = k === 'heukpung' ? 1.5 + f.threat / 50 : f.rel < -20 ? 1 + f.threat / 50 : 0.1;
-      for (const i of ADM_EXIT_PREF[k]) if (wt[i] !== undefined) wt[i] += w;
+    for (const t of Admin.threats()) {
+      const f = S.factions[t.k];
+      const w = t.k === 'heukpung' ? 1.5 + f.threat / 50
+        : f.rel < -20 || f.threat >= 30 ? (1 + f.threat / 50) * clamp(t.n / 10, 0.6, 1.6) : 0.1;
+      for (const i of JH.exitFor(t.k).slice(0, 2)) if (wt[i] !== undefined) wt[i] += w;
     }
     let best = null, bv = -1;
     pts.forEach((p, i) => {
@@ -442,19 +447,19 @@ const Admin = {
   DEPTS: ADM_DEPTS,
   ORDER: ADM_IDS,
   TRAITS: ADM_TRAITS,
-  _dirty: true, _html: '', _confirm: null, _roadFail: {}, _noSite: {}, _claims: {}, _need: {},
+  _dirty: true, _html: '', _confirm: null, _roadFail: {}, _noSite: {}, _claims: {}, _need: {}, _work: null,
 
   // ── 상태 ──
   init() {
-    S.admin = { v: 1, depts: {}, taxPrev: 0, taxSeen: false, trade: 0, short: null, lastFest: -99 };
+    S.admin = { v: 1, depts: {}, taxPrev: 0, taxSeen: false, trade: 0, short: null, lastFest: -99, workH: {} };
     this.normalize();
-    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._need = {}; this._dirty = true;
+    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._need = {}; this._work = null; this._dirty = true;
     if (typeof UI !== 'undefined' && !(UI.sheets && UI.sheets.admin)) admRegisterSheet();
   },
   onLoad() {
     if (!S.admin || typeof S.admin !== 'object') this.init();
     this.normalize();
-    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._need = {}; this._dirty = true;
+    this._roadFail = {}; this._noSite = {}; this._claims = {}; this._need = {}; this._work = null; this._dirty = true;
     if (typeof UI !== 'undefined' && !(UI.sheets && UI.sheets.admin)) admRegisterSheet();
   },
   newHead() {
@@ -476,6 +481,9 @@ const Admin = {
     }
     if (A.lastFest === undefined) A.lastFest = -99;
     if (A.trade === undefined) A.trade = 0;
+    // 일하는 시간 어림 (옛 저장에는 없다)
+    if (!A.workH || typeof A.workH !== 'object') A.workH = {};
+    for (const k in A.workH) if (!(Number.isFinite(A.workH[k]) && A.workH[k] > 0)) delete A.workH[k];
   },
   dept(id) { return S && S.admin && S.admin.depts ? S.admin.depts[id] || null : null; },
   trait(id) { const d = this.dept(id); return ADM_TRAITS[d && d.head ? d.head.trait : 'honest'] || ADM_TRAITS.honest; },
@@ -564,16 +572,24 @@ const Admin = {
     }
     return want - give;
   },
-  // 무사·객경 품삯과 공물 (곳간에 남겨 둘 몫)
+  // 무사·객경 품삯과 공물 (곳간에 남겨 둘 몫). sim.js dailyTick 과 같게 센다 (의뢰로 떠난 이도 품삯은 받는다)
   upkeepEstimate() {
+    return this.wages() + this.tribute();
+  },
+  wages() {
     let w = 0;
     for (const v of S.villagers) {
-      if (v.dead || v.leaving) continue;
+      if (v.dead) continue;
       if (v.hero) w += v.hero.upkeep;
       else if (v.jobType && BDEF[v.jobType].upkeep) w += BDEF[v.jobType].upkeep;
     }
-    if (S.vassal) w += Math.round(4 + popCount() * 0.25);
     return w;
+  },
+  // 주군에게 바치는 공물: (4 + 인구×0.25) × 계열의 공물 배수 (상단은 0.6)
+  tribute() {
+    if (!S.vassal) return 0;
+    const C = FACTIONS[S.vassal] && CAMPS[FACTIONS[S.vassal].camp];
+    return Math.round((4 + popCount() * 0.25) * (C ? C.tribute : 1));
   },
   // 이방·형방·예방이 날마다 쓰는 경비
   dailyNeed(id) {
@@ -611,6 +627,7 @@ const Admin = {
     // 어제 장사로 번 돈: 시장·객잔·표국이 번 은자만 (상금·하사금은 빼고). 옛 저장에는 없으면 0
     A.trade = Math.max(0, Math.round((S.lastFlow && S.lastFlow.trade) || 0));
     A.taxSeen = true;
+    this.learnWork();
     this.prune();
     // 예산 내려보내기: 품삯만큼은 곳간에 남기고, 먹을 것·지킬 것부터
     const avail = { n: Math.max(0, S.res.silver - Math.min(S.res.silver, this.upkeepEstimate())) };
@@ -644,6 +661,7 @@ const Admin = {
   hourly() {
     if (!S || !S.admin || S.ended) return;
     this.prune();
+    this.sampleWork();
     const h = Math.floor(hourOf() + 1e-6);
     const raid = this.raidInfo();
     const fighting = S.raid && S.raid.active;
@@ -690,6 +708,7 @@ const Admin = {
   },
   countAll(type) { let n = 0; for (const b of S.buildings) if (b.type === type && !b.ruined) n++; return n; },
   // 아직 일자리를 얻지 못한 어른 수 (공사 중인 일터 자리도 미리 뺀다)
+  // 의뢰로 떠난 무사는 일자리를 그대로 쥐고 있으니 어른 수에도 자리 수에도 함께 든다
   laborPool() {
     let adults = 0, slots = 0;
     for (const v of S.villagers) if (!v.dead && !v.leaving && !v.hero && v.age >= 14) adults++;
@@ -707,42 +726,87 @@ const Admin = {
   },
   homeless() { return S.villagers.filter(v => !v.dead && !v.leaving && !v.arriving && !v.home).length; },
   // 앞으로 열이틀 곳간을 굴려 본다 (빈집을 채우러 올 식구까지 셈한다)
+  // 거두는 양과 먹는 양은 sim.js economyStep 과 같은 배수로 셈한다: 철·땅 생김(farmMul·fishMul), 추운 겨울의 식량(foodUseMul)
   foodForecast() {
-    const pop = popCount();
-    const cons = pop * 2;
-    const consF = (pop + clamp(this.freeHousing(), 0, 6)) * 2;
-    let farmW = 0, fishW = 0, farmOpen = 0, fishOpen = 0;
+    const pop = popCount(), day = dayOf(), si = seasonIdx();
+    const incoming = clamp(this.freeHousing(), 0, 6);
+    const cons = pop * 2 * foodUseMul(si);
+    const consOf = s => (pop + incoming) * 2 * foodUseMul(s);
+    const consF = consOf(si);
+    // 지금 거두는 일손: 다 지은 논밭·어장에서 일하는 이 (의뢰로 떠난 이는 자리만 지킬 뿐 거두지 않는다)
+    let farmW = 0, fishW = 0, farmOpen = 0, fishOpen = 0, farmSoon = 0, fishSoon = 0;
     for (const b of S.buildings) {
       if ((b.type !== 'farm' && b.type !== 'fishery') || b.ruined || !b.active) continue;
       const cap = Math.min(BDEF[b.type].workers, b.want);
-      const w = b.done ? Math.min(cap, (b._workers || []).length) : 0;
-      if (b.type === 'farm') { farmW += w; farmOpen += cap - w; } else { fishW += w; fishOpen += cap - w; }
+      const isFarm = b.type === 'farm';
+      if (!b.done) { if (isFarm) farmSoon += cap; else fishSoon += cap; continue; }
+      const w = Math.min(cap, (b._workers || []).filter(v => !v.away).length);
+      if (isFarm) { farmW += w; farmOpen += cap - w; } else { fishW += w; fishOpen += cap - w; }
     }
-    // 빈 자리는 일 없는 사람이 곧 채운다
+    // 빈 자리는 일 없는 사람이 곧 채운다 (논밭이 먼저: refreshAssign 의 일자리 순서). 짓는 중인 일터는 내일부터
     let idle = 0;
-    for (const v of S.villagers) if (!v.dead && !v.leaving && !v.hero && !v.job && v.age >= 14) idle++;
-    const addF = Math.min(farmOpen, idle);
-    farmW += addF; fishW += Math.min(fishOpen, idle - addF);
-    const drought = hasMod('drought') ? (hasMod('well_dug') ? 0.7 : 0.4) : 1;
-    const m = (hasMod('quarantine') ? 0.6 : 1) * (S.occupation ? 0.85 : 1);
-    const prod = si => (farmW * 0.66 * SEASON_FARM[si] * drought + fishW * 0.56 * (si === 3 ? 0.6 : 1)) * ADM_WORK_H * m;
+    for (const v of S.villagers) if (!v.dead && !v.leaving && !v.away && !v.arriving && !v.down && !v.hero && !v.job && v.age >= 14) idle++;
+    const take = n => { const t = Math.min(n, idle); idle -= t; return t; };
+    farmW += take(farmOpen); fishW += take(fishOpen);
+    const farmW2 = farmW + take(farmSoon), fishW2 = fishW + take(fishSoon);
+    // 사건이 건 효과는 그 끝날까지만 (dailyTick 이 until <= 날이면 지운다)
+    const modOn = (id, d) => S.mods.some(o => o.id === id && o.until > d);
+    const drought = d => modOn('drought', d) ? (modOn('well_dug', d) ? 0.7 : 0.4) : 1;
+    const harvest = d => modOn('harvest', d) ? 1.4 : 1;
+    const m = d => (modOn('quarantine', d) ? 0.6 : 1) * (S.occupation ? 0.85 : 1);
+    const hF = this.workHours('farm'), hX = this.workHours('fishery');
+    const prod = (s, d, fw, xw) => (fw * 0.66 * farmMul(s) * drought(d) * harvest(d) * hF + xw * 0.56 * fishMul(s) * hX) * m(d);
     const cap = storageCap();
     let food = S.res.food, low = food;
-    // 가을에는 겨울이 끝날 때까지 내다본다
-    const dIn = dayOf() % DAYS_PER_SEASON;
-    const horizon = seasonIdx() === 2 ? Math.max(12, DAYS_PER_SEASON * 2 - dIn) : 12;
+    // 가을에는 겨울이 끝날 때까지 내다본다 (겨울이 없는 고을은 열이틀)
+    const dIn = day % DAYS_PER_SEASON;
+    const winterAhead = si === 2 && isWinter(3);
+    const horizon = winterAhead ? Math.max(12, DAYS_PER_SEASON * 2 - dIn) : 12;
     for (let k = 1; k <= horizon; k++) {
-      const si = Math.floor((dayOf() + k) / DAYS_PER_SEASON) % 4;
-      food = Math.min(cap, food + prod(si) - consF);
+      const s = Math.floor((day + k) / DAYS_PER_SEASON) % 4;
+      food = Math.min(cap, food + prod(s, day + k, farmW2, fishW2) - consOf(s));   // 바닥 아래로 내려가면 그만큼 모자란 것
       low = Math.min(low, food);
     }
-    const si = seasonIdx();
-    const winterSoon = si === 3 || (si === 2 && dayOf() % DAYS_PER_SEASON >= 3);
+    const winterSoon = isWinter(si) || (winterAhead && dIn >= 3);
     // 모자란 양을 메우려면 논밭이 몇 곳 더 있어야 하나
     const ws = winterSoon ? 3 : si;
-    const farmYield = 3 * 0.66 * SEASON_FARM[ws] * drought * ADM_WORK_H * m;
-    const gap = Math.max(0, consF * 1.05 - prod(si)) + Math.max(0, consF * 3 - low) / 6;
-    return { cons, consF, now: prod(si), low, end: food, winterSoon, farmYield, farmsNeeded: Math.ceil(gap / Math.max(4, farmYield)) };
+    const farmYield = 3 * 0.66 * farmMul(ws) * drought(day) * harvest(day) * hF * m(day);
+    const now = prod(si, day, farmW, fishW);
+    const gap = Math.max(0, consF * 1.05 - now) + Math.max(0, consF * 3 - low) / 6;
+    return { cons, consF, now, low, end: food, winterSoon, farmYield, farmsNeeded: Math.ceil(gap / Math.max(4, farmYield)) };
+  },
+  // 일꾼 한 사람이 하루에 실제로 일하는 시간. 처음에는 어림값이고, 호방이 시각마다 일터를 둘러본 것으로 고쳐 간다
+  // (어장은 물가를 찾아 오가는 길이 고을마다 달라 더 그렇다)
+  workHours(type) {
+    const w = S.admin && S.admin.workH;
+    const h = w && w[type];
+    return Number.isFinite(h) && h > 0 ? h : ADM_WORK_H[type] || ADM_WORK_H.shop;
+  },
+  // 시각마다: 논밭·어장에 매인 사람 가운데 지금 손을 놀리는 이를 센다 (hourly)
+  sampleWork() {
+    const acc = this._work || (this._work = { hours: 0, farm: [0, 0], fishery: [0, 0] });
+    acc.hours++;
+    for (const v of S.villagers) {
+      if (v.dead || v.leaving || v.away || !v.job || (v.jobType !== 'farm' && v.jobType !== 'fishery')) continue;
+      const b = getB(v.job);
+      if (!b || !b.done || !b.active) continue;
+      const a = acc[v.jobType];
+      a[1]++;
+      if (isWorking(v)) a[0]++;
+    }
+  },
+  // 하루 치 둘러본 것으로 일하는 시간을 고친다 (천천히 따라간다)
+  learnWork() {
+    const A = S.admin, acc = this._work;
+    this._work = null;
+    if (!acc || acc.hours < 20) return;   // 하루를 다 둘러보지 못했으면 (막 불러온 날) 고치지 않는다
+    if (!A.workH || typeof A.workH !== 'object') A.workH = {};
+    for (const t of ['farm', 'fishery']) {
+      const [on, n] = acc[t];
+      if (n < 12) continue;   // 한나절 넘게 둘러본 일손이 있어야 믿는다
+      const h = clamp(on / n * 24, 2, 14);
+      A.workH[t] = Math.round((this.workHours(t) * 0.7 + h * 0.3) * 100) / 100;
+    }
   },
   foodEmergency() { return S.res.food < popCount() * 1.5; },
   // 곡식이 달리는가: 지금 거두는 양이 모자라거나, 앞으로 곳간이 바닥 근처까지 줄어들 때
@@ -760,10 +824,46 @@ const Admin = {
     if (s) {
       let idx = Number.isInteger(s.exitIdx) && World.exits[s.exitIdx] ? s.exitIdx : -1;
       if (idx < 0 && s.exit) idx = World.exits.findIndex(e => e.x === s.exit.x && e.y === s.exit.y);
-      if (idx < 0 && ADM_EXIT_PREF[s.faction]) idx = ADM_EXIT_PREF[s.faction][0];
+      if (idx < 0 && FACTIONS[s.faction]) idx = JH.exitFor(s.faction)[0];
       return { k: s.faction, exitIdx: idx };
     }
     return null;
+  },
+  // 병방이 살피는 이웃의 칼끝: 군사가 있고, 주군·동맹·점령군이 아닌 이웃. 위협이 큰 것부터
+  // n: 쳐들어오면 몇 명인지(JH.raidEstimate), exitIdx: 그들이 넘어올 길목, word: 첩자가 없을 때 보이는 낱말
+  threats() {
+    if (!S || !S.factions) return [];
+    const pacts = S.jh ? S.jh.pacts : [];
+    const out = [];
+    for (const k of JH.near()) {
+      const F = FACTIONS[k], f = S.factions[k];
+      if (!F || !f || !F.military || k === S.vassal || pacts.includes(k)) continue;
+      if ((S.jh && !JH.isAlive(k)) || (S.occupation && S.occupation.faction === k)) continue;
+      out.push({ k, threat: f.threat, n: JH.raidEstimate(k), exitIdx: JH.exitFor(k)[0], word: JH.threatWord(k), spied: JH.spied(k) });
+    }
+    return out.sort((a, b) => b.threat - a.threat || b.n - a.n);
+  },
+  // 마을에 남아 싸울 무사·객경 (의뢰로 떠난 이, 쓰러진 이는 빼고)
+  defenders() {
+    let n = 0;
+    for (const v of S.villagers) if (!v.dead && !v.leaving && !v.away && !v.down && (v.role === 'guard' || v.hero)) n++;
+    return n;
+  },
+  awayFighters() { return S.villagers.filter(v => !v.dead && v.away).length; },
+  // 병방 카드의 둘째 줄: 가장 위협이 큰 이웃(술렁 이상)과 마을에 남은 무사·의뢰로 떠난 무사
+  watchText() {
+    if (!S || !S.factions) return null;
+    const top = this.threats()[0];
+    const away = this.awayFighters();
+    if (!(top && top.threat >= 30) && !away) return null;
+    const def = `남은 무사 ${this.defenders()}명${away ? ` · 의뢰로 떠난 무사 ${away}명` : ''}`;
+    return { text: top && top.threat >= 30 ? `${this.threatText(top)} · ${def}` : def, hot: !!top && top.threat >= 70 };
+  },
+  // 이웃의 기색을 한 줄로: 첩자가 있으면 정확한 위협, 없으면 낱말
+  threatText(t) {
+    const nm = FACTIONS[t.k].name;
+    const verb = { '잠잠': '잠잠하다', '술렁': '술렁인다' }[t.word] || t.word;
+    return `${nm}${pp(nm, '이/가')} ${verb}${t.spied ? ` (위협 ${Math.round(t.threat)}%)` : ''} · 쳐들어오면 약 ${t.n}명`;
   },
   // 큰 공사를 앞둔 부서는 재료를 잠시 찜해 둔다 (다른 부서가 다 써 버리지 않게)
   claim(id, cost) {
@@ -1078,8 +1178,8 @@ const Admin = {
       if (hungry) crises.push(['food', isFood, '논밭']);
       if (S.res.wood < 25 && !work.some(b => b.type === 'lumber' && staffed(b) >= 2)) crises.push(['wood', b => b.type === 'lumber', '벌목장']);
       if (S.res.stone < 12 && !work.some(b => b.type === 'quarry' && staffed(b))) crises.push(['stone', b => b.type === 'quarry', '채석장']);
-      // 무사가 하나도 없으면 무관에 사람을 보낸다
-      if (!hungry && popCount() >= 14 && !S.villagers.some(v => !v.dead && v.role === 'guard' && v.jobType === 'dojo')) crises.push(['guard', b => b.type === 'dojo', '무관']);
+      // 마을에 남은 무사가 하나도 없으면 무관에 사람을 보낸다 (의뢰로 떠난 이는 셈하지 않는다)
+      if (!hungry && popCount() >= 14 && !S.villagers.some(v => !v.dead && !v.away && v.role === 'guard' && v.jobType === 'dojo')) crises.push(['guard', b => b.type === 'dojo', '무관']);
       // 손쓸 일터가 있는 위기만 센다 (무관·벌목장이 아예 없으면 위기라도 할 일이 없다)
       const live = crises.filter(([, isT]) => work.some(b => isT(b) && (b.want < BDEF[b.type].workers || open(b))));
       for (const [k, isT, where] of live) {
@@ -1106,7 +1206,7 @@ const Admin = {
         if (froze) markDirty();
         // 3) 놀고 있는 사람이 없으면 덜 급한 일터에서 한 사람을 뺀다
         let idle = 0;
-        for (const v of S.villagers) if (!v.dead && !v.leaving && !v.hero && !v.job && !v.arriving && v.age >= 14) idle++;
+        for (const v of S.villagers) if (!v.dead && !v.leaving && !v.away && !v.hero && !v.job && !v.arriving && v.age >= 14) idle++;
         if (idle > 0) { if (froze) { pay(); return { did: true, status: `일 없는 이를 ${where}${pp(where, '으로/로')} 보낸다.` }; } continue; }
         const donor = this.pickDonor(work, isT, k, raid, plenty, hungry);
         if (donor) {
@@ -1277,6 +1377,10 @@ const Admin = {
         }
         return { did: false, status: `${F ? F.name : '적'}의 습격에 대비하는 중${live.length ? ` · ${this.busyStatus(d)}` : ''}` };
       }
+      // 이웃의 칼끝을 살핀다: 위협이 가장 큰 이웃과 마을에 남은 무사 (의뢰로 떠난 이는 빼고). 창에는 watchText 가 늘 새로 적는다
+      const top = this.threats()[0] || null;
+      const def = this.defenders();
+      const tn = top ? FACTIONS[top.k].name : '';
       if (live.length) return { did: false, status: this.busyStatus(d) };
       const labor = this.laborPool();
       if (pop >= 8 && towers < 1 && labor >= 1) {
@@ -1288,6 +1392,20 @@ const Admin = {
         const r = this.attempt('byeong', 'dojo', { reason: '장정들에게 무공을 가르치려 한다.' });
         if (r.did || r.wait) return r;
       }
+      // 칼을 가는 이웃이 넘어올 길목에 망루를 먼저 올린다 (경보가 오기 전에)
+      if (top && top.threat >= 50 && towers >= 1 && towers < target + 2 && labor >= 0 && !this.exitCovered(top.exitIdx)) {
+        const exn = World.exits[top.exitIdx] ? World.exits[top.exitIdx].name : '길목';
+        const r = this.attempt('byeong', 'tower', { exitIdx: top.exitIdx, reason: `${tn}${pp(tn, '이/가')} 넘어올 ${exn}${pp(exn, '을/를')} 지킨다.` });
+        if (r.did || r.wait) return r;
+      }
+      // 칼을 가는 이웃이 있는데 병장기가 바닥이면 미리 사 둔다
+      if (top && top.threat >= 70 && S.res.weapons < 4 && d.fund >= 30 + 8 * ADM_PRICE.weapons) {
+        const n = 8, cost = n * ADM_PRICE.weapons;
+        d.fund -= cost; d.spent += cost;
+        addRes('weapons', n);
+        this.note('byeong', `${tn}${pp(tn, '이/가')} 칼을 갈아 병장기 ${n}자루를 ${cost}냥에 사 두었다`, true);
+        return { did: true, status: `${tn}에 대비해 병장기를 사들였다.` };
+      }
       if (towers < target && labor >= 1) {
         const r = this.attempt('byeong', 'tower', { reason: '마을 둘레를 지킨다.' });
         if (r.did || r.wait) return r;
@@ -1296,11 +1414,13 @@ const Admin = {
         const r = this.attempt('byeong', 'smithy', { reason: '병장기를 벼리려 한다.' });
         if (r.did || r.wait) return r;
       }
-      // 마을이 커지면 무관을 하나 더
-      if (pop >= 32 && this.countAll('dojo') < 1 + Math.floor(pop / 32) && labor >= 3) {
-        const r = this.attempt('byeong', 'dojo', { reason: '무사가 모자라다.' });
+      // 마을이 커지면 무관을 하나 더. 남은 무사가 쳐들어올 무리의 절반도 못 되면 조금 일찍
+      const thin = top && top.threat >= 50 && def < top.n * 0.5;
+      if (pop >= (thin ? 24 : 32) && this.countAll('dojo') < 1 + Math.floor(pop / (thin ? 24 : 32)) && labor >= (thin ? 2 : 3)) {
+        const r = this.attempt('byeong', 'dojo', { reason: thin ? `${tn}에 맞설 무사가 모자라다.` : '무사가 모자라다.' });
         if (r.did || r.wait) return r;
       }
+      if (top && top.threat >= 30) return { did: false, status: `${tn}의 기색을 살피는 중. 망루 ${towers}곳.` };
       return { did: false, status: `변경이 조용하다. 망루 ${towers}곳${dojo ? ' · 무관 수련 중' : ''}.` };
     },
 
@@ -1308,7 +1428,7 @@ const Admin = {
       const lv = Math.round(d.lv * 100);
       let pend = 0;
       if (typeof Petitions !== 'undefined' && typeof Petitions.list === 'function') {
-        try { pend = (Petitions.list() || []).filter(p => p && (p.type === 'dispute' || p.type === 'thief')).length; } catch (e) { pend = 0; }
+        try { pend = (Petitions.list() || []).filter(p => p && ADM_HYEONG_PET.has(p.type)).length; } catch (e) { pend = 0; }
       }
       return { did: false, status: `순라꾼이 마을을 돈다. 치안 ${lv}%${pend ? ` · 맡을 만한 송사 ${pend}건` : ''}.` };
     },
@@ -1403,27 +1523,38 @@ const Admin = {
   },
 
   // ── 추천 배분: 순수입의 절반쯤 + 곳간에 쌓인 여윳돈의 일부 ──
+  // 내일 묘시에 실제로 오갈 은자를 sim.js dailyTick·economyStep, JH.daily 와 같은 식으로 어림한다
   expectedIncome() {
     const pop = popCount();
-    let tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100);
-    if (S.vassal === 'gwanbu') tax *= 1.15;
-    tax *= this.taxMul();
-    // 철혈회 산하면 세금과 함께 은자를 내려 준다 (dailyTick 과 같다)
-    if (S.vassal === 'cheolhyeol') tax += pop * 0.35;
-    const A = S.admin || {};
-    let trade = A.taxSeen ? A.trade || 0 : 0;
-    if (!A.taxSeen) {
-      // 아직 하루를 넘기지 않았으면 장사 일터로 어림한다
-      for (const b of S.buildings) {
-        if (!usable(b) || !b.active) continue;
-        const w = (b._workers || []).length * ADM_WORK_H * tradeMul();
-        if (b.type === 'market') trade += (0.36 + pop * 0.007) * w;
-        else if (b.type === 'inn') trade += (0.4 + S.fame * 0.0006) * w;
-        else if (b.type === 'escort') trade += (b._connected ? 0.95 : 0.3) * w;
-      }
+    // 세금: 인구·세율·민심 × 혜택(주군·동맹·고을 성질·관아의 tax) × 이방
+    const tax = pop * [0.8, 1.25, 1.8][S.tax] * (0.4 + S.happy / 100) * JH.perk('tax') * this.taxMul();
+    // 강호의 날마다 몫: 계열·혈제단이 내리는 은자(인구당), 교역 협정 (다음 묘시에도 살아 있는 것만)
+    let jh = JH.perk('dailySilver') * pop;
+    if (S.jh) {
+      const next = this.budgetDay() + 1;
+      for (const id in S.jh.trade) if (S.jh.trade[id] > next && JH.isAlive(id)) jh += 2 + countType('market') * 2;
     }
-    const upkeep = this.upkeepEstimate();
-    return { tax: Math.round(tax), trade: Math.round(trade), upkeep, gross: Math.round(tax + trade), net: Math.round(tax + trade - upkeep) };
+    // 장사: 어제 시장·객잔·표국이 번 은자. 아직 하루를 넘기지 않았으면 장사 일터로 어림한다
+    const A = S.admin || {};
+    const trade = A.taxSeen ? A.trade || 0 : this.tradeEstimate(pop);
+    const wages = this.wages(), tribute = this.tribute(), upkeep = wages + tribute;
+    const gross = tax + trade + jh;
+    return { tax: Math.round(tax), trade: Math.round(trade), jh: Math.round(jh), wages, tribute, upkeep, gross: Math.round(gross), net: Math.round(gross - upkeep) };
+  },
+  // 장사 일터가 하루에 벌 은자: economyStep 과 같은 값 (교역 혜택, 표국 혜택, 흑시 1.2배·도박장 1.5배·호시)
+  tradeEstimate(pop = popCount()) {
+    const tm = tradeMul(), shop = 0.36 + pop * 0.007;
+    const m = (hasMod('quarantine') ? 0.6 : 1) * (S.occupation ? 0.85 : 1) * tm * ADM_WORK_H.shop;
+    const rate = {
+      market: () => shop, inn: () => 0.4 + S.fame * 0.0006, blackmarket: () => shop * 1.2, gambling: () => shop * 1.5, horsemarket: () => shop,
+      escort: b => (b._connected ? 0.95 : 0.3) * JH.perk('escort'),
+    };
+    let t = 0;
+    for (const b of S.buildings) {
+      if (!rate[b.type] || !usable(b) || !b.active) continue;
+      t += rate[b.type](b) * (b._workers || []).filter(v => !v.away).length * m;
+    }
+    return t;
   },
   // 부서마다 앞으로 며칠 동안 하루에 쓸 만한 은자 (어림)
   needs() {
@@ -1454,6 +1585,9 @@ const Admin = {
       if (pop >= 10 && !this.countAll('dojo')) n.byeong += Math.max(0, 108 - this.dept('byeong').fund) / 6;
       if (S.rank >= 1 && !this.countAll('smithy')) n.byeong += 4;
       if (this.raidInfo()) n.byeong += 4;
+      // 칼을 가는 이웃이 있으면 그 길목의 망루와 병장기 몫
+      const top = this.threats()[0];
+      if (top && top.threat >= 50) n.byeong += top.threat >= 70 ? 5 : 3;
     }
     // 예방: 보살핌 경비, 우물·사당·의원, 잔치
     if (pop >= 8) {
@@ -1486,7 +1620,8 @@ const Admin = {
     const ff = this.foodForecast();
     const noDojo = !this.countAll('dojo') && pop >= 8;
     const woodLow = !this.countAll('lumber') || S.res.wood < 30;
-    const w = { ho: this.foodShort(ff) ? 1.7 : 1, gong: woodLow ? 1.8 : 1.1, byeong: this.raidInfo() ? 1.5 : noDojo ? 1.3 : 1, ye: 0.8, ri: 0.6, hyeong: 0.7 };
+    const top = this.threats()[0];
+    const w = { ho: this.foodShort(ff) ? 1.7 : 1, gong: woodLow ? 1.8 : 1.1, byeong: this.raidInfo() ? 1.5 : top && top.threat >= 70 ? 1.4 : noDojo ? 1.3 : 1, ye: 0.8, ri: 0.6, hyeong: 0.7 };
     const acc = { ri: 0, ho: famine, ye: 0, byeong: 0, hyeong: 0, gong: 0 };
     // 모자라면 무게대로 나누고, 다 찬 곳에서 남은 몫은 다시 나눈다
     let left = pool - famine;
@@ -1572,7 +1707,10 @@ const Admin = {
     else if (!st) st = '오늘 일을 살피는 중이다.';
     else if (/중|시작|돌렸다|채웠다|닦았다|열어|사들였다/.test(st)) cls = 'work';
     if (/모자라|미룬다|모으는|끊겨|보낼 사람이 없다|터가 없다|못했다/.test(st) && d.auto && (d.budget || d.fund >= 1)) cls = 'wait';
-    return `<span class="adm-dot ${cls}"></span>${escapeHtml(st)}`;
+    // 병방: 이웃의 기색과 마을에 남은 무사를 늘 새로 적는다. 이웃이 칼을 갈거나 습격이 다가오면 붉게
+    const w = id === 'byeong' ? this.watchText() : null;
+    if (id === 'byeong' && cls !== 'off' && (this.raidInfo() || (w && w.hot))) cls = 'alert';
+    return `<span class="adm-dot ${cls}"></span>${escapeHtml(st)}${w ? `<span class="adm-watch${w.hot ? ' hot' : ''}">${escapeHtml(w.text)}</span>` : ''}`;
   },
   logHTML(id) {
     const d = this.dept(id);
@@ -1587,9 +1725,10 @@ const Admin = {
     const tot = this.totalBudget();
     const pct = inc.net > 0 ? Math.round(tot / inc.net * 100) : 0;
     const cell = (label, val, sub, tip, cls = '') => `<div class="adm-cell ${cls}" data-tip-title="${label}" data-tip="${escapeHtml(tip)}"><small>${label}</small><b>${val}</b><span>${sub}</span></div>`;
-    return cell('하루 수입', `${fmt(inc.gross)}냥`, `세금 ${fmt(inc.tax)} · 장사 ${fmt(inc.trade)}`,
-      '오늘 아침 거둘 세금(인구·세율·민심으로 어림)과 어제 장사로 번 은자.')
-      + cell('품삯·공물', inc.upkeep >= 0.5 ? `−${fmt(Math.round(inc.upkeep))}냥` : '0냥', '무사·객경·주군', '무관·망루의 무사와 객경 품삯, 주군에게 바치는 공물. 곳간은 이만큼을 늘 남겨 둔다.')
+    return cell('하루 수입', `${fmt(inc.gross)}냥`, `세금 ${fmt(inc.tax)} · 장사 ${fmt(inc.trade)}${inc.jh ? ` · 강호 ${fmt(inc.jh)}` : ''}`,
+      '내일 아침 거둘 세금(인구·세율·민심, 주군·동맹·고을의 혜택으로 어림)과 어제 장사로 번 은자. 주군·동맹이 내리는 은자와 교역 협정의 몫은 강호로 따로 적는다.')
+      + cell('품삯·공물', inc.upkeep >= 0.5 ? `−${fmt(Math.round(inc.upkeep))}냥` : '0냥', inc.tribute ? `품삯 ${fmt(inc.wages)} · 공물 ${fmt(inc.tribute)}` : '무사·객경·주군',
+        '무관·망루의 무사와 객경 품삯(의뢰로 떠난 이도 받는다), 주군에게 바치는 공물. 곳간은 이만큼을 늘 남겨 둔다.')
       + cell('육방 예산', `${fmt(tot)}냥`, inc.net > 0 ? `순수입의 ${pct}%` : '순수입이 없다', '부서마다 하루에 내려보내는 은자의 합.', tot > inc.net ? 'over' : '')
       + cell('곳간', `${fmt(S.res.silver)}냥`, `여섯 기금 ${fmt(ADM_IDS.reduce((a, id) => a + this.dept(id).fund, 0))}냥`, '지금 곳간에 있는 은자와, 부서마다 쌓아 둔 기금의 합.');
   },
@@ -1599,6 +1738,12 @@ const Admin = {
     const A = S.admin;
     const out = [];
     if (S.occupation) out.push('점령군이 마을을 틀어쥐었다. 아전들은 눈치를 보며 더디게 일한다. 병방이 무사를 길러야 봉기할 수 있다.');
+    // 칼을 가는 이웃 (첩자가 없으면 낱말로만). 의뢰로 떠난 무사는 습격 때 마을에 없다
+    const top = this.threats()[0];
+    if (top && top.threat >= 70 && !this.raidInfo() && !S.occupation) {
+      const away = this.awayFighters();
+      out.push(`${this.threatText(top)}. 마을에 남은 무사는 ${this.defenders()}명${away ? `, 의뢰로 떠난 이가 ${away}명` : ''}이다. 병방 예산을 넉넉히 두라.`);
+    }
     if (A.short && A.short.day === dayOf()) out.push(`오늘 아침 곳간이 모자라 ${A.short.n}냥을 다 내려보내지 못했다 (${A.short.ids.map(id => ADM_DEPTS[id].name).join('·')}).`);
     if (tot > 0 && tot > inc.net) out.push(`예산이 하루 순수입(${fmt(Math.max(0, inc.net))}냥)을 넘는다. 곳간이 날마다 줄어든다.`);
     if (!tot) out.push('아직 예산을 내리지 않았다. 예산이 없으면 부서는 아무것도 하지 않는다. [추천 배분]으로 시작해 보라.');
