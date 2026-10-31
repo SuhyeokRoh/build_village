@@ -453,11 +453,23 @@ const UI = {
     else html = this.helpHTML();
     if (body.dataset.h !== html) {
       // 다시 그려도 읽던 자리를 지킨다 (탭을 바꾸거나 새로 열 때만 맨 위로)
-      const inner = body.parentElement, top = inner.scrollTop;
+      const inner = body.parentElement, top = inner.scrollTop, fk = this.sheetFocusKey(body);
       body.innerHTML = html; body.dataset.h = html;
       inner.scrollTop = this.sheetTop ? 0 : top;
+      // 키보드로 고르던 단추도 지킨다 (통째로 갈아 끼우면 초점이 <body>로 떨어진다)
+      if (fk) { const n = body.querySelector(fk); if (n) n.focus({ preventScroll: true }); }
     } else if (this.sheetTop) body.parentElement.scrollTop = 0;
     this.sheetTop = false;
+  },
+  // 초점 받은 창 단추를 다시 찾을 선택자: 태그 + data-* (풀이·까닭처럼 바뀌는 글은 빼고). 글 칸은 건드리지 않는다
+  // 키보드로 옮긴 초점(:focus-visible)만 지킨다: 마우스로 누른 카드에 초점이 남으면 Space 가 멈춤 대신 카드를 접는다
+  sheetFocusKey(body) {
+    const a = document.activeElement;
+    if (!a || a === body || !body.contains(a) || !a.dataset || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return null;
+    try { if (!a.matches(':focus-visible')) return null; } catch (err) { return null; }
+    const keys = Object.keys(a.dataset).filter(k => k !== 'tip' && k !== 'tipTitle' && k !== 'why');
+    if (!keys.length || typeof CSS === 'undefined' || !CSS.escape) return null;
+    return a.tagName.toLowerCase() + keys.map(k => `[data-${k.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}="${CSS.escape(a.dataset[k])}"]`).join('');
   },
   // 세력 창에서 그 세력의 카드로: 세력 탭, 이웃이면 카드를 펼치고 먼 세력이면 계열 묶음을 편다
   focusFaction(id) {
@@ -901,6 +913,8 @@ const UI = {
   // ── 사건 두루마리 ──
   pumpEvents() {
     if (this.modalOpen || !S || !S.eventQueue.length || !$('title-screen').hidden) return;
+    // [천하도에서 보기]로 지도를 펼쳤으면 닫을 때까지 다음 두루마리를 그 위에 펴지 않는다
+    if (typeof WorldMap !== 'undefined' && WorldMap.isOpen()) return;
     const entry = S.eventQueue[0];
     // 사건을 만들다 예외가 나면 그 사건만 버린다 (남겨 두면 매 프레임 같은 예외로 화면이 멈춘다)
     let ev = null;
@@ -932,6 +946,8 @@ const UI = {
       box.appendChild(btn);
     });
     $('modal').hidden = false;
+    // 앞 두루마리를 내려 읽던 자리를 이어받지 않게 맨 위부터 (숨긴 채로는 scrollTop 이 먹지 않는다)
+    $('modal').querySelector('.scroll-paper').scrollTop = 0;
     const first = box.querySelector('button:not(:disabled)');
     if (first) first.focus({ preventScroll: true });
   },
@@ -942,6 +958,7 @@ const UI = {
     if (this.modalEntry) Bus.emit('eventResolved', this.modalEntry.id, choice.label);
     if (!result) { this.closeModal(); return; }
     $('modal-text').innerHTML = result;
+    $('modal').querySelector('.scroll-paper').scrollTop = 0;
     const box = $('modal-choices');
     box.innerHTML = '';
     const btn = document.createElement('button');
@@ -1018,6 +1035,8 @@ function startTitleArt() {
   const c = cv.getContext('2d');
   const draw = t => {
     if ($('title-screen').hidden) { titleAnim = 0; return; }
+    // 고을 고르기(천하도)가 첫 화면을 다 덮는 동안은 그리지 않고 기다린다 (고르기를 그만두면 바로 다시 그린다)
+    if (typeof WorldMap !== 'undefined' && WorldMap.isOpen()) { titleAnim = requestAnimationFrame(draw); return; }
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = window.innerWidth, h = window.innerHeight;
     if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
