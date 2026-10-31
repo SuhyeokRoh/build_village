@@ -17,7 +17,7 @@
 - 흑풍채의 처음 힘은 100이다. §4.3의 힘 배수가 1이 되어 위협과 습격이 지금과 같다.
 - 흑풍채(`heukpung`)는 힘이 25 아래로 내려가지 않는다. 멸문시킬 수 있는 것은 이야기가 부를 때(`JH.dissolve`)뿐이다. 관부(`gwanbu`)는 10 아래로 내려가지 않는다.
 - 흑풍채 현상금은 `allowJianghu()`가 참일 때만 걸 수 있다.
-- 사건마다 `tier`를 둔다(§9). `Story.allowEvent`는 자기 id 목록에 없는 사건을 `tier`로 거른다. `tier`가 없으면 heavy로 친다.
+- 사건마다 `tier`를 둔다(§9). `Story.allowEvent`는 자기 id 목록에 없는 사건을 `tier`로 거른다. `tier`가 없으면 heavy로 친다. `EV`에 없는 id(상소함이 묻는 `'petition'`)는 light로 친다(제1장에만 막히고, 제2·3장과 건너뛴 판에서는 예전처럼 나온다).
 
 ## 1. 계열 (data.js `CAMPS`, `CAMP_ORDER`, `CAMP_ATT`, `RIVALRIES`)
 
@@ -44,7 +44,7 @@ CAMP_ORDER = ['jeong', 'sega', 'gwan', 'sang', 'saeoe', 'sa', 'heuk', 'ma']
 | gwan | 관(官) | 官 | `tax 1.15`, `bandit 0.5`, `aid` |
 | sang | 상단(商團) | 商 | `trade 1.3` (`aid` 없음) |
 
-- `bandit`은 흑도 계열 이웃의 위협 증가에 곱한다. `gwanRel`은 하루에 한 번 `changeRel('gwanbu', x)`로 쓴다(번짐 없음).
+- `bandit`은 흑도 계열 이웃의 위협 증가에 곱한다. `gwanRel`은 하루에 한 번 `changeRel('gwanbu', x)`로 쓴다(번짐 없음). 다만 관부와의 관계가 −15 아래면 더 깎지 않는다. 눈총만으로는 관부가 위협을 쌓는 −20 아래로 내려가지 않는다(의뢰·현상금·싸움으로 깎인 것은 그대로다).
 - 같은 한자가 여러 뜻으로 쓰이므로, `HANJA_GLOSS`에는 계열 이름(`正派 魔敎 武林世家 黑道 邪派 塞外武林 官 商團`)을 낱말째 넣는다. 한 글자 표(`家 黑 官`)는 이미 다른 풀이가 있으면 '鐵'처럼 두 뜻을 함께 적은 풀이로 바꾼다.
 
 `CAMP_ATT[a][b]`는 −100..100이고 대칭이다. 같은 계열끼리는 +50이다. 적지 않은 칸은 0이다.
@@ -69,7 +69,7 @@ CAMP_ORDER = ['jeong', 'sega', 'gwan', 'sang', 'saeoe', 'sa', 'heuk', 'ma']
 FACTIONS[id] = {
   name, hanja,            // 문장 한 글자. 스물여섯 모두 다르게, 갈래 건물 한자와도 겹치지 않게
   camp,                   // CAMPS 키
-  type,                   // 보이는 글. 기본은 `${CAMPS[camp].name}(${CAMPS[camp].hanja})`. 흑풍채만 '녹림(綠林)', 관부만 '관청(官廳)'으로 둔다
+  type,                   // 보이는 글. 기본은 `${CAMPS[camp].name}(${CAMPS[camp].hanja})`. 흑풍채는 '흑도(黑道) · 산채', 관부는 '관(官) · 현청'으로 둔다(계열 이름이 카드에 보이게)
   color, dark, desc,
   unit, leader,           // 군사가 있는 세력만. leader.hat 은 선택 (없으면 unit.hat)
   military, baseSize, growth,
@@ -132,7 +132,7 @@ SITES[key] = {
 | `shaanxi_valley` | 운무곡 雲霧谷 | shaanxi (430,255) | cheongun, chilsal, hyeolwol, jegal | malli | 2 | 험한 산골: 돌이 흔하다 |
 | `jiangnan_water` | 연우 수향 煙雨水鄕 | jiangnan (780,390) | sanggwan, cheolhyeol, heuksu, baekhak | geumryong | 1 | 강남 물길: 교역 ×1.15 |
 | `sichuan_basin` | 파촉 분지 巴蜀盆地 | sichuan (360,415) | taeheo, heungnyeon, geumryun, jegal | malli | 2 | 깊은 숲: 목재가 흔하다 |
-| `yungui_frontier` | 묘강 변경 苗疆邊境 | yungui (390,560) | heungnyeon, mandok, yasu, taeheo | geumryong | 3 | 남쪽 밀림: 약재 의뢰가 잦고 겨울이 없다 |
+| `yungui_frontier` | 묘강 변경 苗疆邊境 | yungui (390,560) | heungnyeon, mandok, yasu, taeheo | geumryong | 2 | 남쪽 밀림: 약재 의뢰가 잦고 겨울이 없다 |
 | `hebei_road` | 북평 관도 北平官道 | hebei (690,175) | baengni, hyeolyeong, bingseol, geumgang | malli | 2 | 황도 가까이: 세금 ×1.1, 관 사건이 잦다 |
 | `shandong_coast` | 봉래 해안 蓬萊海岸 | shandong (800,270) | hyeolyeong, haerang, cheolhyeol, baengni | geumryong | 2 | 바닷가: 어장 ×1.2, 해적 소문 |
 | `liaodong_border` | 요하 변성 遼河邊城 | liaodong (840,140) | bingseol, baengni, hyeolyeong, chilsal | malli | 3 | 국경: 진북군이 원군을 보낸다, 겨울이 혹독하다 |
@@ -206,7 +206,7 @@ War = { id, a: [ids], b: [ids], name, since, score, mine: { a: 0, b: 0 }, front:
 
   - 날마다 `score += (힘a − 힘b) / 80 + rnd(−0.8, 0.8)`. 힘a는 a 쪽 힘의 합이다. 영주의 몫은 낸 그때 `score`에 바로 더해지고 줄지 않는다. 쌓인 몫은 `mine`에 따로 적는다(보여 주기용).
   - |score| ≥ 10이면 끝난다. 진 쪽은 힘 −30%, 이긴 쪽은 +15%다. 20일이 지나면 점수 부호로 승패를 가리고, 이때 진 쪽은 −15%만 깎인다.
-  - `scripted` 전쟁(이야기가 연다)도 같은 규칙이다. 지면 갈래가 실패하는 것은 아니다. 진 쪽 힘만 깎이고, 이야기가 열흘 뒤 다시 연다.
+  - `scripted` 전쟁(이야기가 연다)도 같은 규칙이다. 다만 열린 지 닷새 안에는 영주의 몫(지원·원군 의뢰)만으로 끝나지 않는다: 그 몫이 |score|를 10 넘게 밀면 9.5에서 멈춘다(날마다의 흐름으로는 끝날 수 있다). 지면 갈래가 실패하는 것은 아니다. 진 쪽 힘만 깎이고, 이야기가 열흘 뒤 다시 연다.
   - 멸문: 힘이 0 이하가 되면 `JH.dissolve(id)`를 부른다(§4.4).
 - **소식**: 전쟁 시작·끝, 멸문·재기, 힘이 열흘에 +30 넘게 오름, 빈자리 채움, 무림대회. `JH.news()`. 이웃이 얽힌 큰 소식은 logMsg와 알림으로도 띄운다.
 - **강호 두루마리**(굴림 없이 JH가 바로 띄운다, 하루에 하나까지): 이웃이 전쟁에 들면 `jh_war_sides`(양쪽 사신이 편을 들라 한다), 이웃이 멸문하면 `jh_survivors`, 이웃이 열흘에 힘 +30이면 `jh_surge`, 동맹이 전쟁에 들면 `jh_pact_call`. `S.eventQueue.push({ id, data })`로 넣고, 그 사건은 events.js가 만든다(§9).
@@ -297,8 +297,8 @@ Quest = {
 | `trade` 교역 협정 | 관계 ≥ 20, 상단·새외·세가(이웃이 아니어도 된다), 동시에 둘 | 은자 60 | 20일 동안 매일 은자 `2 + 시장 수 × 2`, 관계 +3 |
 | `pact` 동맹 / `unpact` | §5 | — | 동맹을 맺는다(번짐 +25). 끊으면 관계 −25, 번짐 −40 |
 | `bounty` 현상금 | 관(관부·금의위) 관계 ≥ 20, 대상은 흑도·사파·마교 이웃. 대상마다 15일 대기. 관 계열 힘 합이 대상 힘×0.8 이상 | 은자 120 | 대상 힘 −20, 위협 0, 대상과 관계 −20, 관부 관계 −5, 10일 원한 |
-| `spy` 첩자 | 세력마다 10일 대기 | 은자 30 | 10일 동안 정확한 위협 %, 다음 습격 예상(날·길목·규모), 전쟁·동맹 계획을 보인다. 20% 들킴: 관계 −15 |
-| `support` 전쟁 지원 | 전쟁 중인 한쪽. 그 쪽에 이웃이 있어야 | `{silver, food, weapons}` | 점수 += 은자/50 + 식량/80 + 병장기/5. 그 쪽 관계 +5, 반대쪽 −8 |
+| `spy` 첩자 | 세력마다 10일 대기 | 은자 30 | 10일 동안 정확한 위협 %, 다음 습격 예상(날·길목·규모), 전쟁을 보인다. 길목은 습격이 정해졌으면 그 길목, 아니면 올 수 있는 둘('○○ 또는 ○○ 쪽으로'). 20% 들킴: 관계 −15 |
+| `support` 전쟁 지원 | 전쟁 중인 한쪽. 그 쪽에 이웃이 있어야. 한 싸움에 하루 전황 +3까지(`JH.supportLeft`, `w.paid = { day, amt }`) | `{silver, food, weapons}` (하루 몫을 넘기면 그만큼 줄여서 받는다) | 점수 += 은자/50 + 식량/80 + 병장기/5. 그 쪽 관계 +5, 반대쪽 −8 |
 | `mediate` 중재 | 서로 싸우는 이웃 둘과 모두 관계 ≥ 0 | 은자 150 | 전쟁이 끝난다(무승부), 명성 +15, 양쪽 관계 +5 |
 
 - 첩자가 없으면 위협은 낱말로만 보인다: 잠잠(30 미만) · 술렁(70 미만) · 칼을 간다(그 이상). `JH.threatWord(id)`, `JH.spied(id)`.
@@ -336,9 +336,9 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 | sa 사파 | 강 나루의 주인: 진, 도박장, 사파 의뢰 3 | 사파 회맹: 현성, 정파 토벌대 격퇴(짜인 습격), 짜인 전쟁 승리 | jeong, gwan | 사파의 맹주 | 회맹에 머리를 숙인다 |
 | saeoe 새외 | 변경의 시장: 진, 호시, 새외 의뢰 3 | 관문을 열다: 현성, 관의 토벌 격퇴(짜인 습격), 새외 세력 둘과 교역 협정 | gwan, jeong | 새외의 관문 | 새외 무인들이 쫓아낸다 |
 | gwan 관 | 현령의 인장: 진, 관아, 현상금 2, 민심 60 | 토벌령: 현성, 짜인 토벌전(관 편) 승리, 흑풍채 멸문 | heuk, sa, ma | 황명의 현성 | 토벌령으로 멸문 |
-| free 독립 | 누구의 깃발도 아니다: 진, 명성 200, 연무대, 이웃(noLord 빼고) 관계 모두 −30 이상 | 천하제일촌: 현성, 명성 400, 두 계열의 최후통첩 격퇴(짜인 습격 둘) | (가장 센 이웃 둘) | 천하제일촌 | 연무대 비무에서 굴복 |
+| free 독립 | 누구의 깃발도 아니다: 진, 명성 200, 연무대, 이웃(noLord 빼고) 관계 모두 −30 이상 | 천하제일촌: 현성, 이 장에서 얻은 명성 250(장이 열릴 때의 명성 `cg.f0`부터 센다. 옛 저장은 모든 명성), 두 계열의 최후통첩 격퇴(짜인 습격 둘) | (가장 센 이웃 둘) | 천하제일촌 | 연무대 비무에서 굴복 |
 
-- **짜인 절정**: 제6장이 시작되면 이야기가 `JH.startWar(aIds, bIds, name, { scripted: true, front: 고을 곁 })`로 전쟁을 연다. 갈래 계열 이웃(없으면 가장 가까운 같은 계열)과 숙적 계열 이웃(없으면 가장 가까운)이 맞선다. 그리고 며칠 뒤 `Events.raidWarning(foeId, 1.3, { goal, delay })`로 대습격을 보낸다. 지더라도 갈래가 실패하지는 않는다. 열흘 뒤 총관이 말하고 다시 연다.
+- **짜인 절정**: 제6장이 시작되면 이야기가 `JH.startWar(aIds, bIds, name, { scripted: true, front: 고을 곁 })`로 전쟁을 연다. 갈래 계열 이웃(없으면 가장 가까운 같은 계열)과 숙적 계열 이웃(없으면 가장 가까운)이 맞선다. 그리고 며칠 뒤 `Events.raidWarning(foeId, 1.3, { goal, delay, exitIdx: exitFor(foeId)[0], size, emul })`로 대습격을 보낸다. 길목은 총관의 안내 표시가 짚는 그곳이다. 지더라도 갈래가 실패하지는 않는다. 열흘 뒤 총관이 말하고 다시 연다. 다시 올 때마다 무리는 0.85배씩 줄고(12명 아래로는 줄이지 않는다, `cx.rl` 진 횟수), 한 사람의 체력·공격은 첫 판의 날짜(`cx.rd0`)에 맞춘다(`emul = (1 + 첫날×0.018) / (1 + 오늘×0.018)`). 이기면 둘 다 처음으로 돌린다.
 - **흑풍채의 끝**: 제6장 목표 하나 또는 사건이다. 관은 `JH.dissolve('heukpung', { story: true })`, 흑도는 흡수(`JH.dissolve('heukpung', { story: true, quiet: true })`로 소식 없이 거두고 매일 은자 3), 나머지는 사건 한 장면.
 - **승리**: 마지막 장의 목표를 다 이루면 `finishChapter`가 `S.victory = true`, `S.victoryTitle = ROUTES[k].title`, `S.jh.victory = k`를 정하고 `Events.victory({ title, text, stamp })`를 부른다. 숙적 계열 이웃의 힘이 −50%가 되고, 천하도의 내 고을에 갈래 문장이 찍힌다.
 - sim.js의 '현성·명성 400 승리'는 `hook(Story, 'ownsVictory') !== true`일 때만 쓴다(이야기 모듈이 있으면 이야기가 승리를 맡는다).
@@ -346,6 +346,7 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 ### 8.3 갈래 바꾸기
 
 - 제5장 이후에 주군을 바꾸면 갈래도 바뀐다. 옛 계열에 번짐 Δ −40, 옛 주군의 위협은 60이 되고, 그 장의 목표는 새 갈래 것으로 처음부터 시작한다. 총관이 한마디 한다. 바꾸기는 한 번까지(`S.jh.routeSwitches`)이고, 두 번째부터는 독립이 된다.
+- 받아들이기 전에 알린다: 포섭(`offer`)과 보호비(`protection`) 두루마리의 글과 선택지, 세력 창의 [산하에 든다] 말풍선에 `Story.switchNote(id)`('갈래가 ○○의 길로 바뀌고, 이 장의 할 일도 처음부터 다시 한다…')를 붙인다.
 - 주군이 멸문하면(이야기가 일부러 없앤 것이 아닐 때는 일어나지 않는다, §4.4) 갈래는 거리 400 안에서 같은 계열 가운데 가장 센 세력에게 넘어간다. 그런 세력이 없으면 독립이 된다.
 - 옛 저장: 제4장 이후인데 갈래가 없으면 주군 계열로, 주군이 없으면 독립으로 정한다(`Story.onLoad`).
 
@@ -374,7 +375,10 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 - **EV마다 `tier`**: `'light' | 'hostile' | 'heavy' | 'gloomy'`. 새 사건에는 꼭 단다. 지금 있는 사건에도 단다(Story의 id 목록과 같게).
 - `init`은 같은 data로 두 번 불러도 같아야 한다(`if (d.k) return`). `data._init`은 저장되지 않으므로, 불러온 뒤 다시 init이 불린다.
 - 대상 세력은 `JH.pickNear(camp, filter)`로 고른다. `cond`도 이것으로 대상이 있는지 본다.
-- `chooseGoal(k)`는 `FACTIONS[k].goals`를 읽는다. 'occupy'는 인구 문턱이 넘을 때만 쓴다(지금 규칙과 같게).
+- `chooseGoal(k)`는 `FACTIONS[k].goals`를 읽는다. 'occupy'는 마을에 쓸 수 있는 무관이 있고(봉기할 무사를 기를 수 있어야 한다) 인구 문턱이 넘을 때만 쓴다. 문턱은 마교 20, 나머지 28이다(관도 28. 관부의 goals 는 `['punish', 'occupy']`).
+- 점령(sim.js): 점령군은 날마다 은자(120냥이 넘는 몫에서 25%, 적어도 8)와 식량 15%를 빼앗는다. 몸값은 150 + 날×5 + 인구×3이고 상한은 100 + 인구×8이다. 우두머리는 수비대에 남지 않는다. 스무 날을 버티면 점령군이 물러간다(`Bus 'liberated' 'withdraw'`). 점령이 끝나면(몸값·봉기·물러감) 보름 동안 그 세력의 위협이 쌓이지 않는다(`S.jh.cd['occ:' + k]`).
+- 두루마리에는 닫기 단추가 없으므로, 사건마다 은자·식량이 없고 무사가 모두 떠나 있어도 고를 수 있는 선택지를 하나는 둔다(`ok` 없이). UI는 그래도 모두 잠기면 '물러선다'를 덧붙인다.
+- 마교의 제물 요구(`ma_tribute`)에서 바칠 것이 없어 빈 수레로 돌려보내면 위협만 쌓이고, 그날 밤의 습격(35%)은 바칠 수 있었는데 거절했을 때만 굴린다.
 - 지금 사건 가운데 특정 세력에 묶인 것은 계열 일반으로 넓힌다. `cheongun_offer`/`hyeolwol_offer`는 `offer`(이웃 가운데 산하를 들일 수 있는 세력 하나)가 되고, `gang_protection`은 이웃 흑도·사파가 된다. 옛 id는 지우지 말고 `cond: () => false`로 남긴다(저장된 큐 호환).
 - **새 사건은 서른 이상**이다. 계열마다 셋 이상, 그리고 계열마다 `S.scheduled`로 이어지는 2~3단 사건 하나씩. 예:
   - 정파: 무림맹 소집, 협객의 방문, 정파의 감찰(마교와 가까우면 문책), 비무 초청.
@@ -397,7 +401,7 @@ ROUTES[key] = { name, seal, foes: [camp…], title /* 결말 칭호 */, ch5: CH�
 - API: `WorldMap.open(mode, opts)`, `WorldMap.close()`, `WorldMap.isOpen()`, `WorldMap.mode()`.
   - `'pick'`: `{ seed, world, onPick(siteKey), onCancel() }`.
   - `'view'`: `{ focus?: factionId | warId }`.
-- 겹: `#worldmap`. 보기 모드는 z-index 29다(시트 30, 총관, 두루마리, 말풍선이 그 위에 뜬다). 고르기 모드는 z-index 52로 제목 화면(50) 위에 뜬다. 그래서 `#tooltip`은 60으로 올린다(style.css).
+- 겹: `#worldmap`. 보기 모드는 z-index 29다(시트 30, 사건 두루마리 35, 알림 34, 말풍선 60이 그 위에 뜬다. 총관 카드는 시간을 멈출 때(z 32)만 위에 뜨고, 곁말은 천하도 아래에 남는다. 보기 모드가 열려 있는 동안 다음 두루마리는 펼치지 않고 기다린다). 고르기 모드는 z-index 52로 제목 화면(50) 위에 뜬다. 그래서 `#tooltip`은 60으로 올린다(style.css).
 - 보기 모드가 열려 있으면 시간을 멈춘다(main.js 루프가 `WorldMap.isOpen()`을 본다). 열고 닫을 때 `Bus.emit('sheetOpen'|'sheetClose', 'worldmap')`을 보낸다. 그러면 이야기의 `flag('sheet_worldmap')`이 그대로 선다.
 - 자기 `requestAnimationFrame` 루프와 키 처리(Esc 닫기)를 갖는다. 열려 있는 동안 main.js는 지도 이동 키를 마을에 보내지 않는다. Esc는 시트를 먼저 닫고, 그다음 천하도를 닫는다.
 - **그림**(캔버스 하나, 한지 바탕):

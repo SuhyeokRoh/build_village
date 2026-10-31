@@ -544,7 +544,7 @@ const EV = {
   },
   // 이웃 상단의 투자 권유 → 열흘 뒤 invest_return
   invest: {
-    title: d => `${fName(d.s || 'geumryong')}의 제안`, stamp: '金', tier: 'light', weight: 0.6, cd: 20,
+    title: d => `${fName(d.s || 'geumryong')}의 제안`, stamp: d => FACTIONS[d.s || 'geumryong'].hanja, tier: 'light', weight: 0.6, cd: 20,
     cond: () => S.res.silver >= 220 && dayOf() >= 6 && !evPending('invest_return'),
     init: d => { if (d.s) return; d.s = JH.pickNear('sang') || 'geumryong'; },
     text: d => `${fName(d.s)}의 대행수가 은밀히 찾아왔다.\n<q>서역으로 가는 비단 상단에 은자 200냥만 넣으시지요. 열흘 뒤 두 배로 돌려드리겠습니다. 물론… 사막 길이 순탄하다면요.</q>`,
@@ -555,7 +555,7 @@ const EV = {
     ],
   },
   invest_return: {
-    title: '상단의 귀환', stamp: '金', tier: 'light', weight: 0, cd: 0, cond: () => false,
+    title: '상단의 귀환', stamp: d => FACTIONS[d.s || 'geumryong'].hanja, tier: 'light', weight: 0, cd: 0, cond: () => false,
     init: d => { if (d.ok !== undefined) return; d.ok = Math.random() < 0.75; if (!d.s) d.s = 'geumryong'; },
     text: d => d.ok ? '서역에 갔던 상단이 돌아왔다! 대행수가 약속대로 은자 꾸러미를 내민다.' : '나쁜 소식이다. 상단이 사막에서 마적 떼를 만났다고 한다. 대행수가 고개를 숙인다.',
     choices: d => [{ label: '확인', run: () => { if (d.ok) { addRes('silver', 420); return '은자 420냥을 받았다.'; } changeRel(d.s, 5); return '맡긴 은자는 돌아오지 않았다. 대행수는 다음엔 꼭 갚겠다고 했다.'; } }],
@@ -660,11 +660,13 @@ Object.assign(EV, {
       let t = `${evCrest(d.k)}${(OFFER_SAY[F.camp] || OFFER_SAY.sang)(F, d.k)}\n\n산하가 되면 <em>${F.perk || '별다른 혜택이 없다'}</em>. 매일 공물로 은자 ${evTrib(d.k)}냥쯤을 바친다.`;
       if (d.special) t += '\n갈림길에서 고른 길이다. 선납 은자 100냥을 바치면 관계와 상관없이 산하에 든다.';
       if (S.vassal && S.vassal !== d.k) t += `\n\n지금은 <em>${fName(S.vassal)}</em>의 산하다. 받아들이면 옛 주군을 배신하게 된다.`;
+      const sw = hook(Story, 'switchNote', d.k);
+      if (sw) t += `${S.vassal && S.vassal !== d.k ? ' ' : '\n\n'}<em>${sw}.</em>`;
       return t;
     },
     choices: d => {
-      const F = FACTIONS[d.k], ma = F.camp === 'ma' && !d.special;
-      const out = [{ label: `${F.name}의 산하에 든다`, sub: `${d.special ? '선납 은자 -100 · ' : ''}${ma ? '은자 +150 · ' : ''}매일 공물 은자 ${evTrib(d.k)} · ${F.perk}`,
+      const F = FACTIONS[d.k], ma = F.camp === 'ma' && !d.special, sw = hook(Story, 'switchNote', d.k);
+      const out = [{ label: `${F.name}의 산하에 든다`, sub: `${d.special ? '선납 은자 -100 · ' : ''}${ma ? '은자 +150 · ' : ''}매일 공물 은자 ${evTrib(d.k)} · ${F.perk}${sw ? ` · ${sw}` : ''}`,
         ok: () => !d.special || S.res.silver >= 100,
         run: () => { if (d.special) S.res.silver -= 100; becomeVassal(d.k); if (ma) addRes('silver', 150); return (OFFER_YES[F.camp] || OFFER_YES.sang)(F, d.k); } }];
       if (ma) {
@@ -682,7 +684,7 @@ Object.assign(EV, {
     init: () => (Array.isArray(hook(Story, 'routeCards')) ? undefined : false),
     text: () => {
       const cards = hook(Story, 'routeCards') || [];
-      return `총관이 천하도를 펼쳐 놓고 이웃 계열의 깃발을 하나씩 짚는다. 이제 ${VN()}${pp(VN(), '이/가')} 걸을 길을 정할 때다. 갈림길(${EV_HJ.crossroads})이다.\n어느 깃발 아래 서면 그 계열의 혜택과 원군을 얻지만, 그 원수들과는 척을 진다. 계열을 고르면 그 세력이 포섭하러 사자를 보낸다.`
+      return `총관이 천하도를 펼쳐 놓고 이웃 계열의 깃발을 하나씩 짚는다. 이제 ${VN()}${pp(VN(), '이/가')} 걸을 길을 정할 때다. 갈림길(${EV_HJ.crossroads})이다.\n어느 깃발 아래 서면 그 계열의 혜택(흑도·상단 말고는 습격 때 원군도)을 얻지만, 그 원수들과는 척을 진다. 계열을 고르면 그 세력이 포섭하러 사자를 보낸다.`
         + cards.map(evRouteCard).join('')
         + evCardBox('#6a5a48', '<span data-tip-title="獨">獨</span>', '홀로 서는 길',
           [['결말', '「천하제일촌」'], ['혜택', '공물도 원군도 없다. 누구의 원수도 아니다'], ['적', '가장 센 이웃 둘']]);
@@ -954,8 +956,10 @@ Object.assign(EV, {
         { label: '은자를 바친다', sub: `은자 -${d.silver} · ${F} 관계 +8 · 위협이 가라앉는다`, ok: () => S.res.silver >= d.silver,
           run: () => { S.res.silver -= d.silver; changeRel(d.k, 8); evThreat(d.k, -35); return '은자 상자가 수레에 실렸다. 마을 사람들이 고개를 돌렸다.'; } },
         { label: '빈 수레로 돌려보낸다', sub: `${F} 관계 -12 · 위협이 크게 쌓인다`, run: () => {
+          // 바칠 것이 없어 빈 수레로 보낸 가난한 마을에는 그날 밤 횃불을 보내지 않는다 (위협만 쌓인다)
+          const could = S.res.food >= d.food || S.res.silver >= d.silver;
           changeRel(d.k, -12); evThreat(d.k, 35);
-          if (Math.random() < 0.35 && Events.raidWarning(d.k, 0.8)) return '<q>신께서 노하실 것이다.</q> 사자가 빈 수레를 끌고 돌아갔다. 그날 밤 붉은 횃불이 고개 너머에 모였다.';
+          if (could && Math.random() < 0.35 && Events.raidWarning(d.k, 0.8)) return '<q>신께서 노하실 것이다.</q> 사자가 빈 수레를 끌고 돌아갔다. 그날 밤 붉은 횃불이 고개 너머에 모였다.';
           return '<q>신께서 노하실 것이다.</q> 사자가 빈 수레를 끌고 돌아갔다.'; } },
         ...(d.j && JH.isAlive(d.j) ? [{ label: `${fName(d.j)}에 알린다`, sub: `${fName(d.j)} 관계 +8 · ${F} 관계 -20 · 위협이 쌓인다`, run: () => {
           changeRel(d.j, 8); changeRel(d.k, -20); evThreat(d.k, 40); return `${fName(d.j)}에 기별을 넣었다. ${fName(d.j)}에서는 고맙다는 답이 왔지만, ${F}의 눈빛은 한층 사나워졌다.`; } }] : []),
@@ -1279,11 +1283,14 @@ Object.assign(EV, {
     cond: () => dayOf() >= 5 && popCount() >= 12,
     who: () => evTarget(['sa', 'heuk'], id => evMil(id) && id !== S.vassal && rel(id) > -50),
     init(d) { if (d.k) return; if (!evAim(d, this.who())) return false; },
-    text: d => { const F = FACTIONS[d.k]; return `검은 비단옷을 입은 ${evF(d.k)}의 ${F.leader.title}${pp(F.leader.title, '이/가')} 수하 열댓을 거느리고 영주관을 찾았다.\n<q>요즘 세상이 험하지 않소? 우리 ${F.name}의 비호를 받으시오. 매일 공물만 조금 내면, 산적 놈들은 얼씬도 못 할 거요.</q>${S.vassal ? `\n\n지금은 <em>${fName(S.vassal)}</em>의 산하다. 받아들이면 옛 주군을 배신하게 된다.` : ''}`; },
+    text: d => {
+      const F = FACTIONS[d.k], sw = hook(Story, 'switchNote', d.k);
+      return `검은 비단옷을 입은 ${evF(d.k)}의 ${F.leader.title}${pp(F.leader.title, '이/가')} 수하 열댓을 거느리고 영주관을 찾았다.\n<q>요즘 세상이 험하지 않소? 우리 ${F.name}의 비호를 받으시오. 매일 공물만 조금 내면, 산적 놈들은 얼씬도 못 할 거요.</q>${S.vassal ? `\n\n지금은 <em>${fName(S.vassal)}</em>의 산하다. 받아들이면 옛 주군을 배신하게 된다.` : ''}${sw ? `${S.vassal ? ' ' : '\n\n'}<em>${sw}.</em>` : ''}`;
+    },
     choices: d => {
-      const F = FACTIONS[d.k];
+      const F = FACTIONS[d.k], sw = hook(Story, 'switchNote', d.k);
       return [
-        { label: `${F.name}의 비호를 받는다`, sub: `산하 마을이 됨 · 매일 공물 은자 ${evTrib(d.k)} · ${F.perk}`, run: () => { becomeVassal(d.k);
+        { label: `${F.name}의 비호를 받는다`, sub: `산하 마을이 됨 · 매일 공물 은자 ${evTrib(d.k)} · ${F.perk}${sw ? ` · ${sw}` : ''}`, run: () => { becomeVassal(d.k);
           return `${F.leader.title}${pp(F.leader.title, '이/가')} 껄껄 웃으며 마을 어귀에 ${F.name}의 깃발을 꽂았다. 이제 이 마을을 건드리는 자는 ${F.name}${pp(F.name, '을/를')} 적으로 돌리는 셈이다.`; } },
         { label: '술과 음식으로 대접해 돌려보낸다', sub: `식량 -30 · ${F.name} 관계 +5`, ok: () => S.res.food >= 30,
           run: () => { S.res.food -= 30; changeRel(d.k, 5); return '배불리 먹고 마신 우두머리는 기분 좋게 돌아갔다. 대답은 다음으로 미뤄졌다.'; } },
@@ -1310,7 +1317,7 @@ Object.assign(EV, {
     },
   },
   sa_poison: {
-    title: '독 거래', stamp: '毒', tier: 'light', jh: true, camp: 'sa', weight: 0.45, cd: 22,
+    title: '독 거래', stamp: d => FACTIONS[d.k].hanja, tier: 'light', jh: true, camp: 'sa', weight: 0.45, cd: 22,
     cond: () => true,
     who: () => evTarget('sa', id => rel(id) > -10, true),
     init(d) { if (d.k) return; if (!evAim(d, this.who())) return false; },
@@ -1422,6 +1429,8 @@ Object.assign(EV, {
           logMsg(`새외의 ${v.hero.title} ${v.hero.epithet} ${v.name}${pp(v.name, '이/가')} 마을의 객경이 되었다.`, 'good');
           return `${v.name}${pp(v.name, '이/가')} 털모자를 벗어 들고 크게 웃었다. <q>밥이 맛있으면 오래 머물겠소.</q>`; } },
         { label: '술과 고기로 대접한다', sub: `식량 -15 · ${F} 관계 +6`, ok: () => S.res.food >= 15, run: () => { S.res.food -= 15; changeRel(d.k, 6); return '새외 무인이 고기를 뜯으며 고향 노래를 불렀다.'; } },
+        // 가난하고 배고프고 무사가 없어도 고를 수 있는 길 (모든 단추가 잠기면 두루마리를 닫을 수 없다)
+        { label: '정중히 돌려보낸다', sub: `${F} 관계 -2`, run: () => { changeRel(d.k, -2); return '새외 무인은 어깨를 으쓱하고 발길을 돌렸다.'; } },
       ];
     },
   },
@@ -1576,6 +1585,8 @@ Object.assign(EV, {
           changeRel(d.k, -15); addFame(-4); return '뇌물을 건네는 장면을 다른 감찰이 보았다. 명성 -4.'; } },
         ...(d.h && JH.isAlive(d.h) ? [{ label: '밀염상을 넘긴다', sub: `${fName(d.h)} 관계 -12 · ${G} 관계 +8 · 은자 +20`, run: () => {
           changeRel(d.h, -12); evThreat(d.h, 25); changeRel(d.k, 8); addRes('silver', 20); return `소금을 대던 ${fName(d.h)}의 거래처를 일러 주었다. 감찰이 흡족해했다.`; } }] : []),
+        // 은자가 모자라도 고를 수 있는 길
+        { label: '장독을 내주고 버틴다', sub: `${G} 관계 -10 · 명성 -3`, run: () => { changeRel(d.k, -10); addFame(-3); return '감찰이 장독 몇 개를 깨뜨리고 돌아갔다.'; } },
       ];
     },
   },
@@ -1730,12 +1741,13 @@ const GOAL_TEXT = {
   punish: '마을을 혼내 주겠다고 벼르고 있다.',
 };
 // 습격의 목적은 세력의 goals 에서 고른다. 점령은 인구가 문턱을 넘어야 (마교 20, 관은 언제나, 그 밖 28)
-const OCCUPY_POP = { ma: 20, gwan: 0 };
+// 점령을 노리는 인구 문턱 (계열마다, 없으면 28). 무관이 없는 마을은 봉기할 무사를 기를 수 없으니 점령하지 않는다
+const OCCUPY_POP = { ma: 20 };
 function chooseGoal(k) {
   const F = FACTIONS[k], pop = popCount();
   const goals = F && F.goals && F.goals.length ? F.goals : ['punish'];
   const rest = goals.filter(g => g !== 'occupy');
-  const occ = goals.includes('occupy') && pop >= (OCCUPY_POP[F.camp] !== undefined ? OCCUPY_POP[F.camp] : 28);
+  const occ = goals.includes('occupy') && hasUsable('dojo') && pop >= (OCCUPY_POP[F.camp] !== undefined ? OCCUPY_POP[F.camp] : 28);
   if (occ && (!rest.length || Math.random() < (F.camp === 'ma' ? 0.6 : 0.45))) return 'occupy';
   return rest.length ? pick(rest) : 'punish';
 }
@@ -1745,14 +1757,16 @@ const CAMP_GAP = 3;   // 같은 계열의 강호 사건은 사흘 띄운다
 const Events = {
   queue(id, data = {}) { S.eventQueue.push({ id, data }); },
   notice(title, body, stamp = '告') { S.eventQueue.push({ id: '_notice', data: { title, body, stamp } }); },
-  // opts: { goal, size, delay(시진), exitIdx } — 이야기 모듈이 짜인 습격을 낼 때 쓴다
+  // opts: { goal, size, delay(시진), exitIdx, emul(적 한 사람의 체력·공격 배수) } — 이야기 모듈이 짜인 습격을 낼 때 쓴다
   raidWarning(k, mul = 1, opts = {}) {
     if (this.raidPending() || S.occupation) return false;
     const goal = opts.goal || chooseGoal(k);
     const size = opts.size || raidSize(k, mul * (goal === 'occupy' ? 1.1 : 1));
     const ex = opts.exitIdx !== undefined ? World.exits[opts.exitIdx] : pickExit(k);
     const delay = opts.delay || rndi(3, 5);
-    S.eventQueue.push({ id: '_raid', data: { k, goal, size, exitIdx: World.exits.indexOf(ex), delay } });
+    const data = { k, goal, size, exitIdx: World.exits.indexOf(ex), delay };
+    if (opts.emul && opts.emul !== 1) data.emul = opts.emul;
+    S.eventQueue.push({ id: '_raid', data });
     Bus.emit('raidWarning', k, goal, size);
     return true;
   },
@@ -1827,6 +1841,7 @@ const Events = {
     const ex = World.exits[d.exitIdx] || World.exits[0];
     // 저장하면 exit 는 버려지므로 길목 번호도 함께 넘긴다 (불러올 때 되살린다)
     const exitOpt = { exit: ex, exitIdx: World.exits.indexOf(ex) };
+    if (d.emul) exitOpt.emul = d.emul;
     const tribute = Math.round(d.size * 14 + dayOf() * 2);
     // 원군: 주군(없으면 동맹 하나)이 한 무리, 고을 성질로 한 무리 (startRaid 가 부른다). 그 밖의 이웃에는 은자로 구원을 청한다
     const aid = JH.aidFor(d.k), sa = JH.siteAid(d.k);

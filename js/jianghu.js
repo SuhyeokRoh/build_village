@@ -35,6 +35,9 @@ const JH = (() => {
     heuk: ['smuggle', 'assassin', 'scout'], sa: ['smuggle', 'assassin', 'scout'], ma: ['assassin', 'war'],
     saeoe: ['herb', 'escort'], sang: ['escort', 'herb'],
   };
+  const SUP_DAY = 3;          // 전쟁 지원: 한 싸움에 하루 보탤 수 있는 전황 몫
+  const SCRIPTED_HOLD = 5;    // 짜인 전쟁은 열린 지 닷새 안에는 영주의 몫만으로 끝나지 않는다
+  const supGain = c => (c.silver || 0) / 50 + (c.food || 0) / 80 + (c.weapons || 0) / 5;
   const TRADE_CAMPS = ['sang', 'saeoe', 'sega'];
   const BOUNTY_CAMPS = ['heuk', 'sa', 'ma'];
 
@@ -381,8 +384,9 @@ const JH = (() => {
       if (ds) addRes('silver', ds * popCount());
       const fm = this.perk('fame');
       if (fm) addFame(fm);
+      // 관부의 눈총: 혜택의 몫만으로는 관계를 −15 아래(위협이 쌓이는 −20 근처)로 밀지 않는다
       const gr = this.perk('gwanRel');
-      if (gr && S.factions.gwanbu) changeRel('gwanbu', gr);
+      if (gr && S.factions.gwanbu && (gr > 0 || S.factions.gwanbu.rel > -15)) changeRel('gwanbu', gr);
       const he = this.perk('heroEvery');
       if (he > 0) {
         jh.heroAcc = (jh.heroAcc || 0) + 1 / he;
@@ -537,10 +541,13 @@ const JH = (() => {
       return war;
     },
     // 영주의 몫은 낸 그때 점수에 바로 더해지고 줄지 않는다. mine 은 보여 주기용
+    // 짜인 전쟁(제6장)은 열린 지 닷새 안에는 영주의 몫만으로 끝나지 않는다 (|점수| 9.5에서 멈춘다)
     addScore(w, side, amt, mine = true) {
       if (typeof w === 'string') w = this.warById(w);
       if (!w || (side !== 'a' && side !== 'b') || !Number.isFinite(amt)) return;
+      const prev = w.score;
       w.score += side === 'a' ? amt : -amt;
+      if (mine && w.scripted && dayOf() - w.since < SCRIPTED_HOLD && Math.abs(w.score) >= 10) w.score = Math.sign(w.score) * Math.max(9.5, Math.min(Math.abs(prev), 9.9));
       if (mine) w.mine[side] = Math.round((w.mine[side] + amt) * 100) / 100;
       if (Math.abs(w.score) >= 10) this.endWar(w, w.score > 0 ? 'a' : 'b', 'rout');
     },
@@ -651,7 +658,7 @@ const JH = (() => {
     },
     // 파견 창에 보일 것: 성공 확률, 남는 무력, 가장 센 이웃 위협(첩자가 없으면 낱말)과 쳐들어오면 몇 명인지
     dispatchInfo(qid, ids = []) {
-      const top = S.jh.near.filter(id => fac(id).military && id !== S.vassal && alive(id))
+      const top = S.jh.near.filter(id => fac(id).military && id !== S.vassal && alive(id) && !S.jh.pacts.includes(id) && !(S.occupation && S.occupation.faction === id))
         .sort((a, b) => S.factions[b].threat - S.factions[a].threat)[0] || null;
       return {
         p: this.chance(qid, ids), spare: defensePower(new Set(ids)),
@@ -820,8 +827,13 @@ const JH = (() => {
           const w = opts.war ? this.warById(opts.war) : this.warOf(id);
           if (!w || !this.sideOf(w, id)) return r(false, '싸우고 있지 않다');
           if (!w[this.sideOf(w, id)].some(x => jh.near.includes(x))) return r(false, '그 편에 이웃이 있어야 돕는다');
+          // 한 싸움에 하루 보탤 수 있는 몫은 전황 +3까지. 넘치는 몫은 줄여서 받는다 (모자란 것은 가져가지 않는다)
+          const left = this.supportLeft(w);
+          if (left <= 0) return r(false, '오늘은 더 보탤 수 없다 (내일 다시)');
           const cost = {};
           for (const k of ['silver', 'food', 'weapons']) if (opts[k] > 0) cost[k] = Math.floor(opts[k]);
+          const gain = supGain(cost);
+          if (gain > left) for (const k in cost) { cost[k] = Math.floor(cost[k] * left / gain); if (!cost[k]) delete cost[k]; }
           if (opts.silver !== undefined || opts.food !== undefined || opts.weapons !== undefined) {
             if (!Object.keys(cost).length) return r(false, '보낼 것을 골라야 한다', cost);
             if (!canAfford(cost)) return r(false, '가진 것이 모자라다', cost);
@@ -891,7 +903,8 @@ const JH = (() => {
           const w = opts.war ? this.warById(opts.war) : this.warOf(id);
           const side = this.sideOf(w, id), other = side === 'a' ? 'b' : 'a';
           const cost = c.cost || {};
-          const amt = (cost.silver || 0) / 50 + (cost.food || 0) / 80 + (cost.weapons || 0) / 5;
+          const amt = Math.min(supGain(cost), this.supportLeft(w));
+          w.paid = { day: d, amt: Math.round(((w.paid && w.paid.day === d ? w.paid.amt : 0) + amt) * 100) / 100 };
           for (const x of w[side]) changeRel(x, 5);
           for (const x of w[other]) changeRel(x, -8);
           this.addScore(w, side, amt, true);
@@ -914,13 +927,31 @@ const JH = (() => {
     },
     spied(id) { return !!(S && S.jh && S.jh.spies[id] > dayOf()); },
     raidEstimate(id) { return fac(id) && fac(id).military ? raidSize(id) : 0; },
-    // 첩자가 알아 온 것: 정확한 위협, 다음 습격 예상(며칠 뒤·길목·규모), 전쟁
+    // 이 세력의 습격이 이미 정해졌으면(경보 두루마리 · 기다리는 습격 · 벌어지는 습격) 그 길목과 규모 → { exitIdx, size } | null
+    pendingRaid(id) {
+      if (!S) return null;
+      if (S.raid && S.raid.faction === id && S.raid.goal !== 'uprising') return { exitIdx: S.raid.exitIdx, size: S.raid.total };
+      const s = S.scheduled.find(x => x.kind === 'raid' && x.faction === id);
+      if (s) return { exitIdx: s.exitIdx, size: s.size };
+      const q = S.eventQueue.find(e => e.id === '_raid' && e.data && e.data.k === id);
+      return q ? { exitIdx: q.data.exitIdx, size: q.data.size } : null;
+    },
+    // 오늘 이 싸움에 더 보탤 수 있는 전황 몫 (자투리 0.2 아래는 다 보탠 것으로 친다)
+    supportLeft(w) {
+      if (typeof w === 'string') w = this.warById(w);
+      if (!w) return 0;
+      const v = SUP_DAY - (w.paid && w.paid.day === dayOf() ? w.paid.amt : 0);
+      return v < 0.2 ? 0 : v;
+    },
+    // 첩자가 알아 온 것: 정확한 위협, 다음 습격 예상(며칠 뒤·길목·규모), 전쟁.
+    // 길목은 습격이 정해졌으면 그 길목 하나(pending), 아니면 올 수 있는 길목 둘(exits) — 습격 때 둘 중 하나를 고른다
     intel(id) {
       if (!this.spied(id)) return null;
       const f = S.factions[id], g = threatGain(id);
       const eta = f.threat >= 100 ? 0 : g > 0 ? Math.ceil((100 - f.threat) / g) : null;
-      const w = this.warOf(id);
-      return { threat: Math.round(f.threat), eta, exitIdx: this.exitFor(id)[0], size: this.raidEstimate(id), war: w ? w.id : null, pacts: [] };
+      const w = this.warOf(id), p = this.pendingRaid(id), real = p && p.exitIdx >= 0 ? p.exitIdx : -1;
+      const exits = real >= 0 ? [real] : this.exitFor(id).slice(0, 2);
+      return { threat: Math.round(f.threat), eta, exitIdx: exits[0], exits, size: p ? p.size : this.raidEstimate(id), pending: !!p, war: w ? w.id : null };
     },
   };
   return M;

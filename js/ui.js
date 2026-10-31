@@ -52,8 +52,13 @@ const FX_ACT = {
   unpact: ['동맹을 끊는다', '관계 −25, 그 계열 모두와 멀어진다.'],
   bounty: ['현상금', '관의 힘을 빌려 친다. 그들의 힘 −20, 위협이 가라앉지만 관계 −20에 열흘 동안 원한을 산다. 관부 관계 −5.'],
   spy: ['첩자', '열흘 동안 정확한 위협과 다음 습격(날·길목·규모)을 알려 준다. 붙잡히면 관계 −15.'],
-  support: ['지원 보내기', '전황을 이 편으로 기울인다. 은자 50 · 식량 80 · 병장기 5마다 전황 +1. 이 편 관계 +5, 맞선 편 −8.'],
+  support: ['지원 보내기', '전황을 이 편으로 기울인다. 은자 50 · 식량 80 · 병장기 5마다 전황 +1, 한 싸움에 하루 +3까지(넘치는 몫은 줄여서 받는다). 이 편 관계 +5, 맞선 편 −8.'],
   mediate: ['중재', '싸움을 승부 없이 멈춘다. 명성 +15, 양쪽 관계 +5.'],
+};
+// 원군을 보내지 않는 계열(흑도·상단)의 산하·동맹 말풍선
+const FX_NOAID = {
+  vassal: '매일 공물을 바치는 대신 계열의 혜택을 얻는다. 이 계열은 습격 때 원군을 보내지 않는다. 그 원수 계열과는 멀어진다.',
+  pact: '공물 없이 계열 혜택의 절반을 나눈다. 이 계열은 습격 때 원군을 보내지 않는다. 관계가 30 아래로 떨어지면 깨진다.',
 };
 const FX_SUP = { silver: [0, 50, 100, 200], food: [0, 80, 160], weapons: [0, 5, 10] };   // 전쟁 지원의 몫
 const FX_QKIND = { escort: '호위', suppress: '토벌', scout: '정탐', retrieve: '탈환', war: '원군', assassin: '암살', smuggle: '밀수', herb: '약재' };
@@ -517,9 +522,14 @@ const UI = {
   // 외교 단추 하나. 못 쓰면 aria-disabled 로 두고 까닭을 말풍선(data-tip)과 누를 때의 알림(data-why)으로 단다
   actBtn(kind, id, o = {}) {
     const c = JH.canAct(kind, id, o.opts || {});
-    const [name, eff0] = FX_ACT[kind];
-    // 주군을 갈아타는 것은 배신이다
-    const eff = kind === 'vassal' && S.vassal && S.vassal !== id ? `${eff0}\n지금의 주군 ${FACTIONS[S.vassal].name}${pp(FACTIONS[S.vassal].name, '과/와')}의 주종은 끊어진다(배신).` : eff0;
+    let [name, eff] = FX_ACT[kind];
+    // 원군을 보내지 않는 계열(흑도·상단)에는 원군을 약속하지 않는다
+    const F = FACTIONS[id];
+    if ((kind === 'vassal' || kind === 'pact') && F && !(F.military && CAMPS[F.camp] && CAMPS[F.camp].perk.aid)) eff = FX_NOAID[kind];
+    // 주군을 갈아타는 것은 배신이다. 제5장부터는 갈래도 바뀐다
+    if (kind === 'vassal' && S.vassal && S.vassal !== id) eff += `\n지금의 주군 ${FACTIONS[S.vassal].name}${pp(FACTIONS[S.vassal].name, '과/와')}의 주종은 끊어진다(배신).`;
+    const sw = kind === 'vassal' ? hook(Story, 'switchNote', id) : '';
+    if (sw) eff += `\n${sw}.`;
     const cost = c.cost && Object.keys(c.cost).length ? costText(c.cost) : '';
     const sure = o.confirm && this.fx.confirm === `${kind}:${id}`;
     const tip = [c.ok ? '' : c.why, eff, cost ? `드는 것: ${cost}` : ''].filter(Boolean).join('\n');
@@ -539,8 +549,8 @@ const UI = {
       // 도와줄 세력: 이웃·주군·동맹 가운데 관계 30 이상
       const helpers = FACTION_ORDER.filter(m => m !== k && FACTIONS[m].military && JH.isAlive(m) && rel(m) >= 30 && (jh.near.includes(m) || S.vassal === m || jh.pacts.includes(m)));
       occ = `<div class="fac fx-occ">
-        <div class="fac-top">${crestHTML(k)}<div><div class="fac-name">${F.name}에게 점령당함</div><div class="fac-type">${dayOf() - S.occupation.since}일째 · 점령군 ${S.enemies.filter(e => e.garrison && !e.dead).length}명</div></div></div>
-        <p class="fac-desc">무사 ${here.length}명이 마을에 남아 있다. 점령군보다 강해졌을 때 봉기하라.</p>
+        <div class="fac-top">${crestHTML(k)}<div><div class="fac-name">${F.name}에게 점령당함</div><div class="fac-type">${dayOf() - S.occupation.since}일째 · 점령군 ${S.enemies.filter(e => e.garrison && !e.dead).length}명 · ${occDaysLeft()}일 뒤 물러간다</div></div></div>
+        <p class="fac-desc">무사 ${here.length}명이 마을에 남아 있다. 점령군보다 강해졌을 때 봉기하라. 버티기만 해도 ${occDaysLeft()}일 뒤면 점령군이 물러간다. 수탈은 은자 ${OCC_KEEP}냥이 넘는 몫에서만 한다.</p>
         <div class="fac-actions">
           <button type="button" class="btn" data-act="ransom" ${S.res.silver >= c ? '' : 'disabled'}>몸값을 치른다 (은자 ${c})</button>
           <button type="button" class="btn" data-act="uprise" ${here.some(v => v.jobType !== 'tower') && !S.raid ? '' : 'disabled'}>봉기한다</button>
@@ -596,9 +606,11 @@ const UI = {
       if (jh.grudge[k] > dayOf()) notes.push(`현상금의 원한: ${jh.grudge[k] - dayOf()}일 남음`);
       const it = JH.intel(k);
       if (it) {
-        const ex = World.exits[it.exitIdx];
-        const eta = it.threat >= 100 ? '곧 쳐들어온다' : it.eta != null && it.eta <= 30 ? `이대로면 약 ${it.eta}일 뒤 습격` : '습격할 기미는 없다';
-        notes.push(`<b>첩자 보고</b> (${jh.spies[k] - dayOf()}일 남음): 위협 ${it.threat}% · ${eta}${F.military && ex ? ` · ${ex.name}${pp(ex.name, '으로/로')} · 약 ${it.size}명` : ''}`);
+        // 습격이 정해졌으면 그 길목 하나, 아니면 올 수 있는 길목 둘
+        const exs = (it.exits || [it.exitIdx]).map(i => World.exits[i]).filter(Boolean);
+        const gate = exs.length > 1 ? `${exs[0].name} 또는 ${exs[1].name} 쪽으로` : exs.length ? `${exs[0].name}${pp(exs[0].name, '으로/로')}` : '';
+        const eta = it.pending ? '이미 쳐들어오고 있다' : it.threat >= 100 ? '곧 쳐들어온다' : it.eta != null && it.eta <= 30 ? `이대로면 약 ${it.eta}일 뒤 습격` : '습격할 기미는 없다';
+        notes.push(`<b>첩자 보고</b> (${jh.spies[k] - dayOf()}일 남음): 위협 ${it.threat}% · ${eta}${F.military && gate ? ` · ${gate} · 약 ${it.size}명` : ''}`);
       }
       const acts = [this.actBtn('gift', k), this.actBtn('envoy', k)];
       if (FX_TRADE.includes(F.camp)) acts.push(this.actBtn('trade', k));
@@ -631,7 +643,8 @@ const UI = {
     const me = side === 'a' ? w.score : -w.score;   // 이 편에서 본 전황 −10..10
     const word = me >= 3 ? '이 편이 밀어붙인다' : me <= -3 ? '이 편이 밀린다' : '팽팽하다';
     const key = `${w.id}:${k}`, amt = this.supAmt(key);
-    const gain = amt.silver / 50 + amt.food / 80 + amt.weapons / 5;
+    // 한 싸움에 하루 보탤 수 있는 몫은 전황 +3까지 (넘치는 몫은 줄여서 받는다)
+    const left = JH.supportLeft(w), gain = Math.min(left, amt.silver / 50 + amt.food / 80 + amt.weapons / 5);
     const seg = (res, label) => `<div class="fx-amt" role="group" aria-label="${label}"><span>${label}</span>${FX_SUP[res].map(n =>
       `<button type="button" class="${amt[res] === n ? 'on' : ''}${n > (S.res[res] || 0) ? ' poor' : ''}" data-act="fx-amt" data-key="${key}" data-res="${res}" data-n="${n}" aria-pressed="${amt[res] === n}">${n}</button>`).join('')}</div>`;
     const crests = ids => ids.map(x => crestHTML(x, 'xs')).join('');
@@ -639,7 +652,7 @@ const UI = {
     return `<div class="fx-war">
       <div class="fx-war-top"><b>${escapeHtml(w.name)}</b><small>${dayOf() - w.since + 1}일째</small></div>
       <div class="fx-vs">${crests(w[side])}<div class="fx-score" style="--a:${FACTIONS[k].color};--b:${FACTIONS[w[other][0]].color}" data-tip-title="전황" data-tip="왼쪽이 이 편이다. 한쪽이 끝까지 밀리거나 스무 날이 지나면 싸움이 끝나고, 진 쪽은 힘을 잃는다."><span style="width:${clamp((me + 10) * 5, 0, 100)}%"></span></div>${crests(w[other])}</div>
-      <p class="fx-note">전황: ${word}${mine}</p>
+      <p class="fx-note">전황: ${word}${mine} · ${left > 0 ? `오늘 더 보탤 수 있는 몫 +${+left.toFixed(1)}` : '오늘 몫은 다 보탰다'}</p>
       <div class="fx-sup">${seg('silver', '은자')}${seg('food', '식량')}${seg('weapons', '병장기')}</div>
       <div class="fx-acts">${this.actBtn('support', k, { opts: Object.assign({ war: w.id }, amt), war: w.id, label: gain ? `지원 보내기 · 전황 +${gain.toFixed(1)}` : '지원 보내기', noCost: true })}${this.actBtn('mediate', w.id)}</div></div>`;
   },
@@ -800,7 +813,7 @@ const UI = {
         <li><b>망루</b>의 궁수는 다가오는 적을 쏜다. <b>목책</b>과 <b>석벽</b>은 적의 발을 묶고, <b>성문</b>으로는 마을 사람만 지나간다.</li>
         <li><b>대장간</b>에서 만든 병장기가 있으면 무사와 궁수가 더 세게 친다.</li>
         <li><b>객잔</b>을 지으면 떠돌이 고수가 찾아온다. 객경으로 모시면 혼자서 여럿을 상대한다.</li>
-        <li>점령을 노리는 적에게 영주관이 무너지면 마을이 점령된다. 매일 수탈당하고 새 식구도 오지 않는다. 몸값을 치르거나, 무사를 길러 봉기하거나, 우호 세력의 도움을 받아 되찾자.</li>
+        <li>점령을 노리는 적에게 영주관이 무너지면 마을이 점령된다. 매일 수탈당하고 새 식구도 오지 않는다. 몸값을 치르거나, 무사를 길러 봉기하거나, 우호 세력의 도움을 받아 되찾자. 스무 날을 버티면 점령군도 물러간다. 무관이 없는 마을은 점령하지 않는다.</li>
       </ul>
       <h3>강호의 계열</h3>
       <ul>
@@ -822,13 +835,13 @@ const UI = {
       <h3>외교</h3>
       <ul>
         <li>[세력] 창에서 이웃 카드를 누르면 펼쳐진다. <b>예물</b>, <b>사신</b>(관계를 높이고 위협을 누른다), <b>교역</b>(상단·새외·세가), <b>산하</b>와 <b>동맹</b>, <b>현상금</b>(흑도·사파·마교), <b>첩자</b>, 그리고 이웃이 싸우고 있으면 <b>전쟁 지원</b>과 <b>중재</b>를 할 수 있다. 쓸 수 없는 단추는 누르거나 커서를 올리면 까닭이 뜬다.</li>
-        <li>산하는 매일 공물을 바치는 대신 계열의 혜택과 원군을 얻는다. 동맹은 공물 없이 혜택의 절반을 나누고, 관계 60·명성 60이 있어야 맺는다.</li>
+        <li>산하는 매일 공물을 바치는 대신 계열의 혜택(흑도·상단 말고는 습격 때 원군도)을 얻는다. 동맹은 공물 없이 혜택의 절반을 나누고, 관계 60·명성 60이 있어야 맺는다.</li>
         <li>첩자가 없으면 이웃의 위협은 <b>잠잠 · 술렁 · 칼을 간다</b>의 낱말로만 보인다. 첩자를 심으면 열흘 동안 정확한 위협과 다음 습격이 보인다.</li>
         <li>먼 세력과는 예물·사신·교역만 오간다.</li>
       </ul>
       <h3>갈림길</h3>
       <ul>
-        <li>제4장 갈림길(${hj('岐路')})에서 어느 계열의 깃발 아래 설지, 홀로 설지 정한다. 이웃 계열과 관, 그리고 홀로 서는 길까지 갈래는 여덟이다.</li>
+        <li>제4장 갈림길(${hj('岐路')})에서 어느 계열의 깃발 아래 설지, 홀로 설지 정한다. 이웃 넷의 계열과 관, 그리고 홀로 서는 길까지 고을마다 여섯 갈래가 열린다(천하에는 여덟 갈래가 있다).</li>
         <li>갈래마다 제5·6장의 목표와 숙적, 결말이 다르고, 그 길에서만 짓는 갈래 건물(의협당·혈제단·종가·흑시·도박장·호시·관아·연무대)이 건설 띠에 나타난다.</li>
         <li>주군을 바꾸면 갈래도 바뀐다. 바꾸는 것은 한 번까지이고, 그 뒤로는 홀로 서는 길이 된다.</li>
       </ul>
@@ -906,6 +919,7 @@ const UI = {
   // 마을 현황의 목표 한 줄: 갈래가 정해졌으면 그 결말
   goalText() {
     const ri = hook(Story, 'routeInfo');
+    if (ri && ri.title && S.victory) return `${escapeHtml(this.routeName(ri))} · 「${escapeHtml(ri.title)}」${pp(ri.title, '을/를')} 이루었다.`;
     if (ri && ri.title) return `${escapeHtml(this.routeName(ri))}${ri.provisional ? '(잠정)' : ''} · 마지막 장을 마치면 「${escapeHtml(ri.title)}」${pp(ri.title, '이/가')} 된다.`;
     return '현성(인구 120)으로 키우고, 갈림길에서 고른 길의 마지막 장을 마치면 강호에 이름을 떨친다.';
   },
@@ -920,6 +934,10 @@ const UI = {
     let ev = null;
     try { ev = Events.build(entry); } catch (err) { console.error(err); }
     if (!ev) { S.eventQueue.shift(); return; }
+    // 두루마리에는 닫기 단추가 없다: 모든 선택지가 잠기면(가난·굶주림·무사 없음) 시간이 영영 멈추므로 물러설 길을 하나 단다.
+    // 예외를 내는 ok() 는 고를 수 없는 것으로 친다
+    const okOf = c => { try { return !c.ok || !!c.ok(); } catch (err) { return false; } };
+    if (!ev.choices.some(okOf)) ev.choices.push({ label: '물러선다', sub: '아무것도 하지 않는다', run: () => null });
     this.modalOpen = true;
     this.modalEntry = entry;
     this.modalAt = performance.now();
@@ -936,8 +954,7 @@ const UI = {
       btn.className = 'choice';
       btn.id = 'choice-' + i;
       btn.innerHTML = `<span>${escapeHtml(c.label)}</span>${c.sub ? `<small>${escapeHtml(c.sub)}</small>` : ''}`;
-      const ok = c.ok ? c.ok() : true;
-      btn.disabled = !ok;
+      btn.disabled = !okOf(c);
       btn.addEventListener('click', e => {
         // 두루마리가 펼쳐지는 동안(0.35초) 지도를 노린 누르기나 Enter가 선택지를 고르지 않게 받지 않는다
         if (e.isTrusted && performance.now() - this.modalAt < 400) return;

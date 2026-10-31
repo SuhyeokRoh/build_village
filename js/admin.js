@@ -1530,6 +1530,8 @@ const Admin = {
       const next = this.budgetDay() + 1;
       for (const id in S.jh.trade) if (S.jh.trade[id] > next && JH.isAlive(id)) jh += 2 + countType('market') * 2;
     }
+    // 이야기가 날마다 주는 은자 (흑도의 길에서 거둔 흑풍채의 상납)
+    jh += hook(Story, 'dailySilver') || 0;
     // 장사: 어제 시장·객잔·표국이 번 은자. 아직 하루를 넘기지 않았으면 장사 일터로 어림한다
     const A = S.admin || {};
     const trade = A.taxSeen ? A.trade || 0 : this.tradeEstimate(pop);

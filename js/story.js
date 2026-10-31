@@ -15,7 +15,7 @@ const STORY_GLOSS = {
   '黑風寨': ['흑풍채', '뒷산 험한 산채에 터를 잡은 산적 떼. 「검은 바람의 산채」라는 뜻. 열흘 전 이 마을을 털었다.'],
   '縣廳': ['현청', '고을을 다스리는 관청. 영주를 이 마을에 보낸 곳.'],
   '縣城': ['현성', '성벽을 두른 큰 고을. 인구 120명 이상. 어느 길을 가든 마지막 장에서 이루어야 한다.'],
-  '天下第一村': ['천하제일촌', '하늘 아래 첫째가는 마을. 누구의 깃발도 들지 않고 홀로 선 마을이 현성과 명성 400을 이루고 두 세력의 최후통첩을 이겨 내면 얻는 이름.'],
+  '天下第一村': ['천하제일촌', '하늘 아래 첫째가는 마을. 누구의 깃발도 들지 않고 홀로 선 마을이 현성을 이루고, 마지막 장에서 명성을 250 더 떨치고, 두 세력의 최후통첩을 이겨 내면 얻는 이름.'],
   '上疏': ['상소', '백성이 영주에게 글을 올려 청하는 일. 들어주면 민심이 오르고, 물리치면 내려간다.'],
   '六房': ['육방', '관아의 여섯 부서: 이방·호방·예방·병방·형방·공방. 예산을 나눠 주면 스스로 일한다.'],
   '吏房': ['이방', '인사와 행정을 맡는 부서.'],
@@ -28,7 +28,7 @@ const STORY_GLOSS = {
   '望樓': ['망루', '궁수가 올라 멀리서 다가오는 적을 쏘는 높은 대.'],
   '木柵': ['목책', '말뚝을 박아 세운 울타리. 적은 이것을 부숴야 지나간다.'],
   '城門': ['성문', '마을 사람만 지나다니는 문. 적은 부숴야 들어온다.'],
-  '江湖': ['강호', '무림의 세상. 정파·사파·마교·녹림·관부·상단이 얽혀 산다.'],
+  '江湖': ['강호', '무림의 세상. 정파·마교·무림세가·흑도·사파·새외무림·관·상단이 얽혀 산다.'],
   '廢': ['폐할 폐', '무너지고 버려짐. 제1장 「쓰러져 가는 마을」.'],
   '基': ['터 기', '터전과 기틀. 제3장 「마을의 기틀」.'],
   '風': ['바람 풍', '바람. 흑풍채(黑風寨)의 「풍」.'],
@@ -303,6 +303,8 @@ const Story = (() => {
   const route = () => (jhOn() ? S.jh.route : null);
   const routeOk = () => !!(route() && ROUTES[route()] && ST() && ST().routeOk);   // 잠정이 아니라 굳힌 갈래
   const campRoute = c => (CAMPS[c] ? CAMPS[c].route : 'free');
+  // 갈래의 이름: 「정파의 길」… 독립만은 「홀로 서는 길」 (세력 창·갈림길과 같은 말)
+  const routeLabel = k => (k === 'free' ? '홀로 서는 길' : `${ROUTES[k].name}의 길`);
   const fN = id => FACTIONS[id].name;
   const homeSite = () => (jhOn() && SITES[S.jh.site]) || SITES.henan_field;
   const seatGap = id => { const s = S.jh.seats[id], h = homeSite(); return s ? Math.hypot(s.x - h.x, s.y - h.y) : Infinity; };
@@ -383,10 +385,12 @@ const Story = (() => {
     const lines = [];
     if (!R) {
       lines.push({ m: 'smile', t: `이 마을의 목표는 인구 120명의 ${hjp('현성', '縣城')}입니다. 그 길에 어느 깃발 아래 설지는 제4장 ${hjp('갈림길', '岐路')}에서 정하시게 됩니다.` });
-      lines.push({ m: 'calm', t: `지금 인구 ${pop}명. ${pop < 120 ? `아직 ${120 - pop}명이 모자랍니다.` : '이미 이루셨습니다.'} 정파·마교·세가·흑도·사파·새외·관, 그리고 홀로 서는 길까지 여덟 갈래가 있습니다.` });
+      // 고를 수 있는 갈래는 고을마다 다르다: 이웃 계열과 관, 그리고 홀로 서는 길
+      const names = M.routeCards().map(c => CAMPS[c.camp].name);
+      lines.push({ m: 'calm', t: `지금 인구 ${pop}명. ${pop < 120 ? `아직 ${120 - pop}명이 모자랍니다.` : '이미 이루셨습니다.'} ${names.length ? `이 고을에서는 ${names.join('·')}, 그리고 홀로 서는 길까지 ${names.length + 1}갈래가 열려 있습니다.` : '갈림길에 이르면 이웃 계열과 관, 그리고 홀로 서는 길 가운데에서 고르시게 됩니다.'}` });
       return lines;
     }
-    lines.push({ m: 'smile', t: `${routeOk() ? '' : '아직 잠정입니다만, '}지금은 ${R.name}의 길입니다. 이 길의 끝에서 마을은 「${R.title}」${pp(R.title, '이라/라')} 불리게 됩니다.` });
+    lines.push({ m: 'smile', t: `${routeOk() ? '' : '아직 잠정입니다만, '}지금은 ${routeLabel(k)}입니다. 이 길의 끝에서 마을은 「${R.title}」${pp(R.title, '이라/라')} 불리게 됩니다.` });
     lines.push({ m: 'calm', t: `제5장 「${R.ch5.title}」, 제6장 「${R.ch6.title}」. 어느 길이든 마지막에는 인구 120명의 ${hjp('현성', '縣城')}을 이루셔야 합니다. 지금 인구 ${pop}명입니다.` });
     const fc = foeCamps(k).filter(c => CAMPS[c]).map(c => CAMPS[c].name);
     if (fc.length) lines.push({ m: 'stern', t: `이 길의 숙적은 ${fc.join('·')}입니다. 그쪽 이웃들과는 사이가 벌어지기 쉬우니 방비를 게을리하지 마십시오.` });
@@ -673,7 +677,7 @@ const Story = (() => {
           check('천하도 펼쳐 보기', flag('sheet_worldmap'), { tip: '[천하도]를 열면 이웃 세력의 자리와 힘, 강호의 전쟁이 한눈에 보입니다.', guide: () => wmGuide() }),
           check('세력 살펴보기', flag('sheet_factions'), { tip: '[세력]을 열면 이웃마다 관계와 위협, 할 수 있는 외교가 보입니다.', guide: () => ({ sel: '#btn-factions', tag: '세력', sub: '[세력]을 열어 이웃 세력들을 살펴보십시오.' }) }),
           goal(`인구 35 · ${rankName(2)}`, S.rank >= 2 ? Math.max(35, popCount()) : popCount(), 35, { tip: '집을 늘리고 민심을 지키십시오. 기와집은 여덟 식구가 삽니다.' }),
-          check(routeOk() ? `길 정하기 · ${ROUTES[route()].name}의 길` : '길 정하기', routeOk(), { tip: '갈림길 두루마리에서 깃발 하나를 고르거나 홀로 서십시오. 다시 보시려면 [총관]을 부르십시오.', guide: () => crossGuide() }),
+          check(routeOk() ? `길 정하기 · ${routeLabel(route())}` : '길 정하기', routeOk(), { tip: '갈림길 두루마리에서 깃발 하나를 고르거나 홀로 서십시오. 다시 보시려면 [총관]을 부르십시오.', guide: () => crossGuide() }),
         ],
         guide: () => {
           const g = M.info().goals.find(x => !x.done && x.guide);
@@ -684,9 +688,9 @@ const Story = (() => {
       reward: () => ({ silver: 250, stone: 80, fame: 15 }),
       rewardWhy: '읍 승격 축하',
       end: () => {
-        const R = ROUTES[route()] || ROUTES.free;
+        const k = ROUTES[route()] ? route() : 'free';
         return [{ m: 'smile', t: `${hjp('읍', '邑')}이 되었고, 걸어갈 길도 정해졌습니다. 이제 표국과 석벽을 세울 수 있습니다. 현청이 은자 250냥과 석재 80을 보내왔습니다.` },
-          { m: 'calm', t: `여기서부터는 ${R.name}의 길입니다. 이 길에 맞는 건물도 이제 지을 수 있지요.` }];
+          { m: 'calm', t: `여기서부터는 ${routeLabel(k)}입니다. 이 길에 맞는 건물도 이제 지을 수 있지요.` }];
       },
     },
   ];
@@ -728,6 +732,8 @@ const Story = (() => {
   const gQuests = (label, n, pred, what) => goal(label, questsDone(pred), n,
     { tip: `[세력] 창의 [의뢰]에 붙은 ${what}에 무사나 객경을 보내 해내십시오. 의뢰는 거의 날마다 새로 붙습니다.`, guide: () => factionsGuide(`[세력] 창의 [의뢰]에서 ${what}${pp(what, '을/를')} 골라 무사를 보내십시오.`) });
   const gFame = n => goal('명성', S.fame, n, { tip: '습격 격퇴, 의뢰, 객잔, 사당, 무림대회가 명성을 올립니다.' });
+  // 이 장에서 얻은 명성 (장이 열릴 때의 명성 cg.f0 부터. 옛 저장에는 f0 이 없어 모든 명성을 센다)
+  const gFameCh = n => goal('이 장에서 얻은 명성', Math.max(0, S.fame - ((ST().cg || {}).f0 || 0)), n, { tip: '제6장이 열린 뒤 새로 얻은 명성입니다. 습격 격퇴, 의뢰, 객잔, 사당, 무림대회가 명성을 올립니다.' });
   // 현상금: 이 장에서 건 수 (JH 소식 'bounty' 를 센다)
   const gBounty = n => goal('현상금 걸기', (ST().cg || {}).b || 0, n,
     { tip: '흑도·사파·마교 이웃의 카드에서 [현상금]을 거십시오. 은자 120냥, 관부나 금의위와 관계 20 이상이어야 합니다.', guide: () => factionsGuide('흑풍채 같은 흑도·사파·마교 이웃의 카드에서 [현상금]을 거십시오.') });
@@ -766,7 +772,9 @@ const Story = (() => {
   function raidGuide() {
     const cx = cxOf(), k = cx.rf;
     if (!k || !FACTIONS[k] || cx.rs === 'wait') return { sub: `대습격이 ${cx.rAt > dayOf() ? `${cx.rAt - dayOf()}일쯤 뒤에` : '곧'} 옵니다. 무관과 망루를 늘리고, 놈들이 올 길목에 목책과 성문을 세우십시오.` };
-    const ex = World.exits[JH.exitFor(k)[0]];
+    // 경보가 뜬 뒤에는 정해진 길목, 그 전에는 짜인 습격이 올 길목(sendRaid 가 exitFor[0]으로 보낸다)
+    const p = JH.pendingRaid(k), idx = p && p.exitIdx >= 0 ? p.exitIdx : JH.exitFor(k)[0];
+    const ex = World.exits[idx];
     return { markers: ex ? [{ x: ex.x + 0.5, y: ex.y + 0.5, text: `${fN(k)}${pp(fN(k), '이/가')} 올 길` }] : [], focus: ex ? { x: ex.x + 0.5, y: ex.y + 0.5 } : null, sub: `${fN(k)}${pp(fN(k), '이/가')} 쳐들어옵니다. 길목 양옆에 목책을, 길 위에 성문을 세우고 무사를 채워 두십시오.` };
   }
   const gRaid = label => check(label, cxOf().rs === 'won', { tip: '짜인 대습격을 막아 내십시오. 지거나 은자로 물리면 며칠 뒤 다시 옵니다.', guide: raidGuide });
@@ -1019,11 +1027,11 @@ const Story = (() => {
       }),
       ch6: rch('free', 6, {
         title: '천하제일촌', seal: '天', step: '천하제일촌 이루기', why: '홀로 선 마을을 가장 센 이웃 둘이 시험합니다. 그 시험을 넘으면 천하제일촌입니다.',
-        goals: () => [gFame(400), gRaids2()],
+        goals: () => [gFameCh(250), gRaids2()],
         lines: () => {
           const ids = (cxOf().rk || []).filter(id => FACTIONS[id]).map(fN);
           return [
-            { m: 'calm', t: `제6장, ${hjp('천하제일촌', '天下第一村')}입니다. 마지막 고개지요. 인구 120의 ${hjp('현성', '縣城')}, 그리고 명성 400.` },
+            { m: 'calm', t: `제6장, ${hjp('천하제일촌', '天下第一村')}입니다. 마지막 고개지요. 인구 120의 ${hjp('현성', '縣城')}, 그리고 이 장에서 명성을 250 더 떨치셔야 합니다.` },
             { m: 'stern', t: `${ids.length >= 2 ? `${ids[0]}${pp(ids[0], '과/와')} ${ids[1]}에서` : ids.length ? `${ids[0]}에서` : '가장 센 이웃들이'} 최후통첩을 보내왔습니다. 산하에 들든지 칼을 받든지 하라는 겁니다. 둘 다 막아 내시면 강호가 이 마을을 천하제일촌이라 부를 겁니다.` },
           ];
         },
@@ -1070,7 +1078,7 @@ const Story = (() => {
       id: 'occupied', cd: 2, when: () => !!S.occupation,
       lines: () => [
         { m: 'worry', t: '영주님… 영주관이 넘어갔습니다. 점령군은 매일 은자와 식량을 거둬 가고, 새 식구도 오지 않을 겁니다.' },
-        { m: 'stern', t: '길은 셋입니다. 몸값을 치르거나, 남은 무사를 모아 봉기하거나, 가까운 세력에 구원을 청하는 것. 모두 [세력] 창에서 하실 수 있습니다.' },
+        { m: 'stern', t: `길은 셋입니다. 몸값을 치르거나, 남은 무사를 모아 봉기하거나, 가까운 세력에 구원을 청하는 것. 모두 [세력] 창에서 하실 수 있습니다. 그도 저도 안 되면 버티십시오. ${occDaysLeft()}일만 지나면 점령군도 물러갑니다.` },
       ],
       guide: () => ({ sel: '#btn-factions', tag: '세력' }),
     },
@@ -1183,7 +1191,9 @@ const Story = (() => {
     if (HOSTILE_EVENTS.has(id)) return 'hostile';
     if (HEAVY_EVENTS.has(id)) return 'heavy';
     if (GLOOMY_EVENTS.has(id)) return 'gloomy';
-    return (evHas(id) && EV[id].tier) || 'heavy';
+    // EV 에 없는 id(상소의 'petition')는 가벼운 것으로 친다 (튜토리얼 제2·3장과 건너뛴 판의 처음 열흘에도 나온다)
+    if (!evHas(id)) return 'light';
+    return EV[id].tier || 'heavy';
   }
 
   function freshState() {
@@ -1491,12 +1501,14 @@ const Story = (() => {
       this.advise();
     },
 
+    dailySilver() { const st = ST(); return st && st.heukGold ? 3 : 0; },
     daily() {
       const st = ST();
       if (!st) return;
       st.day = dayOf();
-      // 거둔 흑풍채가 바치는 은자 (흑도의 길)
-      if (st.heukGold) addRes('silver', 3);
+      // 거둔 흑풍채가 바치는 은자 (흑도의 길). 육방의 내일 수입 어림(Admin.expectedIncome)도 dailySilver 를 읽는다
+      const g = this.dailySilver();
+      if (g) addRes('silver', g);
       if (st.intro === 'done' && !st.finished && jhOn() && st.chapter >= 4) this.routeDaily();
     },
 
@@ -1848,7 +1860,7 @@ const Story = (() => {
       const pop = popCount(), house = housingTotal(), days = foodDays();
       const worst = happinessFactors().filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1])[0];
       const pend = pendingPetitions();
-      const threats = FACTION_ORDER.filter(k => FACTIONS[k].military && S.vassal !== k && (!jhOn() || JH.isNear(k)) && (k === 'heukpung' || rel(k) < -20))
+      const threats = FACTION_ORDER.filter(k => FACTIONS[k].military && S.vassal !== k && (!jhOn() || (JH.isNear(k) && !S.jh.pacts.includes(k))) && (k === 'heukpung' || rel(k) < -20))
         .map(k => [k, Math.round(S.factions[k].threat)]).sort((a, b) => b[1] - a[1]);
       const lines = [];
       lines.push({ m: 'calm', t: `사람 ${pop}명에 집 ${house}칸, ${house > pop ? `빈 자리가 ${house - pop}칸 있습니다` : '빈 집이 없습니다'}. 곳간의 식량은 ${days >= 30 ? '넉넉하고' : `${Math.max(0, Math.floor(days))}일 치이고`}, 은자는 ${fmt(S.res.silver)}냥입니다.` });
@@ -1865,7 +1877,7 @@ const Story = (() => {
       const next = S.rank + 1 < RANKS.length ? RANKS[S.rank + 1] : null;
       if (next) lines.push({ m: 'calm', t: `인구가 ${next.minPop}명이 되면 ${rankName(S.rank + 1)}${pp(next.name, '으로/로')} 오릅니다. 지금 ${pop}명입니다.` });
       const R = ROUTES[route()];
-      if (R) lines.push({ m: 'calm', t: `우리는 ${R.name}의 길${routeOk() ? '' : '(잠정)'}을 걷고 있습니다. ${this.chapterLabel()} 「${chDef(ST().chapter).title}」, 결말은 「${R.title}」입니다.` });
+      if (R) lines.push({ m: 'calm', t: `우리는 ${routeLabel(route())}${routeOk() ? '' : '(잠정)'}을 걷고 있습니다. ${this.chapterLabel()} 「${chDef(ST().chapter).title}」, 결말은 「${R.title}」입니다.` });
       return lines;
     },
 
@@ -1939,6 +1951,15 @@ const Story = (() => {
       const R = ROUTES[k];
       return { key: k, name: R.name, seal: R.seal, title: R.title, foes: foeCamps(k), provisional: !routeOk() };
     },
+    // 이 세력의 산하에 들면 갈래가 바뀌는가 (제5장부터, 굳힌 갈래와 다른 계열). 두루마리와 [산하에 든다] 단추가 미리 알린다 → 문장 | ''
+    switchNote(id) {
+      const st = ST(), jh = S.jh;
+      if (!st || st.finished || st.chapter < 4 || !jhOn() || !jh.route || !FACTIONS[id]) return '';
+      const key = campRoute(JH.campOf(id));
+      if (!ROUTES[key] || key === jh.route) return '';
+      if (jh.routeSwitches >= 1) return jh.route === 'free' ? '' : '깃발을 두 번 바꾸면 홀로 서는 길이 되고, 이 장의 할 일도 처음부터 다시 한다';
+      return `갈래가 ${routeLabel(key)}${pp(routeLabel(key), '으로/로')} 바뀌고, 이 장의 할 일도 처음부터 다시 한다(갈래는 한 번만 바꿀 수 있다)`;
+    },
     // 갈래를 정한다. 제4장(갈림길)부터는 굳힌 갈래, 그 전에는 잠정. 제5장 이후에 바뀌면 갈래 바꾸기 (§8.3)
     setRoute(key, prev) {
       const st = ST(), jh = S.jh, was = jh.route, wasOk = routeOk();
@@ -1954,7 +1975,7 @@ const Story = (() => {
     },
     routeLines(k) {
       const st = ST(), R = ROUTES[k];
-      if (!st.routeOk) return [{ m: 'calm', t: `${R.name}의 깃발 아래 드셨으니 잠정으로는 ${R.name}의 길입니다. 제4장 갈림길에 이르면 이 길을 굳힐지 다시 여쭙겠습니다.` }];
+      if (!st.routeOk) return [{ m: 'calm', t: `${k === 'free' ? '상단의 산하는 어느 계열의 길도 아니니 잠정으로는 홀로 서는 길입니다' : `${R.name}의 깃발 아래 드셨으니 잠정으로는 ${R.name}의 길입니다`}. 제4장 갈림길에 이르면 이 길을 굳힐지 다시 여쭙겠습니다.` }];
       const lord = S.vassal && JH.campOf(S.vassal) === k ? S.vassal : null;
       const kept = k === 'free' && S.vassal && FACTIONS[S.vassal] && JH.campOf(S.vassal) !== 'sang' ? S.vassal : null;
       return [
@@ -1981,9 +2002,9 @@ const Story = (() => {
       const R = ROUTES[key], ch = chDef(st.chapter);
       const head = forced
         ? { m: 'worry', t: `깃발을 두 번이나 바꾸시니 강호가 더는 이 마을의 맹세를 믿지 않습니다. 이제부터는 누구의 깃발도 아닌, 홀로 서는 길입니다.` }
-        : { m: 'stern', t: `${ROUTES[old].name}의 길을 버리고 ${R.name}의 길로 들어서셨습니다. 옛 동지들의 눈빛이 싸늘합니다. 깃발을 또 바꾸시면 아무도 우리를 믿지 않을 겁니다.` };
+        : { m: 'stern', t: `${routeLabel(old)}${pp(routeLabel(old), '을/를')} 버리고 ${routeLabel(key)}${pp(routeLabel(key), '으로/로')} 들어서셨습니다. 옛 동지들의 눈빛이 싸늘합니다. 깃발을 또 바꾸시면 아무도 우리를 믿지 않을 겁니다.` };
       this.say([head, { m: 'calm', t: `${this.chapterLabel()} 「${ch.title}」의 할 일도 처음부터입니다.` }, ...((op && op.lines) || [])], { tag: 'route' });
-      logMsg(`갈래가 바뀌었다: ${ROUTES[old].name}의 길에서 ${R.name}의 길로.`, 'war');
+      logMsg(`갈래가 바뀌었다: ${routeLabel(old)}에서 ${routeLabel(key)}${pp(routeLabel(key), '으로/로')}.`, 'war');
       this._card = true; this._trk = '';
       Bus.emit('storyStep', st.chapter, st.step);
       this.check();
@@ -2015,7 +2036,7 @@ const Story = (() => {
       if (k !== campRoute(c)) return;
       const heir = FACTION_ORDER.filter(id => id !== prev && JH.isAlive(id) && JH.campOf(id) === c && !FACTIONS[id].noLord && seatGap(id) <= 400).sort(byPower)[0];
       if (heir) {
-        this.say([{ m: 'worry', t: `주군 ${fN(prev)}${pp(fN(prev), '이/가')} 무너졌습니다. ${fN(heir)}에서 사람을 보내 ${ROUTES[k].name}의 길을 함께 잇자고 합니다. 그 깃발 아래 서겠습니다.` }], { tag: 'route' });
+        this.say([{ m: 'worry', t: `주군 ${fN(prev)}${pp(fN(prev), '이/가')} 무너졌습니다. ${fN(heir)}에서 사람을 보내 ${routeLabel(k)}${pp(routeLabel(k), '을/를')} 함께 잇자고 합니다. 그 깃발 아래 서겠습니다.` }], { tag: 'route' });
         becomeVassal(heir);
         return;
       }
@@ -2078,7 +2099,7 @@ const Story = (() => {
       // 갈래를 바꿔 절정을 다시 열면 옛 갈래의 짜인 전쟁은 승부 없이 거둔다
       const old = st.cx;
       if (old && old.ws === 'on' && JH.warById(old.war)) { old.ws = 'skip'; JH.endWar(old.war, null, 'story'); }
-      st.cg = { day: d, q: [], b: 0, t: [] };
+      st.cg = { day: d, q: [], b: 0, t: [], f0: S.fame };
       st.cx = {
         r: k, d, war: null, ws: R.war ? 'none' : 'skip', wn: R.war ? R.war.name : '', wa: null, wb: null, wAt: d,
         rs: R.raid ? 'wait' : 'skip', rAt: d + 3, rf: null, rk: k === 'free' ? topNear(2) : [], rb: [], rw: 0,
@@ -2122,7 +2143,12 @@ const Story = (() => {
         return;
       }
       if (Events.raidPending() || S.occupation || S.raid) { cx.rAt = d + 1; return; }
-      if (!Events.raidWarning(foe, 1.3, { goal: 'punish', delay: 5 })) { cx.rAt = d + 1; return; }
+      // 짜인 습격은 총관이 짚은 길목(exitFor[0])으로 온다. 진 뒤 다시 올 때는 무리를 줄이고(0.85배씩)
+      // 한 사람의 힘도 첫 판의 날짜에 맞춘다 (newEnemy 의 날짜 배수가 커지지 않게)
+      const base = raidSize(foe, 1.3), rl = cx.rl || 0;
+      const size = Math.max(Math.min(12, base), Math.round(base * Math.pow(0.85, rl)));
+      const emul = cx.rd0 && d > cx.rd0 ? (1 + cx.rd0 * 0.018) / (1 + d * 0.018) : 1;
+      if (!Events.raidWarning(foe, 1.3, { goal: 'punish', delay: 5, exitIdx: JH.exitFor(foe)[0], size, emul })) { cx.rAt = d + 1; return; }
       cx.rf = foe; cx.rs = 'warned';
       const F = fN(foe);
       this.say([k === 'free'
@@ -2133,6 +2159,7 @@ const Story = (() => {
     climaxRaidEnd(result) {
       const cx = cxOf(), d = dayOf(), F = cx.rf && FACTIONS[cx.rf] ? fN(cx.rf) : '적';
       if (result === 'win') {
+        cx.rl = 0; cx.rd0 = 0;   // 다음 최후통첩은 새 판이다
         if (route() === 'free') {
           cx.rb = cx.rb || [];
           if (!cx.rb.includes(cx.rf)) cx.rb.push(cx.rf);
@@ -2145,7 +2172,8 @@ const Story = (() => {
         }
       } else {
         cx.rs = 'wait'; cx.rAt = d + 10;
-        this.say([{ m: 'worry', t: `${F}에 밀렸습니다. 그래도 길이 끊긴 것은 아닙니다. 놈들은 열흘쯤 뒤 다시 올 겁니다. 그때까지 무사를 기르고 길목을 막아 두십시오.` }], { tag: 'route' });
+        cx.rl = (cx.rl || 0) + 1; cx.rd0 = cx.rd0 || d;   // 다시 올 때는 무리가 줄고, 한 사람의 힘은 첫 판에 맞춘다
+        this.say([{ m: 'worry', t: `${F}에 밀렸습니다. 그래도 길이 끊긴 것은 아닙니다. 놈들은 열흘쯤 뒤 다시 올 겁니다. 그때까지 무사를 기르고, 놈들이 올 길목에 목책과 성문을 세우고, 객잔에 드는 고수를 객경으로 모셔 두십시오. 놈들도 지쳐서 다음에는 무리가 줄 겁니다.` }], { tag: 'route' });
       }
       this.check();
     },
@@ -2499,7 +2527,7 @@ const Story = (() => {
       const k = route(), R = ROUTES[k];
       if (!R) return `<div class="trk-final-h">최종 목표 <b>${hj('縣城')} 현성</b><small>결말은 갈림길에서</small></div>`;
       const c = CAMPS[k], col = c ? c.color : '#6a5a48';
-      const tip = `${R.name}의 길${routeOk() ? '' : ' (잠정)'} · 결말 「${R.title}」`;
+      const tip = `${routeLabel(k)}${routeOk() ? '' : ' (잠정)'} · 결말 「${R.title}」`;
       return `<div class="trk-final-h">최종 목표 <span class="trk-rseal" style="background:${col}" data-tip-title="${R.seal}" data-tip="${escapeHtml(tip)}">${R.seal}</span><b>${escapeHtml(R.title)}</b>${routeOk() ? '' : '<small>잠정</small>'}</div>`;
     },
 

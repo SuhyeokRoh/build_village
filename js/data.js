@@ -439,7 +439,7 @@ const FACTIONS = {
     desc: '황제의 이름으로 세금을 걷고 법을 집행하는 현청. 무림의 일에는 되도록 끼지 않는다.',
     unit: { name: '관병', hp: 44, atk: 5, weapon: 'spear', hat: 'helmet', cloth: '#7a2a22', cloth2: '#c79a2c' },
     leader: { title: '관군 교위', hp: 240, atk: 14 },
-    military: true, startRel: 20, baseSize: 8, growth: 0.35, goals: ['occupy'],
+    military: true, startRel: 20, baseSize: 8, growth: 0.35, goals: ['punish', 'occupy'],
     home: 'local', power: 70, temper: { greed: 0.4, honor: 0.6, aggro: 0.3 },
   },
   geumui: {
@@ -541,7 +541,7 @@ const SITES = {
     biome: { forest: 0.75, water: 0.55, hills: 0.6, fertile: 0.55, cold: 0.2 },
     near: ['heungnyeon', 'mandok', 'yasu', 'taeheo'], sang: 'geumryong',
     trait: { text: '남쪽 밀림: 약재 의뢰가 잦고 겨울이 없다', perk: {}, ev: {}, quest: { herb: 2 }, noWinter: true },
-    stars: 3,
+    stars: 2,
   },
   hebei_road: {
     name: '북평 관도', hanja: '北平官道', region: 'hebei', x: 690, y: 175,
@@ -631,7 +631,7 @@ const HANJA_GLOSS = {
   '兵': ['군사 병', '병장기. 대장간에서 만든다. 있으면 무사와 궁수가 더 세게 친다.'],
   '人': ['사람 인', '인구 / 집. 빈 집이 있어야 새 식구가 찾아온다.'],
   '心': ['마음 심', '민심. 백성의 마음. 높으면 사람이 모이고 세금이 잘 걷히며, 25 아래면 사람들이 떠난다.'],
-  '武': ['굳셀 무', '무력. 무사·객경·망루를 합친 마을의 방어력.'],
+  '武': ['굳셀 무', '무예·무력. 위쪽 띠에서는 무사·객경·망루를 합친 마을의 방어력, 건물로는 무관.'],
   '名': ['이름 명', '명성. 강호에 알려진 정도. 높을수록 사람과 고수와 사건이 몰려온다.'],
   '村': ['마을 촌', '촌. 가장 작은 마을 등급.'],
   '里': ['마을 리', '마을. 인구 15명 이상. 기와집·시장·객잔 등을 지을 수 있다.'],

@@ -599,13 +599,18 @@ function dailyTick() {
     S.res.silver = Math.max(0, S.res.silver - tributeDue());
     changeRel(S.vassal, 1);
   }
-  // 점령 수탈
-  if (S.occupation) {
+  // 점령: 스무 날을 버티면 점령군이 물러간다. 그 전에는 날마다 수탈 (은자는 120냥 넘는 몫에서만 — 몸값·봉기의 길을 막지 않게)
+  if (S.occupation && day - S.occupation.since >= OCC_WITHDRAW && !(S.raid && S.raid.goal === 'uprising')) {
+    const F = FACTIONS[S.occupation.faction];
+    endOccupation('withdraw');
+    logMsg(`${F.name} 점령군이 영주관을 비우고 물러갔다. 마을을 되찾았다.`, 'good');
+    Events.notice('점령군이 물러가다', `스무 날을 버틴 끝에 ${F.name} 점령군이 영주관의 깃발을 내리고 돌아갔다. 더 짜낼 것이 없다고 본 모양이다.\n\n마을 사람들이 하나둘 거리로 나온다. 한동안은 ${F.name}${pp(F.name, '이/가')} 다시 오지 않을 것이다.`, '復');
+  } else if (S.occupation) {
     const f = S.occupation.faction;
-    const s = Math.min(Math.max(0, Math.floor(S.res.silver)), Math.max(8, Math.floor(S.res.silver * 0.25))), fo = Math.floor(S.res.food * 0.15);
+    const s = Math.max(0, Math.min(Math.floor(S.res.silver) - OCC_KEEP, Math.max(8, Math.floor(S.res.silver * 0.25)))), fo = Math.floor(S.res.food * 0.15);
     S.res.silver -= s; S.res.food -= fo;
     changeRel(f, -2); addFame(-1);
-    logMsg(`${FACTIONS[f].name} 점령군이 은자 ${s}냥, 식량 ${fo}섬을 수탈해 갔다.`, 'bad');
+    logMsg(`${FACTIONS[f].name} 점령군이 ${s ? `은자 ${s}냥, ` : ''}식량 ${fo}섬을 수탈해 갔다.`, 'bad');
   }
   // 수정자 만료
   const expired = S.mods.filter(m => m.until <= day);
@@ -706,6 +711,8 @@ function threatTick() {
     const F = FACTIONS[k], f = S.factions[k];
     if (!F || !f || !F.military) continue;
     if (S.vassal === k || pacts.includes(k) || (S.occupation && S.occupation.faction === k)) { f.threat = 0; continue; }
+    // 점령이 끝난 뒤 보름은 그 세력의 위협이 쌓이지 않는다 (몸값을 치르자마자 다시 점령당하지 않게)
+    if (S.jh && S.jh.cd['occ:' + k] > dayOf()) continue;
     f.threat = Math.min(100, f.threat + threatGain(k) * rnd(0.6, 1.4));
     if (f.threat >= 100 && !calm && !Events.raidPending() && !S.occupation) {
       f.threat = rnd(0, 20);
@@ -747,6 +754,8 @@ function startRaid(k, goal, size, opts = {}) {
     spawnT: 0, killed: 0, dead: 0, injured: 0, destroyed: 0, loot: {}, exit: ex, exitIdx: World.exits.indexOf(ex),
     lootGoal: 40 + size * 12, leaderSpawned: goal === 'uprising',
   };
+  // 적 한 사람의 체력·공격 배수 (제6장 대습격을 다시 보낼 때 첫 판의 날짜로 맞춘다)
+  if (opts.emul && opts.emul !== 1) S.raid.emul = opts.emul;
   if (goal === 'uprising') {
     for (const e of S.enemies) if (e.garrison) { e.target = 0; e.path = null; }
     S.raid.total = S.enemies.filter(e => e.garrison).length;
@@ -849,7 +858,7 @@ function updateRaid(dtH) {
       if (leader) r.leaderSpawned = true;
       const ex = r.exit;
       const p = nearestWalkable(ex.x, ex.y, 1, 4) || ex;
-      newEnemy(r.faction, p.x + 0.5 + rnd(-0.3, 0.3), p.y + 0.5 + rnd(-0.3, 0.3), { leader });
+      newEnemy(r.faction, p.x + 0.5 + rnd(-0.3, 0.3), p.y + 0.5 + rnd(-0.3, 0.3), { leader, mul: r.emul || 1 });
       r.toSpawn--;
     }
   }
@@ -910,6 +919,7 @@ function endRaid(result) {
     addMod('victory', 3);
     title = '마을을 되찾다';
     stamp = '復';
+    occGrace(r.faction);
     body = `봉기가 성공했다! ${F.name} 점령군을 몰아내고 마을을 되찾았다.\n명성 +35. 사람들이 거리로 나와 환호한다.`;
     logMsg(`${F.name} 점령군을 몰아냈다! 마을이 해방되었다.`, 'good');
     if (occ) for (const e of S.enemies) e.garrison = false;
@@ -944,14 +954,15 @@ function beginOccupation(k) {
   S.occupation = { faction: k, since: dayOf() };
   const manor = getB(S.manorId);
   if (manor) { manor.ruined = false; manor.done = true; manor.hp = manor.maxHp * 0.4; manor.burning = false; }
-  // 우두머리와 정예 몇만 남아 지키고 나머지는 돌아간다
-  const alive = S.enemies.filter(e => !e.dead).sort((a, b) => (b.leader - a.leader) || (b.maxHp - a.maxHp));
+  // 정예 몇만 남아 지키고 나머지는 돌아간다. 우두머리는 공을 들고 본산으로 돌아간다 (작은 마을의 봉기가 이길 수 있게)
+  const alive = S.enemies.filter(e => !e.dead).sort((a, b) => (a.leader - b.leader) || (b.maxHp - a.maxHp));
   const keep = clamp(Math.ceil(alive.length * 0.4), 4, 8);
-  alive.forEach((e, i) => {
+  let kept = 0;
+  for (const e of alive) {
     e.target = 0; e.tb = 0; e.blockB = 0; e.path = null;
-    if (i < keep) { e.garrison = true; e.flee = false; } else { e.flee = true; }
-  });
-  const need = Math.max(0, 4 - Math.min(alive.length, keep));
+    if (!e.leader && kept < keep) { e.garrison = true; e.flee = false; kept++; } else { e.flee = true; }
+  }
+  const need = Math.max(0, 4 - kept);
   const d = manor ? doorOf(manor) : plazaTile();
   for (let i = 0; i < need; i++) newEnemy(k, d.x + 0.5 + rnd(-1, 1), d.y + 1.5, { garrison: true });
   S.raid = null;
@@ -962,21 +973,37 @@ function beginOccupation(k) {
   Bus.emit('occupied', k);
   markDirty();
   Events.notice(`${F.name}에게 점령당하다`,
-    `영주관에 ${F.name}의 깃발이 올랐다. 점령군은 매일 은자와 식량을 수탈하고, 새로 찾아오는 사람도 없다.\n\n몸값을 치르거나, 무사를 길러 봉기하거나, 우호 세력에 구원을 청해 마을을 되찾아야 한다. 세력 창에서 할 수 있다.`, '陷');
+    `영주관에 ${F.name}의 깃발이 올랐다. 점령군은 매일 은자와 식량을 수탈하고, 새로 찾아오는 사람도 없다.\n\n몸값을 치르거나, 무사를 길러 봉기하거나, 우호 세력에 구원을 청해 마을을 되찾아야 한다. 세력 창에서 할 수 있다. 스무 날을 버티면 점령군도 물러간다.`, '陷');
 }
-function ransomCost() { return Math.round(150 + dayOf() * 5 + popCount() * 3); }
+const OCC_WITHDRAW = 20, OCC_GRACE = 15, OCC_KEEP = 120;   // 점령군이 물러가는 날 · 그 뒤 위협이 쌓이지 않는 날 · 수탈하지 않는 은자
+function occDaysLeft() { return S.occupation ? Math.max(0, OCC_WITHDRAW - (dayOf() - S.occupation.since)) : 0; }
+// 몸값은 날마다 오르지만 마을 크기에 맞춘 상한이 있다
+function ransomCost() { return Math.round(Math.min(150 + dayOf() * 5 + popCount() * 3, 100 + popCount() * 8)); }
+// 점령이 끝난 뒤: 습격이 막 끝난 것으로 치고, 그 세력의 위협은 보름 동안 쌓이지 않는다
+function occGrace(k) {
+  S.lastRaidEnd = S.time;
+  if (S.jh && S.jh.cd) S.jh.cd['occ:' + k] = dayOf() + OCC_GRACE;
+  if (S.factions[k]) S.factions[k].threat = 0;
+}
+// 점령을 끝낸다 (몸값·물러감). 봉기의 성공은 endRaid('liberated'), 멸문은 JH 가 따로 끝낸다
+function endOccupation(how) {
+  const k = S.occupation.faction;
+  S.occupation = null;
+  for (const e of S.enemies) { e.garrison = false; e.flee = true; e.path = null; }
+  occGrace(k);
+  markDirty();
+  Bus.emit('liberated', how);
+  return k;
+}
 function payRansom() {
   if (!S.occupation) return false;
   const c = ransomCost();
   if (S.res.silver < c) return false;
   S.res.silver -= c;
   const k = S.occupation.faction;
-  S.occupation = null;
-  for (const e of S.enemies) { e.garrison = false; e.flee = true; e.path = null; }
-  changeRel(k, 10);
   logMsg(`몸값 ${c}냥을 치르고 ${FACTIONS[k].name} 점령군을 돌려보냈다.`, 'good');
-  Bus.emit('liberated', 'ransom');
-  markDirty();
+  endOccupation('ransom');
+  changeRel(k, 10);
   return true;
 }
 function startUprising(withAllyFaction) {
