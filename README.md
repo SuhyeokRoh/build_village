@@ -9,6 +9,18 @@
 
 설치나 빌드가 필요 없다. `index.html`을 브라우저로 열면 바로 시작된다.
 
+### 사이트로 열기 (휴대폰·다른 컴퓨터)
+
+빌드 단계가 없는 정적 사이트라 저장소를 그대로 GitHub Pages에 올릴 수 있다.
+
+1. 저장소 **Settings → Pages → Build and deployment**에서 Source를 **Deploy from a branch**로 두고, 게임이 있는 브랜치와 `/ (root)`를 고른 뒤 **Save**.
+   (GitHub 무료 요금제에서는 공개 저장소만 Pages를 쓸 수 있다. 비공개로 두려면 GitHub Pro, 또는 Cloudflare Pages처럼 비공개 저장소를 연결할 수 있는 정적 호스팅을 쓴다. 이때도 빌드 명령은 비우고 출력 폴더는 저장소 루트로 둔다.)
+2. 1~2분 뒤 `https://<계정>.github.io/<저장소>/`에서 열린다. 이 저장소라면 https://suhyeokroh.github.io/build_village/ 이다.
+3. 그 브랜치에 푸시할 때마다 사이트도 저절로 새 판으로 바뀐다.
+
+휴대폰에서는 브라우저 메뉴의 **홈 화면에 추가**로 앱처럼 전체 화면으로 띄울 수 있다(`manifest.webmanifest`, `icons/`).
+저장은 기기의 브라우저마다 따로라서, 휴대폰과 컴퓨터의 진행은 서로 이어지지 않는다.
+
 ```bash
 # 또는 간단한 로컬 서버로
 python3 -m http.server 8000
@@ -104,10 +116,12 @@ python3 -m http.server 8000
 
 ## 구조
 
-외부 라이브러리와 이미지 없이 HTML5 Canvas와 순수 JavaScript로 만들었다. 지형, 건물, 나무, 사람, 총관의 초상까지 모두 코드로 그린다.
+외부 라이브러리와 이미지 없이 HTML5 Canvas와 순수 JavaScript로 만들었다. 지형, 건물, 나무, 사람, 총관의 초상까지 모두 코드로 그린다. 그림 파일은 홈 화면 아이콘(`icons/`)뿐이다.
 
 ```
 index.html          화면 뼈대
+manifest.webmanifest  홈 화면에 추가할 때의 이름·아이콘·색 (icons/ 의 그림을 쓴다)
+.nojekyll           GitHub Pages가 파일을 손대지 않고 그대로 내보내게 한다
 css/style.css       옻칠 나무 패널과 한지 두루마리 스타일
 css/story.css       총관 대화창, 할 일 두루마리, 안내 테두리
 css/petitions.css   상소함

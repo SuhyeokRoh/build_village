@@ -1,0 +1,16 @@
+{
+  "name": "강호촌 영주기",
+  "short_name": "강호촌",
+  "description": "무협 세상의 작은 마을을 다스리는 2.5D 마을 경영 게임",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1c1411",
+  "theme_color": "#1c1411",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
