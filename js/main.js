@@ -36,10 +36,15 @@ function onClick(btn, sx, sy) {
     return;
   }
   if (tool.kind === 'build') {
-    const def = BDEF[tool.key];
-    const bx = t.x - Math.floor((def.w - 1) / 2), by = t.y - Math.floor((def.h - 1) / 2);
-    const r = tryBuild(tool.key, bx, by);
+    // 미리 보기와 같은 자리·방향 (들고 있는 방향, 손대지 않았으면 맞닿은 길 쪽)
+    const P = UI.buildPlan(t.x, t.y);
+    const r = tryBuild(tool.key, P.x, P.y, P.dir);
     if (!r.ok) UI.toast(r.why, 'bad');
+    else {
+      UI.dirMem[tool.key] = P.dir;
+      // 손가락 화면: 놓은 자리에 미리 보기를 남기지 않는다 (다음에 누르는 곳에 짓는다)
+      if (Input.ptype !== 'mouse') UI.hover = null;
+    }
     UI.buildMenuDirty = true;
   } else if (tool.kind === 'clear') {
     if (World.tile(t.x, t.y) !== T.FOREST || World.occ[t.y * MW + t.x]) UI.toast('숲이 아닌 곳이다', 'bad');
@@ -148,7 +153,8 @@ function initInput() {
   };
   cv.addEventListener('pointerup', up);
   cv.addEventListener('pointercancel', up);
-  cv.addEventListener('pointerleave', () => { if (!Input.down) UI.hover = null; });
+  // 건물을 든 동안의 미리 보기는 커서·손가락이 지도를 떠나도 마지막 칸에 남겨 둔다 (안내 띠의 [돌리기]를 누르러 갈 때 그 자리에서 돈다)
+  cv.addEventListener('pointerleave', () => { if (!Input.down && (!UI.tool || UI.tool.kind !== 'build')) UI.hover = null; });
   cv.addEventListener('wheel', e => {
     e.preventDefault();
     zoomAt(Cam.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
@@ -169,6 +175,9 @@ function initInput() {
     } else if (k === '+' || k === '=' || k === '-' || k === '_') {
       // 화면 가운데를 기준으로 확대·축소
       zoomAt(Cam.zoom * (k === '-' || k === '_' ? 1 / 1.2 : 1.2), Cam.vw / 2, Cam.vh / 2);
+    } else if ((e.code === 'KeyR' || k === 'r' || k === 'R') && !e.ctrlKey && !e.metaKey && !e.altKey && UI.tool && UI.tool.kind === 'build') {
+      // 든 건물 돌리기 (Shift+R 은 거꾸로). 한글 자판(ㄱ)에서도 같은 자리의 키로
+      if (UI.rotateTool(e.shiftKey ? -1 : 1)) e.preventDefault();
     } else if (k === '1') UI.setSpeed(1);
     else if (k === '2') UI.setSpeed(2);
     else if (k === '3') UI.setSpeed(4);

@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | `js/util.js` | 상수, 난수, 노이즈, `Store`, 조사 `pp()`/`josa()`, `escapeHtml`, **`Bus`**, **`hook()`** | 공통(고치지 말 것) |
 | `js/data.js` | 시간·등급·경지·`BDEF`(건물)·`FACTIONS`·이름·**`HANJA_GLOSS`/`glossOf()`** | 공통(값 추가는 가능) |
-| `js/world.js` | 지형 생성, 점유(`World.occ`), `walkable`, A* `findPath`, `doorOf` | 공통 |
+| `js/world.js` | 지형 생성, 점유(`World.occ`), `walkable`, A* `findPath`, 건물 방향(`footOf`·`doorAt`·`doorFront`·`doorOf`·`inYard`) | 공통 |
 | `js/sprites.js` | 건물·나무·사람 그림, `buildingSprite`, `treeSprite`, `drawFigure`, `iconCanvas` | **등각 그림** |
 | `js/render.js` | 투영, 지형 캐시, 깊이 정렬, 조명, 효과, 오버레이, 미니맵 | **등각 렌더러** |
 | `js/main.js` | 입력, 카메라, 게임 루프, 시작 | **등각 렌더러** (훅 호출은 지울 것) |
@@ -34,7 +34,7 @@
 ## 2. 좌표와 투영
 
 - 게임 논리는 **타일 좌표**만 쓴다. 지도는 `MW × MH = 64 × 48` 타일. 사람 위치 `u.x, u.y`는 실수 타일 좌표이고 타일 중심은 `정수 + 0.5`.
-- 건물은 발판 좌상단 `(b.x, b.y)`, 크기 `(b.w, b.h)` 타일.
+- 건물은 발판 좌상단 `(b.x, b.y)`, 크기 `(b.w, b.h)` 타일, 문 방향 `b.dir` (§2.2). `b.w, b.h` 는 놓인 발판이라 돌린 건물이면 `BDEF` 의 `w, h` 와 다를 수 있다.
 - 타일 ↔ 월드 픽셀 ↔ 화면 픽셀 변환은 `render.js`의 다음 함수만 한다. 다른 파일은 이것만 부른다.
 
 | 함수 | 뜻 |
@@ -59,7 +59,7 @@
 - 마름모 타일 `TW = 64`, `TH = 32` (월드 픽셀). `worldOf(tx, ty) = { x: (tx - ty) * 32, y: (tx + ty) * 16 }` (+ 렌더러가 정한 상수 원점 이동 가능).
 - 축: 타일 `x + 1`은 화면에서 오른쪽 아래, `y + 1`은 왼쪽 아래. 카메라는 북서쪽 하늘에서 내려다본다. 보이는 건물 벽은 **왼쪽 앞면(남서, y+h 쪽)** 과 **오른쪽 앞면(남동, x+w 쪽)**.
 - 깊이 정렬: 뒤에서 앞으로 `(x + y)` 가 커지는 순서. 건물은 발판 **가운데** `b.x + b.y + (b.w + b.h) / 2` 기준(앞 모서리 기준이면 큰 건물 바로 앞의 작은 건물이 뒤로 숨는다. 가로세로 차이가 1칸 이하인 발판에서는 가운데 기준이 늘 맞다), 사람은 `u.x + u.y`(바로 곁 건물과의 앞뒤를 따로 따져 고친다), 나무는 `tx + ty + 1`. 같은 값이면 땅 → 건물 → 나무 → 사람. 논밭은 모든 것보다 먼저 그린다.
-- **건물 그림 규약**: `buildingSprite(type, w, h, season, state, extra)` → `{ c, ox, oy, w, h }`.
+- **건물 그림 규약**: `buildingSprite(type, w, h, season, state, extra, dir = 0)` → `{ c, ox, oy, w, h }`. `w, h` 는 놓인 발판(`b.w, b.h`), `dir` 은 `b.dir` (§2.2).
   캔버스 `c`를 월드 좌표 `(worldOf(b.x, b.y).x + ox, worldOf(b.x, b.y).y + oy)`에 크기 `(w, h)`로 그린다.
   즉 `(ox, oy)`는 발판의 **위쪽 꼭짓점**(타일 `(b.x, b.y)`의 북쪽 꼭짓점)에서 캔버스 왼쪽 위까지의 거리.
   `state`: `'done' | 'build' | 'ruin'`. `'build'`일 때 `extra`는 진척도 문자열(`'0.25'` 등), 선형 건물(목책·석벽)은 `extra`가 이웃 마스크 문자열.
@@ -68,11 +68,26 @@
 - **나무**: `treeSprite(v, season)` → `{ c, w, h, ax, ay }`. 타일 중심 `worldOf(tx + 0.5, ty + 0.5)`에서 `(-ax, -ay)` 만큼 옮겨 그린다(`ax, ay`는 캔버스 안의 밑동 위치).
 - **사람**: `drawFigure(c, x, y, look, pose)` — `(x, y)`는 발 위치(월드 픽셀) = `worldOf(u.x, u.y)` + 작은 개별 흔들림.
 - 망루 위 궁수, 영주관 깃발 등은 건물 발판 위쪽 꼭짓점 기준 오프셋으로 그린다. `SPRITE_META[type]`이 `height`, `eave`, `smoke`, `flag`, `archer` 같은 값을 월드 픽셀로 알려 준다. 망루 발판은 타일 가운데에서 56px 위, 망루 화살은 `z0 = 70`에서 쏜다.
-- 성문은 목책·석벽처럼 `extra`로 이웃 마스크를 받아 벽이 놓인 방향에 맞춰 돈다.
+- 성문은 목책·석벽처럼 `extra`로 이웃 마스크를 받아 벽이 놓인 방향에 맞춰 돈다(`b.dir` 로는 돌지 않는다).
 - 불빛: `BDEF[type].light = [[u, v, r, color, lift?], ...]`(발판 기준 타일 좌표), `lightLift`는 땅에서 띄울 기본 높이.
 - 망루 사거리 원은 타일 공간의 원을 그대로 투영한 타원(반지름 `r·32·√2` × `r·16·√2`).
 - 지형은 마름모로 미리 그린 큰 캐시 캔버스. 바위산은 높이감 있는 바위 덩어리/벼랑, 물은 낮게, 길은 이웃과 이어진 마름모 길, 물 위 길은 다리.
 - 입력 역변환: `screenToTile`이 마름모 기준으로 정확해야 한다(건설 미리보기·선택이 맞아야 함).
+
+### 2.2 건물 방향 `b.dir`
+
+- 값: `0` 문이 +y 쪽(화면 왼쪽 아래 면, 처음 모습) · `1` +x 쪽(오른쪽 아래 면) · `2` −y 쪽(오른쪽 위, 화면 안쪽으로 등을 보인다) · `3` −x 쪽(왼쪽 위). `DIR_VEC[dir]` 은 문이 향하는 타일 방향, `DIR_WORD[dir]` 은 화면에 쓰는 말.
+- **발판**: 1·3 은 0·2 의 그림을 화면 세로축으로 뒤집은 것이고 그러면 타일 `(x, y)` 가 `(y, x)` 로 가니 가로세로가 바뀐다. `footOf(type, dir)` → `{ w, h }` (`dir & 1` 이면 `w = def.h, h = def.w`). 놓인 건물은 `b.w, b.h` 가 이미 그 발판이다. 발판·문을 셈하는 곳은 `BDEF[..].w/h` 대신 이것을 쓴다.
+- **허용 방향**: `BDEF[type].dirs` (data.js 가 채운다), `dirsOf(type)`, `canRotate(type)`, `normDir(type, dir)`(허용되지 않으면 0), `nextDir(type, dir, step)`. 영주관·우물·목책·석벽·성문은 `[0]`(담과 성문은 이웃 담장을 따라 저절로 돈다). 문 쪽에 걷는 마당이 발판 일부인 무관·표국(`walkRows < h`)은 마당을 화면 앞쪽에 그려야 하니 `[0, 1]`. 나머지(논밭 포함)는 네 방향.
+- **문**: `doorAt(dir, x, y, w, h)` → 발판 바로 바깥의 문 앞 칸 (0: `(x + ⌊w/2⌋, y + h)`, 1: `(x + w, y + ⌊h/2⌋)`, 2: `(x + w − 1 − ⌊w/2⌋, y − 1)`, 3: `(x − 1, y + h − 1 − ⌊h/2⌋)`). `doorFront(b)` 는 놓인 건물의 그 칸(막혀 있어도). `doorOf(b)` 는 사람이 드나들 칸: 마당이 있으면 마당의 문 쪽 가운데, 아니면 문 앞 칸, 막혔으면 둘레에서 걸을 수 있는 칸(dir 0 은 예전 순서 그대로, 나머지는 문 쪽 면부터). 육방의 길 잇기(`AdmSite.roadPath`·`unconnected`)는 마당이 있으면 `doorFront`, 아니면 `doorOf` 에서 시작한다.
+- **마당**(`walkRows`): 문 쪽 띠. `inYard(b, x, y)`, `yardRect(b)`. `walkCost`·`workSpot`·렌더러의 앞뒤 판정(`renRelation`)이 이것을 쓴다.
+- `frontPoint(b, k)`: 문 앞으로 k칸 나간 점(마실·야경이 건물 앞을 고를 때).
+- **그림**: `buildingSprite` 는 1·3 이면 처음 방향의 발판(`h × w`)으로 그린 그림을 좌우로 뒤집는다. 뒤집는 동안 `fillText` 는 글자마다 제자리에서 다시 뒤집어 현판이 바로 읽히고(면의 기울기는 따른다), `box`·`walls`·`tileRoof`·`thatchRoof`·`cylV`·`plinth`·`ao` 는 밝은 면과 그늘을 맞바꾸어 빛이 늘 화면 왼쪽 위에서 온다. 2·3 은 등을 보인 그림이다(`o.back`): `walls` 가 왼쪽 앞면의 문(`door door1 lat red plank bigdoor open`)을 창·벽으로 바꾸고 현판을 떼며, 건물마다 계단·석등·깃발·현판 같은 문 앞 소품을 뺀다(시장·어장·대장간은 안팎을 바꾸어 그린다). 캐시 열쇠는 dir 0 이면 예전 그대로, 등을 보이면 `|back`, 뒤집으면 `|mir` 를 붙이고, 뒤집힌 그림은 뒤집기 전 그림과 같은 난수를 쓴다. 공사·폐허도 같은 규칙을 따른다.
+- **불빛·연기**: `BDEF.light`·`SPRITE_META.light` 는 처음 방향의 발판 기준이다. `renLightUV` 가 등을 보인 건물은 반 바퀴(문 앞 등롱이 문을 따라 간다, `SPRITE_META[type].backLight === 'keep'` 이면 그대로), 뒤집힌 건물은 `(u, v) → (v, u)` 로 옮긴다. `SPRITE_META.smoke` 의 dx 는 뒤집힌 그림이면 부호를 바꾼다.
+- **표시**: 건설 도구의 미리 보기는 돌린 발판·그림과 문 앞 칸의 금빛 화살·'입구' 이름표(드나들 수 있으면 초록, 막혔으면 붉게 '입구 막힘')를 그린다. 고른 건물에도 화살이 뜬다. 등을 보인 건물은 문 앞 칸에 디딤돌을 땅에 그린다.
+- **조작**(ui.js): `UI.toolDir`(든 건물의 방향), `UI.toolHand`(손으로 돌렸나), `UI.dirMem[type]`(이번 판에 마지막으로 고른 방향, 저장하지 않음). `UI.buildPlan(hx, hy)` → `{ dir, x, y, w, h, door, doorOk, auto, rot }` 가 미리 보기와 놓기(main.js)의 공통 답이다. 손으로 돌리기 전에는 `UI.autoFace` 가 발판이 길에 닿는 자리에서 길 쪽으로 문을 낸다(지을 수 있는 방향 → 문 앞 칸이 길 → 길이 가까운 쪽). `UI.rotateTool(step)` 은 R(Shift+R 거꾸로, `e.code === 'KeyR'` 이라 한글 자판에서도)·안내 띠의 `#tool-rotate` 단추가 부른다. 손가락 화면은 커서가 없으니 돌릴 수 있는 건물을 들면 보이는 지도 가운데(`UI.viewCenterTile()`)에 미리 보기를 띄우고, 누르는 곳에 그 방향으로 짓는다.
+- **놓인 건물 돌리기**: `rotateBuilding(b, step = 1)` → `{ ok, dir }` 또는 `{ ok: false, why }`. 값 없이 다음 허용 방향으로, 새 발판이 `canPlace(type, x, y, dir, { self: b.id, free: true })`(비용·등급·갈래·하나만은 묻지 않고 제 칸은 빈 땅으로)를 넘을 때만. 가로세로가 바뀌면 원래 발판과 가장 많이 겹치는 자리부터 해 본다. 점유를 다시 찍고, 새로 덮인 칸의 사람을 비키고, 그 건물로 가던 길을 버리고, `updateSiteFactors`·`markDirty` 뒤 `Bus 'rotated'` 를 보낸다. 일꾼·식구·내구도·공사 진척·폐허 여부는 그대로. 정보 창의 [돌리기](`data-act="rotate"`)가 부르고, 막히면 까닭을 알림으로 띄운다.
+- **육방**: `Admin.findSite(type)` 은 허용 방향마다 해 보고(가로세로가 같은 방향끼리는 발판 몫을 한 번만 셈한다) 문이 길 연결망에 가까운 쪽을 고른다(`AdmSite.scoreDoor`: `P.road`·`P.front`). 점수가 같으면 dir 0. 돌려줌 `{ x, y, dir }`, `orderBuild` 는 그 방향으로 짓는다.
 
 ## 3. 상태와 저장
 
@@ -83,6 +98,7 @@
   - `S.admin.workH = { farm, fishery }`: 일꾼 하나가 하루에 실제로 일하는 시간. 호방이 날마다 고쳐 식량 내다보기에 쓴다.
 - 저장되지 않는 일시 상태는 모듈 객체 안이나 `G`(렌더러용), 또는 `_` 접두 키에 둔다.
 - 불러온 뒤 `onLoad()`가 불린다. 옛 저장(모듈 상태 없음)도 받아들여야 한다.
+- 건물의 `dir` 은 저장된다(발판 `w, h` 도 놓인 그대로 저장된다). `b.dir` 이 없는 옛 저장은 `deserialize` 가 0 으로 채우고, dir 0 은 예전과 똑같이 그려지고 움직인다.
 
 ### 3.1 천하 상태 `S.jh`
 
@@ -159,6 +175,8 @@
 | `tool` | `key \| null` | 건설 도구 고름 |
 | `sheetOpen` / `sheetClose` | `kind` | 큰 창 열고 닫음(`'factions','village','help','admin','petitions'`), 천하도 보기(`'worldmap'`, 고르기 모드에서는 보내지 않는다) |
 | `camMoved` | – | 영주가 지도를 움직이거나 확대함 |
+| `rotated` | `b` | 놓인 건물을 제자리에서 돌림 (`rotateBuilding`). 육방은 그 건물의 길 잇기 실패 기억을 지운다 |
+| `toolRotated` | `key, dir` | 영주가 든 건물을 손으로 돌림 (R·[돌리기]) |
 | `budgetChanged` | `deptId, amount` | 육방 예산 바뀜 (**Admin이 보냄**) |
 | `deptBuilt` | `deptId, b` | 부서가 스스로 건물을 놓음 (**Admin**) |
 | `petitionNew` | `p` | 상소 들어옴 (**Petitions**) |
@@ -179,6 +197,7 @@
 - 클릭은 `#sheet-body`에서 위임되어 `onClick(e)`로 온다. 끝나면 `UI.renderSheet()`가 불린다.
 - 메뉴: `#btn-story`(총관), `#btn-admin`(육방), `#btn-petitions`(상소함, 안의 `#petition-badge`에 미처리 수). 
 - 알림: `UI.toast(text, 'good'|'bad'|'')`, 기록: `logMsg(text, 'good'|'bad'|'war'|'')`, 사건 두루마리: `Events.notice(title, html, stampHanja)`, `Events.queue(id, data)`.
+- 건설 도구 안내 `#tool-hint`(z 19, 눌리지 않음) 안에 글 `#tool-hint-text` 와 `#tool-rotate`([돌리기], 이 단추만 눌림, 폰·손가락은 44px)가 있다. 도구를 든 동안 `#app` 에 `tool-on` 이 붙고, 좁은 화면(860px 이하)의 정보 창은 그 위로 올라간다. 가로로 누운 폰(높이 500px 이하)은 안내 띠를 오른쪽 아래에 한 줄로 붙인다.
 - 모듈이 자기 DOM을 만들 때는 `#app` 안에 붙이고, 자기 CSS 파일에서만 꾸민다. `z-index`: 지도 위 띠·패널 14~20, 튜토리얼 강조(하이라이트) 25 근처, 천하도 보기 29, 큰 창 30, 총관 카드 19(시간을 멈출 때 32), 알림 `#toasts` 34(큰 창·천하도 위, 두루마리 아래), 사건 두루마리 35, 첫 화면 50, 천하도 고르기 52, 말풍선 `#tooltip` 60.
 - 세력 창(ui.js): 탭 [세력 · 의뢰 · 소식], 맨 위에 갈래 표(`routeInfo`)와 폰 전용 [천하도 펼치기](`.fx-mapbtn`). 클래스는 `fx-`로 시작한다. 카드는 `[data-fcard=id]`, 외교 단추는 `[data-act="fx-do"][data-kind][data-f]`(못 쓰면 `aria-disabled`와 까닭 `data-why`), 의뢰는 `.fx-pick`·`.fx-send`·`[data-act="fx-recall"]`. 보기 상태(탭·펼친 카드·고른 사람)는 `UI.fx`에 두고 저장하지 않는다. `#btn-factions` 안의 `#faction-badge`가 `JH.badge()`를 보인다.
   - `UI.factionFocus = id` 를 두고 `UI.openSheet('factions')`를 부르면 세력 탭으로 가서 그 카드(먼 세력이면 계열 묶음)를 펼치고 스크롤한 뒤 값을 지운다. 천하도의 [세력 창에서 보기]가 이렇게 한다.
@@ -205,7 +224,7 @@
 - 먹을 것의 철·땅 배수(sim.js, `si` 기본은 지금 철): `isWinter(si)`(넷째 철이고 고을에 겨울이 있음. 겨울이 없는 고을은 눈을 그리지 않는다), `farmMul(si)`(철·기름진 들·추위), `fishMul(si)`(겨울 ×0.6·`JH.perk('fish')`), `foodUseMul(si)`(추운 겨울의 식량 소비). economyStep과 육방의 내다보기가 같은 것을 쓴다
 - 사람: `popCount()`, `housingTotal()`, `livingVillagers()`, `newVillager(opts)`, `makeHero()`, `spawnHero(h, at)`, `fighters()`, `civilians()`(둘 다 의뢰로 떠난 이는 뺀다)
 - 은자: `dailyTax()`(하루 세금: 인구·세율·민심 × `JH.perk('tax')` × 이방), `tributeDue()`(주군에게 바칠 공물). `dailyTick`과 육방의 장부가 같은 것을 부른다
-- 건물: `BDEF`, `canPlace(type, x, y)` → `{ok, why, poor}`, `tryBuild(type, x, y)` → `{ok, b}`(비용 냄), `placeBuilding(type, x, y, done)`(비용 없음), `repair(b)`, `repairCost(b)`, `demolish(b)`, `getB(id)`, `usable(b)`, `countType(type)`, `setRoad(x, y, free)`, `canPlaceRoad(x, y)`, `doorOf(b)`, `countTilesNear(rect, T.FOREST, r)`, `World.tile/isRoad/bAt/occ`, `walkable(x, y)`, `findPath(...)`
+- 건물: `BDEF`, `canPlace(type, x, y, dir = 0, opt)` → `{ok, why, poor}`(`opt.self`: 그 id 의 칸은 빈 땅, `opt.free`: 비용·등급·갈래·하나만은 묻지 않음), `tryBuild(type, x, y, dir = 0)` → `{ok, b}`(비용 냄), `placeBuilding(type, x, y, done, dir = 0)`(비용 없음), `rotateBuilding(b, step)`, `repair(b)`, `repairCost(b)`, `demolish(b)`, `getB(id)`, `usable(b)`, `countType(type)`, `setRoad(x, y, free)`, `canPlaceRoad(x, y)`, `doorOf(b)`, `doorFront(b)`, `footOf(type, dir)`, `dirsOf(type)`, `canRotate(type)`, `countTilesNear(rect, T.FOREST, r)`, `World.tile/isRoad/bAt/occ`, `World.stamp(b, id)`·`unstamp(b)`, `walkable(x, y)`, `findPath(...)`. 방향을 모르는 옛 호출(`canPlace(type, x, y)` 등)은 dir 0 이다
 - 민심: `S.happy`, `happinessFactors()`, `happinessTarget()`, `addMod(id, days)`(이미 더 길게 걸린 효과는 줄이지 않는다), `hasMod(id)`, `S.tax`
 - 강호: `rel(k)`, `changeRel(k, d)`, `addFame(n)`, `S.factions[k].threat`, `becomeVassal(k)`, `breakVassal(silent)`, `defensePower(excl?)`(파견 중인 사람과 `excl` Set의 id는 뺀다), `threatGain(k)`, `Events.raidWarning(k, mul, { goal, size, delay, exitIdx, emul })`(`emul`은 적 한 사람의 체력·공격 배수: `_raid` 데이터 → `scheduleRaid` → `S.raid.emul` → `newEnemy(…, { mul })`. 저장된다), `scheduleRaid`, `raidSize(k)`(힘을 곱한다), `pickExit(k)`, `S.raid`, `S.occupation`
 - 점령: `S.occupation = { faction, since }`. `ransomCost()`(150 + 날×5 + 인구×3, 상한 100 + 인구×8), `payRansom()`, `startUprising(allyFaction?)`, `endOccupation(how)`(몸값·물러감 공통: 점령군을 내보내고 `occGrace(k)` 뒤 `Bus 'liberated'`), `occGrace(k)`(습격이 막 끝난 것으로 치고 `S.jh.cd['occ:' + k]`를 보름 뒤로: 그동안 그 세력의 위협이 쌓이지 않는다), `occDaysLeft()`. 점령군은 `OCC_WITHDRAW`(20)일 뒤 묘시에 물러가고, 수탈은 은자 `OCC_KEEP`(120)냥이 넘는 몫에서만 한다. 우두머리는 수비대에 남지 않는다. 점령은 무관이 있는 마을만 노린다(`chooseGoal`)

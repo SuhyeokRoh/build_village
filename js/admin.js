@@ -207,7 +207,8 @@ const AdmSite = {
     }
     return d;
   },
-  doorTile(def, x, y) { return { x: x + Math.floor(def.w / 2), y: y + def.h }; },
+  // F: 놓을 발판과 방향 { w, h, dir } (findSite 가 footOf 로 만든다). 문 앞 칸
+  doorTile(F, x, y) { return doorAt(F.dir || 0, x, y, F.w, F.h); },
   context() {
     const m = getB(S.manorId);
     const ax = m ? m.x + m.w / 2 : World.center.x + 0.5, ay = m ? m.y + m.h / 2 : World.center.y + 0.5;
@@ -241,47 +242,63 @@ const AdmSite = {
     return out;
   },
   // 꼭 지켜야 할 것: 빈 땅, 둘레 한 칸 비움, 문 앞이 땅, 출입구와 거리
-  fits(def, x, y, ctx) {
+  fits(F, x, y, ctx) { return this.fitsFoot(F, x, y, ctx) && this.doorFits(F, x, y); },
+  // 문과 상관없는 몫 (가로세로가 같은 방향끼리는 한 번만 묻는다)
+  fitsFoot(F, x, y, ctx) {
     const { tiles, road, occ } = World;
-    for (let yy = y; yy < y + def.h; yy++) for (let xx = x; xx < x + def.w; xx++) {
+    for (let yy = y; yy < y + F.h; yy++) for (let xx = x; xx < x + F.w; xx++) {
       const i = yy * MW + xx;
       if (occ[i] || road[i] || ctx.reserved[i]) return false;
       const t = tiles[i];
       if (t === T.WATER || t === T.ROCK) return false;
     }
-    for (let yy = y - 1; yy <= y + def.h; yy++) for (let xx = x - 1; xx <= x + def.w; xx++) {
-      if (xx >= x && xx < x + def.w && yy >= y && yy < y + def.h) continue;
+    for (let yy = y - 1; yy <= y + F.h; yy++) for (let xx = x - 1; xx <= x + F.w; xx++) {
+      if (xx >= x && xx < x + F.w && yy >= y && yy < y + F.h) continue;
       if (!World.inb(xx, yy) || occ[yy * MW + xx]) return false;
     }
-    const d = this.doorTile(def, x, y);
-    const di = d.y * MW + d.x;
-    if (tiles[di] === T.ROCK || (tiles[di] === T.WATER && !road[di])) return false;
-    const cx = x + def.w / 2, cy = y + def.h / 2;
+    const cx = x + F.w / 2, cy = y + F.h / 2;
     for (const e of World.exits) if (Math.abs(e.x + 0.5 - cx) + Math.abs(e.y + 0.5 - cy) < 8) return false;
     return true;
   },
+  doorFits(F, x, y) {
+    const d = this.doorTile(F, x, y);
+    if (!World.inb(d.x, d.y)) return false;
+    const di = d.y * MW + d.x, t = World.tiles[di];
+    return !(t === T.ROCK || (t === T.WATER && !World.road[di]));
+  },
   // 비용은 빼고 canPlace 를 그대로 묻는다 (재료를 잠깐 넉넉히 두었다가 그대로 되돌린다)
-  placeOk(type, x, y) {
+  placeOk(type, x, y, dir = 0) {
     const saved = S.res;
     S.res = { silver: 1e9, food: 1e9, wood: 1e9, stone: 1e9, weapons: 1e9 };
-    try { return canPlace(type, x, y).ok; } catch (e) { return false; } finally { S.res = saved; }
+    try { return canPlace(type, x, y, dir).ok; } catch (e) { return false; } finally { S.res = saved; }
   },
-  keepsPaths(def, x, y, ctx) {
-    const reach = this.flood(ctx.start, { x, y, w: def.w, h: def.h });
-    const d = this.doorTile(def, x, y);
+  keepsPaths(F, x, y, ctx) {
+    const reach = this.flood(ctx.start, { x, y, w: F.w, h: F.h });
+    const d = this.doorTile(F, x, y);
     if (!reach[d.y * MW + d.x]) return false;
     for (const i of this.doors(ctx)) if (!reach[i]) return false;
     return true;
   },
-  score(type, def, P, x, y, dC, ctx, tw, opts) {
-    const w = def.w, h = def.h;
-    const cx = x + w / 2, cy = y + h / 2;
-    const d = this.doorTile(def, x, y);
+  score(type, F, P, x, y, dC, ctx, tw, opts) {
+    const s = this.scoreFoot(type, F, P, x, y, dC, ctx, tw, opts);
+    return s === null ? null : s + this.scoreDoor(F, P, x, y, ctx, tw);
+  },
+  // 문 앞 칸에서 길 연결망까지 (P.road: 새로 깔 칸마다 깎고, P.front: 길가에 문을 내면 덤). 방향마다 다르다
+  scoreDoor(F, P, x, y, ctx, tw) {
+    const d = this.doorTile(F, x, y);
     const rd = ctx.rd[d.y * MW + d.x];
-    let s = -dC * P.wd;
+    let s = 0;
     if (P.road) s -= Math.min(rd, 25) * P.road;
     if (P.front && rd <= 1) s += P.front;
     if (rd >= 999 && P.road) s -= 30;
+    if (tw && rd <= 2) s += 1;
+    return s;
+  },
+  // 발판에 달린 몫 (문과 상관없다)
+  scoreFoot(type, F, P, x, y, dC, ctx, tw, opts) {
+    const w = F.w, h = F.h;
+    const cx = x + w / 2, cy = y + h / 2;
+    let s = -dC * P.wd;
     // 발판의 숲, 둘레의 벼랑과 물
     let forest = 0, rough = 0;
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (World.tiles[yy * MW + xx] === T.FOREST) forest++;
@@ -332,7 +349,6 @@ const AdmSite = {
       for (const p of tw) dt = Math.min(dt, Math.hypot(cx - p.x, cy - p.y));
       s += -dt * 3;
       for (const b of ctx.blds) if (b.type === 'tower' && Math.hypot(b.x + 0.5 - cx, b.y + 0.5 - cy) < 4) return null;
-      if (rd <= 2) s += 1;
     }
     if (opts.near) s -= Math.hypot(cx - opts.near.x, cy - opts.near.y) * 1.5;
     const edge = Math.min(x, y, MW - (x + w), MH - (y + h));
@@ -393,15 +409,22 @@ const AdmSite = {
     return best ? [best] : [];
   },
   // 문에서 연결망까지: 꺾임을 싫어하는 4방향 다익스트라
+  // 문은 건물의 방향(b.dir)을 따른다: 마당이 있으면 마당 바깥의 문 앞 칸, 아니면 doorOf
   roadPath(b, net, maxLen) {
-    const def = BDEF[b.type];
-    const door = def.walkRows ? { x: b.x + Math.floor(b.w / 2), y: b.y + b.h } : doorOf(b);
+    const def = BDEF[b.type], dir = b.dir || 0;
+    const door = def.walkRows ? doorFront(b) : doorOf(b);
     const starts = [];
     const add = (x, y, c) => { if (this.roadOk(x, y)) starts.push([y * MW + x, c]); };
     add(door.x, door.y, 0);
     if (!starts.length) {
-      for (let x = b.x; x < b.x + b.w; x++) { add(x, b.y + b.h, 1.5); add(x, b.y - 1, 3); }
-      for (let y = b.y; y < b.y + b.h; y++) { add(b.x - 1, y, 3); add(b.x + b.w, y, 3); }
+      // 문 앞이 막혔으면 문 쪽 면이 싸고 나머지 면은 비싸다
+      if (dir === 0) {
+        for (let x = b.x; x < b.x + b.w; x++) { add(x, b.y + b.h, 1.5); add(x, b.y - 1, 3); }
+        for (let y = b.y; y < b.y + b.h; y++) { add(b.x - 1, y, 3); add(b.x + b.w, y, 3); }
+      } else {
+        for (let x = b.x; x < b.x + b.w; x++) { add(x, b.y + b.h, 3); add(x, b.y - 1, dir === 2 ? 1.5 : 3); }
+        for (let y = b.y; y < b.y + b.h; y++) { add(b.x - 1, y, dir === 3 ? 1.5 : 3); add(b.x + b.w, y, dir === 1 ? 1.5 : 3); }
+      }
     }
     if (!starts.length) return null;
     const N = MW * MH * 5;
@@ -926,22 +949,35 @@ const Admin = {
     if (tw && !tw.length) return null;
     const maxD = (opts.maxDist || ctx.maxD) + (P.far || 0);
     const cands = [];
-    for (let y = 2; y + def.h <= MH - 2; y++) for (let x = 2; x + def.w <= MW - 2; x++) {
-      const dC = Math.hypot(x + def.w / 2 - ctx.ax, y + def.h / 2 - ctx.ay);
-      if (dC > maxD) continue;
-      if (!AdmSite.fits(def, x, y, ctx)) continue;
-      const s = AdmSite.score(type, def, P, x, y, dC, ctx, tw, opts);
-      if (s === null) continue;
-      cands.push({ x, y, s });
+    // 돌릴 수 있는 건물은 방향마다 해 보고 문이 길 연결망에 가까운 쪽을 고른다 (scoreDoor).
+    // 가로세로가 같은 방향끼리는 발판 몫(fitsFoot·scoreFoot)을 한 번만 묻는다. 점수가 같으면 처음 방향
+    const groups = [];
+    for (const dir of dirsOf(type)) {
+      const f = footOf(type, dir), g = groups.find(q => q.w === f.w && q.h === f.h);
+      if (g) g.dirs.push(dir); else groups.push({ w: f.w, h: f.h, dirs: [dir] });
+    }
+    for (const g of groups) {
+      for (let y = 2; y + g.h <= MH - 2; y++) for (let x = 2; x + g.w <= MW - 2; x++) {
+        const dC = Math.hypot(x + g.w / 2 - ctx.ax, y + g.h / 2 - ctx.ay);
+        if (dC > maxD) continue;
+        if (!AdmSite.fitsFoot(g, x, y, ctx)) continue;
+        const base = AdmSite.scoreFoot(type, g, P, x, y, dC, ctx, tw, opts);
+        if (base === null) continue;
+        for (const dir of g.dirs) {
+          const F = { w: g.w, h: g.h, dir };
+          if (!AdmSite.doorFits(F, x, y)) continue;
+          cands.push({ x, y, dir, s: base + AdmSite.scoreDoor(F, P, x, y, ctx, tw) - (dir ? 0.05 : 0) });
+        }
+      }
     }
     cands.sort((a, b) => b.s - a.s);
     let tries = 0;
     for (const c of cands) {
       if (tries >= 40) break;
-      if (!AdmSite.placeOk(type, c.x, c.y)) continue;
+      if (!AdmSite.placeOk(type, c.x, c.y, c.dir)) continue;
       tries++;
-      if (!AdmSite.keepsPaths(def, c.x, c.y, ctx)) continue;
-      return { x: c.x, y: c.y };
+      if (!AdmSite.keepsPaths(Object.assign({ dir: c.dir }, footOf(type, c.dir)), c.x, c.y, ctx)) continue;
+      return { x: c.x, y: c.y, dir: c.dir };
     }
     return null;
   },
@@ -962,16 +998,16 @@ const Admin = {
     // 터가 없던 건물은 한동안 다시 찾지 않는다 (지도 전체를 훑는 일이라 무겁다)
     const nsKey = type + (opts.exitIdx !== undefined ? '@' + opts.exitIdx : '') + (opts.near ? '@n' : '');
     if (this._noSite[nsKey] && this._noSite[nsKey] > S.time && opts.x === undefined) return { ok: false, why: '알맞은 터가 없다', nosite: true };
-    const site = opts.x !== undefined && opts.y !== undefined ? { x: opts.x, y: opts.y } : this.findSite(type, opts);
+    const site = opts.x !== undefined && opts.y !== undefined ? { x: opts.x, y: opts.y, dir: opts.dir || 0 } : this.findSite(type, opts);
     if (!site) { this._noSite[nsKey] = S.time + 8; return { ok: false, why: '알맞은 터가 없다', nosite: true }; }
     let r;
-    if (!d) r = tryBuild(type, site.x, site.y);
+    if (!d) r = tryBuild(type, site.x, site.y, site.dir || 0);
     else {
       // 은자는 부서 기금에서, 목재·석재는 곳간에서. 모자란 재료는 지나는 상인에게 웃돈을 주고 산다
       const inj = { silver: def.cost.silver || 0, wood: plan.short.wood || 0, stone: plan.short.stone || 0 };
       d.fund -= plan.total;
       for (const k in inj) S.res[k] += inj[k];
-      r = tryBuild(type, site.x, site.y);
+      r = tryBuild(type, site.x, site.y, site.dir || 0);
       if (!r.ok) {
         d.fund += plan.total;
         for (const k in inj) S.res[k] = Math.max(0, S.res[k] - inj[k]);
@@ -1138,7 +1174,7 @@ const Admin = {
       if (ADM_CONNECT.indexOf(b.type) < 0 || b.ruined) return false;
       if (this._roadFail[b.id] && this._roadFail[b.id] > S.time) return false;
       const def = BDEF[b.type];
-      const dt = def.walkRows ? { x: b.x + Math.floor(b.w / 2), y: b.y + b.h } : doorOf(b);
+      const dt = def.walkRows ? doorFront(b) : doorOf(b);
       return World.inb(dt.x, dt.y) && !net[dt.y * MW + dt.x];
     });
     list.sort((a, b) => (ADM_CONNECT.indexOf(a.type) - ADM_CONNECT.indexOf(b.type)) * 4
@@ -1893,6 +1929,8 @@ Bus.on('raidWarning', () => {
   // 이방이 내려 두었던 망루 일손은 경보가 오면 바로 되돌린다
   Admin.restoreLowered(b => b.type === 'tower');
 });
+// 영주가 건물을 돌리면 문이 바뀌었으니 길 잇기를 다시 해 본다 (길을 못 냈던 기억을 지운다)
+Bus.on('rotated', b => { if (b) delete Admin._roadFail[b.id]; });
 // 경보 없이 쳐들어와도(봉기 등) 닫아 둔 망루·무관을 연다
 Bus.on('raidStart', () => { if (S.admin) Admin.restoreLowered(b => b.type === 'tower' || b.type === 'dojo'); });
 Bus.on('built', b => {

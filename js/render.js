@@ -791,16 +791,17 @@ function isNight() { const h = hourOf(); return h >= 19.5 || h < 5.3; }
 // 같은 값이면 땅 → 건물 → 나무 → 사람.
 function renKeyOf(b) { return b.x + b.y + (b.w + b.h) / 2; }
 function renSpriteOf(b, season) {
-  const def = BDEF[b.type];
-  if (b.ruined) return buildingSprite(b.type, b.w, b.h, season, 'ruin');
-  if (!b.done) return buildingSprite(b.type, b.w, b.h, season, 'build', (Math.floor(clamp(b.progress / Math.max(0.01, def.time), 0, 1) * 4) / 4).toFixed(2));
-  return buildingSprite(b.type, b.w, b.h, season, 'done', def.line || b.type === 'gate' ? String(wallMask(b)) : '');
+  const def = BDEF[b.type], d = b.dir || 0;
+  if (b.ruined) return buildingSprite(b.type, b.w, b.h, season, 'ruin', '', d);
+  if (!b.done) return buildingSprite(b.type, b.w, b.h, season, 'build', (Math.floor(clamp(b.progress / Math.max(0.01, def.time), 0, 1) * 4) / 4).toFixed(2), d);
+  return buildingSprite(b.type, b.w, b.h, season, 'done', def.line || b.type === 'gate' ? String(wallMask(b)) : '', d);
 }
-// 점 (px, py)가 건물 b의 앞(1)인가 뒤(-1)인가. 마당(walkRows)은 앞으로 친다.
+// 점 (px, py)가 건물 b의 앞(1)인가 뒤(-1)인가. 마당(walkRows)은 앞으로 친다 (마당은 늘 화면 앞쪽: 무관·표국은 dir 0·1 만).
 function renRelation(px, py, b) {
   const def = BDEF[b.type];
-  const x0 = b.x, y0 = b.y, x1 = b.x + b.w;
-  const y1 = b.y + b.h - (def.walkRows && b.done && !b.ruined ? def.walkRows : 0);
+  const yd = def.walkRows && b.done && !b.ruined ? def.walkRows : 0, d1 = (b.dir || 0) === 1;
+  const x0 = b.x, y0 = b.y, x1 = b.x + b.w - (d1 ? yd : 0);
+  const y1 = b.y + b.h - (d1 ? 0 : yd);
   const fr = px >= x1 || py >= y1, bh = px <= x0 || py <= y0;
   if (fr && !bh) return 1;
   if (bh && !fr) return -1;
@@ -951,6 +952,13 @@ function render(nowMs) {
     for (let xx = b.x; xx < b.x + b.w; xx++) renMarkRock(xx, b.y + b.h);
   }
   for (const b of grounds) drawBuilding(c, b, renSpriteOf(b, season), season, now);
+  // 등을 보인 건물(dir 2·3)의 문 앞 디딤돌: 화면 안쪽으로 난 입구가 어디인지 땅에 남긴다
+  for (const b of S.buildings) {
+    if ((b.dir || 0) < 2 || b.ruined || BDEF[b.type].ground) continue;
+    const f = doorFront(b), px = (f.x - f.y) * 32, py = (f.x + f.y) * 16;
+    if (px < V.x0 - 40 || px > V.x1 + 40 || py < V.y0 - 40 || py > V.y1 + 40) continue;
+    renDoorstep(c, b, f, season);
+  }
   renExitCrests(V);
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) {
     if (renGone(u)) continue;
@@ -1104,9 +1112,11 @@ function drawBuilding(c, b, s, season, now) {
   // 굴뚝·향로 연기는 그림이 알려 준 자리(SPRITE_META smoke, 북쪽 꼭짓점 기준)에서
   const sm = (SPRITE_META[b.type] || {}).smoke;
   if (sm && b.done && !b.ruined && Math.random() < 0.06) {
-    if (b.type === 'smithy' && b._working) emitSmoke(nx + sm[0], ny + sm[1], 'rgba(90,90,96,', 1);
-    if (b.type === 'shrine') emitSmoke(nx + sm[0], ny + sm[1] - 4, 'rgba(220,220,230,', 0.4);
-    if (b.type === 'altar_ma') emitSmoke(nx + sm[0] + rnd(-4, 4), ny + sm[1] - 8, 'rgba(110,36,44,', 0.75);
+    // 좌우로 뒤집힌 그림(dir 1·3)은 연기 자리도 뒤집는다
+    const sx = nx + (b.dir & 1 ? -sm[0] : sm[0]);
+    if (b.type === 'smithy' && b._working) emitSmoke(sx, ny + sm[1], 'rgba(90,90,96,', 1);
+    if (b.type === 'shrine' && (b.dir || 0) < 2) emitSmoke(sx, ny + sm[1] - 4, 'rgba(220,220,230,', 0.4);   // 향로는 문 앞에만
+    if (b.type === 'altar_ma') emitSmoke(sx + rnd(-4, 4), ny + sm[1] - 8, 'rgba(110,36,44,', 0.75);
   }
   if (b.ruined && Math.random() < 0.08) {
     const tx = b.x + rnd(0.2, b.w - 0.2), ty = b.y + rnd(0.2, b.h - 0.2);
@@ -1259,6 +1269,14 @@ function renLight(x, y, r, col, flicker, s) {
   R.lightN++;
   l.x = x; l.y = y; l.r = r; l.c = col; l.flicker = flicker; l.s = s;
 }
+// 처음 방향의 발판 기준 점 (u, v) 을 놓인 방향의 발판 기준으로. 등을 보인 그림(2·3)은 문 앞 등롱이 문을 따라 반 바퀴 돌고,
+// 뒤집힌 그림(1·3)은 (u, v) → (v, u). SPRITE_META[type].backLight === 'keep' 이면 등을 보여도 불 자리가 그대로인 그림
+function renLightUV(b, d, u, v) {
+  if (!d) return [u, v];
+  const def = BDEF[b.type], W = def.w, H = def.h;
+  if (d >= 2 && (SPRITE_META[b.type] || {}).backLight !== 'keep') { u = W - u; v = H - v; }
+  return d & 1 ? [v, u] : [u, v];
+}
 // 불빛 위치 = 발판 기준 타일 점의 worldOf 에서 높이(lift)만큼 위. BDEF.light 항목: [x, y, 반경, 색, 높이?]
 function collectLights() {
   R.lightN = 0;
@@ -1272,15 +1290,18 @@ function collectLights() {
     const def = BDEF[b.type];
     // 불빛 자리는 BDEF 가 먼저, 없으면 그림이 알려 준 자리 (갈래 건물)
     const lights = def.light || (SPRITE_META[b.type] || {}).light;
+    const d = b.dir || 0;
     if (lights) {
       for (const L of lights) {
-        const lx = b.x + L[0], ly = b.y + L[1];
+        const p = renLightUV(b, d, L[0], L[1]);
+        const lx = b.x + p[0], ly = b.y + p[1];
         const lift = L.length > 4 ? L[4] : (def.lightLift || 16);
         renLight((lx - ly) * 32, (lx + ly) * 16 - lift, L[2], L[3], 1, 0.95);
       }
     }
     if ((b.type === 'house' || b.type === 'house2') && b._home > 0 && night && h < 23.5 && h > 12) {
-      const lx = b.x + b.w / 2, ly = b.y + b.h - 0.12;
+      // 창 불빛은 보이는 앞면(뒤집힌 그림이면 오른쪽 앞면)에
+      const lx = d & 1 ? b.x + b.w - 0.12 : b.x + b.w / 2, ly = d & 1 ? b.y + b.h / 2 : b.y + b.h - 0.12;
       renLight((lx - ly) * 32, (lx + ly) * 16 - 11, 1.7, '#ffc070', 0, 0.75);
     }
   }
@@ -1396,6 +1417,8 @@ function drawOverlays(c, now) {
     renFootPath(c, b.x, b.y, b.w, b.h, -0.04); c.stroke();
     c.setLineDash([]); c.lineDashOffset = 0;
     if (b.type === 'tower') rangeCircle(c, b.x + 0.5, b.y + 0.5, BDEF.tower.range);
+    // 돌릴 수 있는 건물은 고르면 입구가 보인다
+    if (canRotate(b.type) && !b.ruined && !UI.tool) { const f = doorFront(b); renDoorMark(c, b.dir || 0, f, walkable(f.x, f.y), now, false); }
   }
   if (sel && sel.u && !renGone(sel.u)) {
     const u = sel.u;
@@ -1549,22 +1572,64 @@ function drawToolGhost(c, now, season) {
   }
   if (tool.kind === 'build') {
     const def = BDEF[tool.key];
-    const bx = h.x - Math.floor((def.w - 1) / 2), by = h.y - Math.floor((def.h - 1) / 2);
-    const res = canPlace(tool.key, bx, by);
+    // 놓일 자리·방향은 UI 가 정한다 (들고 있는 방향, 손대지 않았으면 맞닿은 길 쪽)
+    const P = UI.buildPlan(h.x, h.y);
+    const bx = P.x, by = P.y;
+    const res = canPlace(tool.key, bx, by, P.dir);
     c.fillStyle = res.ok ? 'rgba(140,220,120,0.34)' : 'rgba(230,80,60,0.40)';
-    renFootPath(c, bx, by, def.w, def.h, 0); c.fill();
+    renFootPath(c, bx, by, P.w, P.h, 0); c.fill();
     // 성문은 놓일 자리의 담장 방향대로 돌려 보여 준다 (놓은 뒤와 같게)
-    const s = buildingSprite(tool.key, def.w, def.h, season, 'done', tool.key === 'gate' ? String(wallMask({ x: bx, y: by })) : '');
+    const s = buildingSprite(tool.key, P.w, P.h, season, 'done', tool.key === 'gate' ? String(wallMask({ x: bx, y: by })) : '', P.dir);
     c.globalAlpha = 0.7;
     c.drawImage(s.c, (bx - by) * 32 + s.ox, (bx + by) * 16 + s.oy, s.w, s.h);
     c.globalAlpha = 1;
     c.strokeStyle = res.ok ? 'rgba(170,240,150,0.9)' : 'rgba(250,110,90,0.95)'; c.lineWidth = lw;
-    renFootPath(c, bx, by, def.w, def.h, 0); c.stroke();
+    renFootPath(c, bx, by, P.w, P.h, 0); c.stroke();
     // 커서가 가리키는 칸
     c.strokeStyle = 'rgba(255,245,220,0.75)'; c.lineWidth = lw * 0.7;
     renFootPath(c, h.x, h.y, 1, 1, 0.08); c.stroke();
     if (tool.key === 'tower') rangeCircle(c, bx + 0.5, by + 0.5, def.range);
+    // 입구: 문 앞 칸에 바깥을 가리키는 금빛 화살. 그 칸이 길이거나 걸을 수 있으면 초록, 막혔으면 붉게
+    if (P.rot) renDoorMark(c, P.dir, P.door, P.doorOk, now, true);
   }
+}
+// 디딤돌: 문 앞 칸(f)의 건물 쪽 가장자리에 납작한 돌 하나와 밟아 다진 흙
+function renDoorstep(c, b, f, season) {
+  const d = b.dir || 0, v = DIR_VEC[d], cu = f.x + 0.5, cv = f.y + 0.5;
+  const P = (t, side, z = 0) => { const u = cu + v[0] * t - v[1] * side, w = cv + v[1] * t + v[0] * side; return [(u - w) * 32, (u + w) * 16 - z]; };
+  const quad = (t0, t1, s, z) => { const q = [P(t0, -s, z), P(t1, -s, z), P(t1, s, z), P(t0, s, z)]; c.beginPath(); q.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath(); };
+  if (!World.isRoad(f.x, f.y)) { quad(-0.5, 0.3, 0.42, 0); c.fillStyle = season === 3 ? 'rgba(150,140,128,0.35)' : 'rgba(120,92,58,0.32)'; c.fill(); }
+  // 돌의 옆면(두께) → 윗면
+  quad(-0.48, -0.16, 0.3, 0); c.fillStyle = '#6e6a62'; c.fill();
+  quad(-0.48, -0.16, 0.3, 2.2); c.fillStyle = season === 3 ? '#e6ebf0' : '#b4afa4'; c.fill();
+  c.strokeStyle = 'rgba(40,36,30,0.55)'; c.lineWidth = 0.6; c.stroke();
+}
+// 문 앞 칸(door)과 그 칸을 지나 바깥으로 나가는 화살. ok: 드나들 수 있는 칸인가. label: '입구' 이름표
+function renDoorMark(c, dir, door, ok, now, label) {
+  const v = DIR_VEC[dir], cu = door.x + 0.5, cv = door.y + 0.5;
+  const P = (u, w) => [(u - w) * 32, (u + w) * 16];
+  const pulse = 0.5 + 0.5 * Math.sin(now * 5);
+  // 문 앞 칸
+  c.fillStyle = ok ? `rgba(150,230,120,${(0.3 + 0.12 * pulse).toFixed(3)})` : `rgba(235,85,60,${(0.36 + 0.12 * pulse).toFixed(3)})`;
+  renDia(c, (door.x - door.y) * 32, (door.x + door.y) * 16, -1); c.fill();
+  c.strokeStyle = ok ? 'rgba(255,214,110,0.95)' : 'rgba(255,120,95,0.95)'; c.lineWidth = Math.max(1.2, renPx(1.6));
+  c.stroke();
+  // 화살: 발판 가장자리(문 칸의 안쪽 변)에서 문 칸 바깥 변 너머까지. 화면에서 늘 보이게 위에 겹쳐 그린다
+  const s = (t, side) => P(cu + v[0] * t - v[1] * side, cv + v[1] * t + v[0] * side);
+  const pts = [s(-0.62, 0.12), s(0.12, 0.12), s(0.12, 0.3), s(0.62, 0), s(0.12, -0.3), s(0.12, -0.12), s(-0.62, -0.12)];
+  c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath();
+  c.fillStyle = ok ? '#ffd36a' : '#ff8a6a'; c.fill();
+  c.strokeStyle = '#3a2410'; c.lineWidth = Math.max(1, renPx(1.4)); c.lineJoin = 'round'; c.stroke();
+  if (!label) return;
+  const fs = Math.max(10, renPx(12));
+  const [lx, ly0] = P(cu + v[0] * 0.95, cv + v[1] * 0.95);
+  const ly = ly0 + (v[1] < 0 || v[0] < 0 ? -fs * 0.9 : fs * 0.9);
+  const text = ok ? '입구' : '입구 막힘';
+  c.font = `${fs.toFixed(1)}px "Gowun Batang", serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  const tw = c.measureText(text).width + fs * 0.9, th = fs * 1.5;
+  c.fillStyle = 'rgba(28,20,17,0.9)'; c.fillRect(lx - tw / 2, ly - th / 2, tw, th);
+  c.strokeStyle = ok ? 'rgba(216,169,68,0.85)' : 'rgba(240,110,90,0.9)'; c.lineWidth = Math.max(0.8, renPx(1)); c.strokeRect(lx - tw / 2, ly - th / 2, tw, th);
+  c.fillStyle = ok ? '#ffe3a0' : '#ffb4a0'; c.fillText(text, lx, ly + fs * 0.05);
 }
 
 // ── 날씨 (화면 공간) ───────────────────────

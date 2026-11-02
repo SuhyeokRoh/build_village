@@ -270,7 +270,36 @@ button[data-tip], button[data-tip-title] { cursor: pointer; }
 #tool-hint {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--bar-h) + var(--safe-b) + 12px);
   z-index: 19; padding: 6px 14px; border-radius: 6px; background: rgba(28,20,17,0.92); border: 1px solid var(--gold-dim);
-  font-size: 13px; pointer-events: none; white-space: nowrap; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis;
+  font-size: 13px; pointer-events: none; max-width: calc(100% - 20px);
+  display: flex; align-items: center; gap: 10px;
+}
+#tool-hint-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* 든 건물 돌리기: 안내 띠는 지도를 가리지 않게 눌리지 않지만 이 단추만은 눌린다 */
+#tool-rotate {
+  pointer-events: auto; flex: none; margin: -3px -8px -3px 0; padding: 4px 12px; min-height: 30px;
+  background: var(--lacquer-3); border: 1px solid var(--gold); border-radius: 5px; color: var(--gold);
+  font-family: var(--font-ui); font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+#tool-rotate:hover { background: #4a3626; }
+#tool-rotate, .btn-rot { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.rot-ico { flex: none; display: block; }
+#tool-rotate:active { background: var(--gold); color: var(--lacquer); }
+@media (max-width: 640px), (pointer: coarse) {
+  #tool-hint { padding: 5px 6px 5px 12px; }
+  #tool-rotate { min-height: 44px; min-width: 88px; margin: 0; font-size: 14px; }
+}
+@media (max-width: 640px) {
+  #tool-hint { width: max-content; max-width: calc(100% - 16px); }
+  #tool-hint-text { white-space: normal; font-size: 12.5px; line-height: 1.4; }
+}
+/* 가로로 누운 폰: 지도가 낮으니 안내 띠를 오른쪽 아래 한 줄로 붙여 가운데(미리 보기 자리)를 비운다 */
+@media (max-height: 500px) and (orientation: landscape) {
+  #tool-hint { left: auto; right: max(10px, var(--safe-r)); transform: none; width: auto; max-width: 52%; bottom: calc(var(--bar-h) + var(--safe-b) + 6px); padding: 2px 4px 2px 10px; }
+  #tool-hint-text { white-space: nowrap; font-size: 12px; }
+}
+/* 좁은 화면에서는 정보 창도 건설 띠 위에 뜬다: 도구를 든 동안은 안내 띠 위로 올려 [돌리기]·[허물기]가 가리지 않게 */
+@media (max-width: 860px) {
+  #app.tool-on #panel { bottom: calc(var(--bar-h) + var(--safe-b) + 76px); max-height: calc(46vh - 68px); }
 }
 #tooltip {
   position: fixed; z-index: 60; pointer-events: none; max-width: 260px;

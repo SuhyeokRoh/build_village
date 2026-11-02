@@ -95,16 +95,19 @@ function newGame(name, siteKey = 'henan_field', seed = Math.floor(Math.random() 
 }
 
 // ── 건물 배치 ────────────────────────────
-function placeBuilding(type, x, y, done = false) {
+// dir: 문이 향하는 쪽 (world.js DIR_VEC). 1·3 이면 발판의 가로세로가 바뀐다
+function placeBuilding(type, x, y, done = false, dir = 0) {
   const def = BDEF[type];
+  dir = normDir(type, dir);
+  const f = footOf(type, dir);
   const b = {
-    id: S.nextId++, type, x, y, w: def.w, h: def.h,
+    id: S.nextId++, type, x, y, w: f.w, h: f.h, dir,
     hp: def.hp, maxHp: def.hp, done, progress: done ? def.time : 0,
     active: true, ruined: false, want: def.workers || 0,
   };
   if (!done) b.hp = def.hp * 0.3;
   let terrain = false;
-  for (let yy = y; yy < y + def.h; yy++) for (let xx = x; xx < x + def.w; xx++) {
+  for (let yy = y; yy < y + f.h; yy++) for (let xx = x; xx < x + f.w; xx++) {
     const i = yy * MW + xx;
     if (World.tiles[i] === T.FOREST || World.tiles[i] === T.ROCK) { World.tiles[i] = T.GRASS; terrain = true; }
     if (done && type !== 'gate') World.road[i] = 0;
@@ -113,19 +116,73 @@ function placeBuilding(type, x, y, done = false) {
   S.buildings.push(b);
   S.bmap.set(b.id, b);
   World.stamp(b, b.id);
-  // 발판 위에 서 있던 사람 비키기
+  vacateFoot(b);
+  updateSiteFactors(b);
+  markDirty();
+  return b;
+}
+// 발판 위에 서 있던 사람 비키기 (놓을 때·돌릴 때). 새로 막힌 칸을 지나던 길은 moveUnit 이 버리고 다시 찾는다
+function vacateFoot(b) {
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) {
     if (u.inside) continue;
     const tx = Math.floor(u.x), ty = Math.floor(u.y);
-    if (tx >= x && tx < x + def.w && ty >= y && ty < y + def.h && !walkable(tx, ty, u.kind === 'e' ? 1 : 0)) {
+    if (tx >= b.x && tx < b.x + b.w && ty >= b.y && ty < b.y + b.h && !walkable(tx, ty, u.kind === 'e' ? 1 : 0)) {
       const p = nearestWalkable(tx, ty, 0, 6);
       if (p) { u.x = p.x + 0.5; u.y = p.y + 0.5; }
       u.path = null;
     }
   }
+}
+// 제자리 돌리기가 막힌 까닭 (canPlace 의 말을 돌리기에 맞게)
+const ROT_WHY = [
+  ['이미 다른 건물이 있다', '옆 건물과 겹친다'], ['길 위에는', '길을 덮는다'], ['물 위에는', '물에 걸친다'],
+  ['바위산에는', '바위산에 걸친다'], ['지도 가장자리', '지도 가장자리를 넘는다'],
+  ['강물과', '강물에서 떨어진다'], ['가까이에 숲', '숲에서 멀어진다'], ['가까이에 바위산', '바위산에서 멀어진다'],
+];
+// 놓인 건물을 제자리에서 다음 방향(step = −1 이면 앞 방향)으로 돌린다. 값은 들지 않는다.
+// 새 발판이 canPlace 의 땅 조건(비용·등급·하나만 빼고, 제 발판은 빈 땅으로 친다)을 넘어야 한다.
+// 가로세로가 바뀌는 건물은 원래 발판과 가장 많이 겹치는 자리부터 해 본다. 일꾼·식구·내구도·공사 진척은 그대로
+function rotateBuilding(b, step = 1) {
+  if (!b || !S.bmap.get(b.id)) return { ok: false, why: '건물이 없다' };
+  if (!canRotate(b.type)) return { ok: false, why: '돌릴 수 없는 건물이다' };
+  const dir = nextDir(b.type, b.dir || 0, step);
+  const f = footOf(b.type, dir);
+  const cands = [];
+  for (let oy = Math.min(0, b.h - f.h); oy <= Math.max(0, b.h - f.h); oy++) {
+    for (let ox = Math.min(0, b.w - f.w); ox <= Math.max(0, b.w - f.w); ox++) {
+      const x = b.x + ox, y = b.y + oy;
+      const ix = Math.min(b.x + b.w, x + f.w) - Math.max(b.x, x), iy = Math.min(b.y + b.h, y + f.h) - Math.max(b.y, y);
+      // 겹침이 같으면 가운데가 덜 움직이는 자리, 그다음 북쪽 꼭짓점을 지키는 자리
+      cands.push({ x, y, s: -ix * iy * 10 + Math.hypot(x + f.w / 2 - b.x - b.w / 2, y + f.h / 2 - b.y - b.h / 2) + (ox || oy ? 0.01 : 0) });
+    }
+  }
+  cands.sort((p, q) => p.s - q.s);
+  let at = null, why = '';
+  for (const c of cands) {
+    const r = canPlace(b.type, c.x, c.y, dir, { self: b.id, free: true });
+    if (r.ok) { at = c; break; }
+    if (!why) why = r.why;
+  }
+  if (!at) { const m = ROT_WHY.find(([k]) => why.startsWith(k)); return { ok: false, why: `돌리면 ${m ? m[1] : why || '자리가 맞지 않는다'}` }; }
+  World.unstamp(b);
+  b.x = at.x; b.y = at.y; b.w = f.w; b.h = f.h; b.dir = dir;
+  let forest = 0, terrain = false;
+  for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) {
+    const i = yy * MW + xx;
+    if (World.tiles[i] === T.FOREST) forest++;
+    if (World.tiles[i] === T.FOREST || World.tiles[i] === T.ROCK) { World.tiles[i] = T.GRASS; terrain = true; }
+  }
+  if (terrain) World.terrainDirty = true;
+  if (forest) addRes('wood', forest * 3);
+  World.stamp(b, b.id);
+  vacateFoot(b);
+  // 안에 든 사람·문 앞을 오가던 사람의 길은 새 문으로 다시 찾는다
+  for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) if (u.path && (u.site === b.id || u.job === b.id || u.home === b.id || u.destB === b.id || u.tb === b.id)) u.path = null;
   updateSiteFactors(b);
+  for (const o of S.buildings) if (o.type === 'escort' && o !== b) o._connected = roadConnected(o);
   markDirty();
-  return b;
+  Bus.emit('rotated', b);
+  return { ok: true, dir };
 }
 function updateSiteFactors(b) {
   if (b.type === 'lumber') b._forest = clamp(countTilesNear(b, T.FOREST, 4.5) / 10, 0.15, 1.25);
@@ -149,39 +206,47 @@ function roadConnected(b) {
   }
   return false;
 }
-function canPlace(type, x, y) {
+// dir: 문 방향(발판이 footOf 로 바뀐다). opt.self: 이 id 의 건물 칸은 빈 땅으로 친다(제자리 돌리기),
+// opt.free: 등급·갈래·하나만·비용은 묻지 않는다
+function canPlace(type, x, y, dir = 0, opt = null) {
   const def = BDEF[type];
-  if (def.rank && S.rank < def.rank) return { ok: false, why: `마을이 ${RANKS[def.rank].name} 이상이어야 한다` };
-  // 갈래 건물은 그 갈래를 걸을 때만, 하나씩만
-  if (def.route && (!S.jh || S.jh.route !== def.route)) return { ok: false, why: `갈래가 다르다 (${def.route === 'free' ? '홀로 서는' : CAMPS[def.route].name + '의'} 길에서만 짓는다)` };
-  if (def.unique && S.buildings.some(b => b.type === type)) return { ok: false, why: '하나만 지을 수 있다' };
-  for (let yy = y; yy < y + def.h; yy++) for (let xx = x; xx < x + def.w; xx++) {
+  const free = !!(opt && opt.free), self = (opt && opt.self) || 0;
+  if (!free) {
+    if (def.rank && S.rank < def.rank) return { ok: false, why: `마을이 ${RANKS[def.rank].name} 이상이어야 한다` };
+    // 갈래 건물은 그 갈래를 걸을 때만, 하나씩만
+    if (def.route && (!S.jh || S.jh.route !== def.route)) return { ok: false, why: `갈래가 다르다 (${def.route === 'free' ? '홀로 서는' : CAMPS[def.route].name + '의'} 길에서만 짓는다)` };
+    if (def.unique && S.buildings.some(b => b.type === type)) return { ok: false, why: '하나만 지을 수 있다' };
+  }
+  const f = footOf(type, normDir(type, dir));
+  for (let yy = y; yy < y + f.h; yy++) for (let xx = x; xx < x + f.w; xx++) {
     if (xx < 1 || yy < 1 || xx >= MW - 1 || yy >= MH - 1) return { ok: false, why: '지도 가장자리에는 지을 수 없다' };
     const i = yy * MW + xx;
     const t = World.tiles[i];
-    if (World.occ[i]) return { ok: false, why: '이미 다른 건물이 있다' };
+    if (World.occ[i] && World.occ[i] !== self) return { ok: false, why: '이미 다른 건물이 있다' };
     if (World.road[i] && type !== 'gate') return { ok: false, why: '길 위에는 지을 수 없다 (성문만 가능)' };
     if (t === T.WATER && !World.road[i]) return { ok: false, why: '물 위에는 지을 수 없다' };
     if (t === T.ROCK) return { ok: false, why: '바위산에는 지을 수 없다' };
   }
-  const probe = { x, y, w: def.w, h: def.h };
+  const probe = { x, y, w: f.w, h: f.h };
   if (def.needs === 'water') {
     let n = 0;
-    for (let xx = x - 1; xx <= x + def.w; xx++) for (let yy = y - 1; yy <= y + def.h; yy++) if (World.tile(xx, yy) === T.WATER && !World.isRoad(xx, yy)) n++;
+    for (let xx = x - 1; xx <= x + f.w; xx++) for (let yy = y - 1; yy <= y + f.h; yy++) if (World.tile(xx, yy) === T.WATER && !World.isRoad(xx, yy)) n++;
     if (n < 2) return { ok: false, why: '강물과 맞닿아야 한다' };
   }
   if (def.needs === 'forest' && countTilesNear(probe, T.FOREST, 4.5) < 3) return { ok: false, why: '가까이에 숲이 있어야 한다' };
   if (def.needs === 'rock' && countTilesNear(probe, T.ROCK, 4.5) < 3) return { ok: false, why: '가까이에 바위산이 있어야 한다' };
-  if (!canAfford(def.cost)) return { ok: false, why: '재료가 모자라다', poor: true };
+  if (!free && !canAfford(def.cost)) return { ok: false, why: '재료가 모자라다', poor: true };
   return { ok: true };
 }
-function tryBuild(type, x, y) {
-  const r = canPlace(type, x, y);
+function tryBuild(type, x, y, dir = 0) {
+  dir = normDir(type, dir);
+  const r = canPlace(type, x, y, dir);
   if (!r.ok) return r;
   pay(BDEF[type].cost);
+  const f = footOf(type, dir);
   let forest = 0;
-  for (let yy = y; yy < y + BDEF[type].h; yy++) for (let xx = x; xx < x + BDEF[type].w; xx++) if (World.tile(xx, yy) === T.FOREST) forest++;
-  const b = placeBuilding(type, x, y, false);
+  for (let yy = y; yy < y + f.h; yy++) for (let xx = x; xx < x + f.w; xx++) if (World.tile(xx, yy) === T.FOREST) forest++;
+  const b = placeBuilding(type, x, y, false, dir);
   if (forest) addRes('wood', forest * 3);
   Bus.emit('placed', b);
   return { ok: true, b };
@@ -1054,7 +1119,8 @@ function deserialize(str) {
   for (let i = 0; i < World.tiles.length; i++) { World.tiles[i] = data.tiles.charCodeAt(i) - 48; World.road[i] = data.roads[i] === '1' ? 1 : 0; }
   S = st;
   S.bmap = new Map();
-  for (const b of S.buildings) S.bmap.set(b.id, b);
+  // 옛 저장에는 b.dir 이 없다: 처음 방향(0). 발판(b.w, b.h)은 저장된 그대로
+  for (const b of S.buildings) { S.bmap.set(b.id, b); if (b.dir === undefined) b.dir = 0; }
   World.rebuildOcc();
   // 천하: 옛 저장이면 만들고(이웃은 옛 여섯), 길목 toward 를 다시 붙인다
   hook(JH, 'onLoad');

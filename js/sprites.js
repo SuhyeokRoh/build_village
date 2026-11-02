@@ -54,6 +54,8 @@ const SPRITE_META = {
   wall: { height: 28, eave: 0 },
   stonewall: { height: 32, eave: 0 },
   gate: { height: 63, eave: 44, gateMask: true },
+  // 돌린 건물(b.dir 1·3)은 그림을 좌우로 뒤집으니 smoke 의 dx 도 뒤집어 쓴다. 등을 보인 건물(2·3)의 불빛은 문 앞 등롱을 따라
+  //  반 바퀴 돌린다(render.js renLightUV). backLight: 'keep' 이면 등을 보여도 불 자리가 그대로인 그림
   // 갈래 건물 (docs/jianghu.md §8.4). sign: 그림에 쓴 현판 글자(풀이는 아래 SPRITE_GLOSS).
   //  light: BDEF.light 와 같은 꼴 [x, y, 반경, 색, 높이] — BDEF 에 불빛이 없으면 렌더러가 이것을 쓴다
   hall_jeong: { height: 110, eave: 37, sign: '義俠堂', light: [[0.62, 2.55, 2.2, '#ffcf6a', 14], [2.38, 2.55, 2.2, '#ffcf6a', 14]] },
@@ -61,7 +63,7 @@ const SPRITE_META = {
   ancestral: { height: 82, eave: 34, sign: '宗家', light: [[1.5, 2.95, 1.9, '#ffbe6a', 26]] },
   blackmarket: { height: 66, eave: 30, sign: '黑市', light: [[0.75, 1.92, 1.9, '#ff6a3a', 20], [2.2, 1.92, 1.9, '#ff6a3a', 20], [1.5, 0.95, 1.7, '#ffa24a', 24]] },
   gambling: { height: 100, eave: 37, sign: '賭坊', light: [[0.55, 1.85, 2.2, '#ff7a4a', 22], [2.45, 1.85, 2.2, '#ff7a4a', 22], [1.5, 1.7, 1.8, '#ffb25a', 14]] },
-  horsemarket: { height: 58, eave: 15, sign: '互市', light: [[0.8, 1.45, 1.8, '#ffb25a', 10]] },
+  horsemarket: { height: 58, eave: 15, sign: '互市', light: [[0.8, 1.45, 1.8, '#ffb25a', 10]], backLight: 'keep' },
   yamen: { height: 92, eave: 38, sign: '衙門', light: [[0.55, 1.9, 2.2, '#ffbe6a', 22], [2.45, 1.9, 2.2, '#ffbe6a', 22]] },
   stage: { height: 76, eave: 0, sign: '演武臺', light: [[0.2, 2.5, 2.0, '#ffa04a', 24], [2.8, 2.5, 2.0, '#ffa04a', 24]] },
 };
@@ -87,6 +89,9 @@ for (const [k, v] of Object.entries(SPRITE_GLOSS)) if (!HANJA_GLOSS[k]) HANJA_GL
 const IsoArt = (() => {
   const X = (u, v) => (u - v) * 32;
   const Y = (u, v, z = 0) => (u + v) * 16 - z;
+  // 지금 그리는 건물이 화면 안쪽으로 문을 냈는가 (dir 2·3), 좌우로 뒤집혀 보이는가 (dir 1·3). draw 가 정한다.
+  // MIR 이면 그림의 +v 면이 화면 오른쪽에 온다: 빛은 늘 화면 왼쪽 위에서 오도록 면의 밝고 어두움을 맞바꾼다
+  let BACK = false, MIR = false;
 
   // 색 섞기 ('#rrggbb' 만)
   function rgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
@@ -110,7 +115,9 @@ const IsoArt = (() => {
   }
   // 상자: 윗면 + 왼쪽 앞면(+v) + 오른쪽 앞면(+u)
   function box(c, u0, v0, u1, v1, z0, z1, col, o = {}) {
-    const left = o.left || col, right = o.right || shade(col, -0.26), top = o.top || shade(col, 0.16);
+    let left = o.left || col, right = o.right || shade(col, -0.26);
+    const top = o.top || shade(col, 0.16);
+    if (MIR) { const t = left; left = right; right = t; }
     if (z1 > z0) {
       fill3(c, left, [[u0, v1, z0], [u1, v1, z0], [u1, v1, z1], [u0, v1, z1]]);
       fill3(c, right, [[u1, v1, z0], [u1, v0, z0], [u1, v0, z1], [u1, v1, z1]]);
@@ -137,7 +144,7 @@ const IsoArt = (() => {
   function cylV(c, u, v, r, z0, z1, side, top, o = {}) {
     const x = X(u, v), rx = r * 45.25, ry = r * 22.63;
     const y0 = Y(u, v, z0), y1 = Y(u, v, z1);
-    const g = c.createLinearGradient(x - rx, 0, x + rx, 0);
+    const g = MIR ? c.createLinearGradient(x + rx, 0, x - rx, 0) : c.createLinearGradient(x - rx, 0, x + rx, 0);
     g.addColorStop(0, shade(side, 0.12)); g.addColorStop(0.45, side); g.addColorStop(1, shade(side, -0.35));
     c.fillStyle = g;
     c.beginPath(); c.moveTo(x - rx, y1); c.lineTo(x - rx, y0); c.ellipse(x, y0, rx, ry, 0, Math.PI, 0, true); c.lineTo(x + rx, y1); c.closePath(); c.fill();
@@ -148,7 +155,9 @@ const IsoArt = (() => {
   function ao(c, u0, v0, u1, v1, k = 1) {
     for (let i = 3; i >= 1; i--) {
       const m = 0.045 * i;
-      fill3(c, `rgba(22,15,8,${0.075 * k})`, [[u0 - m * 0.5, v0 - m * 0.5, 0], [u1 + m * 1.3, v0 - m * 0.3, 0], [u1 + m * 1.3, v1 + m, 0], [u0 - m * 0.3, v1 + m, 0]]);
+      // 그늘은 화면 오른쪽으로 조금 더 (뒤집힌 그림이면 그림의 +v 쪽이 화면 오른쪽)
+      const mu = MIR ? 1 : 1.3, mv = MIR ? 1.3 : 1;
+      fill3(c, `rgba(22,15,8,${0.075 * k})`, [[u0 - m * 0.5, v0 - m * 0.5, 0], [u1 + m * mu, v0 - m * 0.3, 0], [u1 + m * mu, v1 + m * mv, 0], [u0 - m * 0.3, v1 + m * mv, 0]]);
     }
   }
 
@@ -181,8 +190,8 @@ const IsoArt = (() => {
     box(c, u0, v0, u1, v1, z0, z1, col, { top: o.top || shade(col, 0.2), right: shade(col, -0.24) });
     const h = z1 - z0;
     if (h > 2.5) {
-      onL(c, u0, v1, z0, () => stoneCourses(c, (u1 - u0) * 32, h, o.rnd, o));
-      onR(c, u1, v1, z0, () => { stoneCourses(c, (v1 - v0) * 32, h, o.rnd, o); rr(c, 'rgba(15,10,6,0.12)', 0, -h, (v1 - v0) * 32, h); });
+      onL(c, u0, v1, z0, () => { stoneCourses(c, (u1 - u0) * 32, h, o.rnd, o); if (MIR) rr(c, 'rgba(15,10,6,0.12)', 0, -h, (u1 - u0) * 32, h); });
+      onR(c, u1, v1, z0, () => { stoneCourses(c, (v1 - v0) * 32, h, o.rnd, o); if (!MIR) rr(c, 'rgba(15,10,6,0.12)', 0, -h, (v1 - v0) * 32, h); });
     }
     seg3(c, 'rgba(255,255,255,0.35)', 0.6, [u0, v1, z1], [u1, v1, z1]);
     seg3(c, 'rgba(255,255,255,0.22)', 0.6, [u1, v1, z1], [u1, v0, z1]);
@@ -347,10 +356,19 @@ const IsoArt = (() => {
     if (o.sign) faceSign(c, len / 2 + (o.signDx || 0), top + 2.8, o.signW || Math.min(len * 0.42, 34), o.signH || 8.5, o.sign, o.signOpt || {});
     if (o.shade) rr(c, `rgba(18,11,6,${o.shade})`, 0, -H, len, H);
   }
+  // 등을 보인 건물(BACK)의 왼쪽 앞면은 뒷벽이다: 문은 창이나 벽으로 바꾸고 현판은 걸지 않는다
+  const BACK_ITEM = { door: 'win', door1: 'win', lat: 'win', red: 'wall', plank: 'wall', bigdoor: 'board', open: 'win' };
+  function backFace(Lo) {
+    return Object.assign({}, Lo, { sign: null, items: Lo.items && Lo.items.map(k => BACK_ITEM[k] || k) });
+  }
   // 몸채 두 앞면. Lo: 왼쪽 앞면 옵션, Ro: 오른쪽 앞면에서 바꿀 것
   function walls(c, u0, v0, u1, v1, z0, H, Lo, Ro = {}) {
+    if (BACK) Lo = backFace(Lo);
+    let RoF = Object.assign({}, Lo, { shade: 0.2, sign: null }, Ro);
+    // 뒤집힌 그림: 그림의 왼쪽 앞면이 화면 오른쪽에 오니 그 면이 그늘을 진다
+    if (MIR) { const sl = Lo.shade || 0, sr = RoF.shade || 0; Lo = Object.assign({}, Lo, { shade: sr }); RoF = Object.assign({}, RoF, { shade: sl }); }
     onL(c, u0, v1, z0, () => wallFace(c, (u1 - u0) * 32, H, Lo));
-    onR(c, u1, v1, z0, () => wallFace(c, (v1 - v0) * 32, H, Object.assign({}, Lo, { shade: 0.2, sign: null }, Ro)));
+    onR(c, u1, v1, z0, () => wallFace(c, (v1 - v0) * 32, H, RoF));
   }
 
   // ── 기와지붕 (팔작·우진각·맞배) ──
@@ -359,10 +377,13 @@ const IsoArt = (() => {
     board: { 'v+': '#7f5f3e', 'u-': '#715336', 'u+': '#583f28', 'v-': '#46311f', cap: '#3a2716', capHi: '#a07a52', fascia: '#2c1d11', tileEnd: null, groove: 'rgba(36,22,12,0.5)', hi: 'rgba(255,226,180,0.12)', gable: '#8a6440' },
   };
   const SNOWC = { 'v+': '#f2f5f9', 'u-': '#e5ebf2', 'u+': '#c8d2de', 'v-': '#b7c3d1' };
+  // 뒤집힌 그림의 지붕: u 쪽 비탈과 v 쪽 비탈의 빛깔을 맞바꾼다
+  const mirPal = P => Object.assign({}, P, { 'v+': P['u+'], 'u+': P['v+'], 'v-': P['u-'], 'u-': P['v-'] });
+  const SNOWC_M = mirPal(SNOWC);
   // R: { u0,v0,u1,v1: 벽체, e: 처마 내밈, zE: 처마 끝, zR: 용마루, form, gable, lift, axis('u'|'v'), trim, snow, pal, zW }
   // 돌려줌: zAt(u, v) — 그 평면점의 지붕 높이
   function tileRoof(c, R) {
-    const P = R.pal || ROOFC.tile;
+    const P = MIR ? mirPal(R.pal || ROOFC.tile) : (R.pal || ROOFC.tile);
     const ax = R.axis === 'v';
     const e = R.e;
     const wa0 = ax ? R.v0 : R.u0, wa1 = ax ? R.v1 : R.u1, wb0 = ax ? R.u0 : R.v0, wb1 = ax ? R.u1 : R.v1;
@@ -458,7 +479,7 @@ const IsoArt = (() => {
           for (let b = b1 + 0.3; b >= b0 - 0.3; b -= 0.25) pts.push(sp(f, am, b, 8));
         }
         pathPts(pts);
-        c.fillStyle = SNOWC[FACE[f]]; c.fill();
+        c.fillStyle = (MIR ? SNOWC_M : SNOWC)[FACE[f]]; c.fill();
         const n = main ? Math.round(((a1 - a0) + 0.6) / 0.035) + 1 : Math.round(((b1 - b0) + 0.6) / 0.035) + 1;
         pathPts(pts.slice(0, n), false);
         c.strokeStyle = 'rgba(120,140,170,0.6)'; c.lineWidth = 0.7; c.stroke();
@@ -481,7 +502,7 @@ const IsoArt = (() => {
         samp('bp', [ag, b1 - dG], [ag, bc], 0, pts); samp('bn', [ag, bc], [ag, b0 + dG], 0, pts);
       }
       pathPts(pts);
-      const lit = ax;
+      const lit = MIR ? !ax : ax;
       const base = R.gableCol || P.gable;
       c.fillStyle = lit ? base : shade(base, -0.24); c.fill();
       c.save(); c.clip();
@@ -612,7 +633,7 @@ const IsoArt = (() => {
     const P = ROOFC.tile;
     const front = [[u0, v1, zIn], [u1, v1, zIn], [u1 + s, v1 + s, zOut], [u0, v1 + s, zOut]];
     const right = [[u1, v0, zIn], [u1 + s, v0, zOut], [u1 + s, v1 + s, zOut], [u1, v1, zIn]];
-    for (const [poly, col, fr] of [[front, P['v+'], true], [right, P['u+'], false]]) {
+    for (const [poly, col, fr] of [[front, P[MIR ? 'u+' : 'v+'], true], [right, P[MIR ? 'v+' : 'u+'], false]]) {
       fill3(c, col, poly);
       c.save(); path3(c, poly); c.clip();
       for (let t = 0.05; t < (fr ? u1 - u0 + s : v1 - v0 + s); t += 0.1) {
@@ -621,7 +642,7 @@ const IsoArt = (() => {
       }
       if (snow) {
         const k = 0.72;
-        fill3(c, fr ? SNOWC['v+'] : SNOWC['u+'], fr
+        fill3(c, (fr !== MIR) ? SNOWC['v+'] : SNOWC['u+'], fr
           ? [[u0, v1, zIn + 1], [u1, v1, zIn + 1], [u1 + s * k, v1 + s * k, lerp(zIn, zOut, k)], [u0, v1 + s * k, lerp(zIn, zOut, k)]]
           : [[u1, v0, zIn + 1], [u1 + s * k, v0, lerp(zIn, zOut, k)], [u1 + s * k, v1 + s * k, lerp(zIn, zOut, k)], [u1, v1, zIn + 1]]);
       }
@@ -661,6 +682,7 @@ const IsoArt = (() => {
       return pts.map(([u, v]) => [X(u, v), Y(u, v, z), u, v]);
     };
     const fillRing = (pts, colL, colR) => {
+      if (MIR) { const t = colL; colL = colR; colR = t; }
       c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath();
       let mnx = 1e9, mxx = -1e9; for (const p of pts) { mnx = Math.min(mnx, p[0]); mxx = Math.max(mxx, p[0]); }
       const g = c.createLinearGradient(mnx, 0, mxx, 0);
@@ -904,8 +926,8 @@ const IsoArt = (() => {
     for (let k = 0; k < 3; k++) for (let i = 0; i < 4 - k; i++) logU(c, 1.84, 1.95, 0.62 + i * 0.1 + k * 0.05, 7.2 + k * 2.6 + 0.4, 1.3);
     // 장독 (기단 위)
     jar(c, 0.34, 1.91, 0.75, 5); jar(c, 0.52, 1.92, 0.62, 5);
-    // 댓돌
-    box(c, 0.98, 1.84, 1.3, 1.95, 5, 6.4, '#a8a397');
+    // 댓돌 (문 앞에만)
+    if (!o.back) box(c, 0.98, 1.84, 1.3, 1.95, 5, 6.4, '#a8a397');
     const zAt = thatchRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 2, zR: 53, snow: o.snow, rnd: o.rnd });
     if (!o.snow && (o.season === 1 || o.season === 2)) {
       // 지붕 위 박
@@ -932,16 +954,18 @@ const IsoArt = (() => {
     const e = 0.26;
     ao(c, 0, 0, 2, 2);
     plinth(c, 0.03, 0.03, 1.97, 1.97, 0, 8, o);
-    const u0 = 0.15, v0 = 0.15, u1 = 1.85, v1 = 1.85, z0 = 8, H = 31, vw = 1.6;
+    const u0 = 0.15, v0 = 0.15, u1 = 1.85, v1 = 1.85, z0 = 8, H = 31, vw = o.back ? v1 : 1.6;
     walls(c, u0, v0, u1, vw, z0, H, {
       bays: 3, items: ['win', 'door', 'win'], hid: 16 * (e + v1 - vw) + 4.2, rnd: o.rnd, shade: 0.12, winW: 10,
     }, { bays: 2, items: ['win', 'wall'], hid: 16 * e + 4.2, shade: 0.22 });
-    // 툇마루
-    box(c, u0, vw, u1, v1, z0, z0 + 3.2, '#8a5e34', { top: '#b8854e', right: '#5e3e22' });
-    onTop(c, u0, vw, z0 + 3.2, () => { c.fillStyle = 'rgba(90,56,28,0.45)'; for (let a = 4; a < (u1 - u0) * 32; a += 4.2) c.fillRect(a, 0, 0.4, (v1 - vw) * 32); });
-    box(c, 0.82, v1, 1.18, 1.96, 8, 9.4, '#aaa59a');
-    // 앞 기둥
-    for (let i = 0; i <= 3; i++) post(c, lerp(u0 + 0.035, u1 - 0.035, i / 3), v1 - 0.035, z0, z0 + H, 0.035, PAL.wood, { top: PAL.woodLight });
+    if (!o.back) {
+      // 툇마루
+      box(c, u0, vw, u1, v1, z0, z0 + 3.2, '#8a5e34', { top: '#b8854e', right: '#5e3e22' });
+      onTop(c, u0, vw, z0 + 3.2, () => { c.fillStyle = 'rgba(90,56,28,0.45)'; for (let a = 4; a < (u1 - u0) * 32; a += 4.2) c.fillRect(a, 0, 0.4, (v1 - vw) * 32); });
+      box(c, 0.82, v1, 1.18, 1.96, 8, 9.4, '#aaa59a');
+      // 앞 기둥
+      for (let i = 0; i <= 3; i++) post(c, lerp(u0 + 0.035, u1 - 0.035, i / 3), v1 - 0.035, z0, z0 + H, 0.035, PAL.wood, { top: PAL.woodLight });
+    }
     tileRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 1, zR: 66, form: 'paljak', gable: 0.5, lift: 6, snow: o.snow, seed: 7 });
     jar(c, 1.88, 0.5, 0.7, 8);
   };
@@ -1012,7 +1036,54 @@ const IsoArt = (() => {
     if (o.snow) { c.fillStyle = '#f4f7fa'; c.beginPath(); c.moveTo(x - 4, y - 4.6); c.lineTo(x, y - 8.4); c.lineTo(x + 4, y - 4.6); c.closePath(); c.fill(); }
   }
 
+  // 등을 보인 어장: 물과 선창·배가 화면 안쪽 절반, 오두막은 앞쪽 땅 위에서 등을 보인다
+  function fisheryBack(c, o) {
+    const rnd = o.rnd, ice = o.snow;
+    fill3(c, ice ? '#a9bccb' : '#3d6f8c', [[0.04, 0.04, -2], [1.96, 0.04, -2], [1.96, 1.0, -2], [0.04, 1.0, -2]]);
+    onTop(c, 0.04, 0.04, -2, () => {
+      if (ice) { c.strokeStyle = 'rgba(255,255,255,0.55)'; c.lineWidth = 0.5; c.beginPath(); c.moveTo(6, 8); c.lineTo(20, 18); c.lineTo(34, 14); c.moveTo(40, 6); c.lineTo(50, 24); c.stroke(); return; }
+      const g = c.createLinearGradient(0, 0, 0, 30);
+      g.addColorStop(0, 'rgba(90,150,180,0.15)'); g.addColorStop(1, 'rgba(20,40,55,0.45)');
+      c.fillStyle = g; c.fillRect(0, 0, 62, 31);
+      c.fillStyle = 'rgba(200,230,245,0.45)';
+      for (let i = 0; i < 16; i++) c.fillRect(2 + rnd() * 56, 3 + rnd() * 26, 3 + rnd() * 4, 0.5);
+    });
+    if (!ice) ell(c, 'rgba(20,40,55,0.35)', X(0.68, 0.5), Y(0.68, 0.5, -2), 15, 5);
+    boat(c, 0.26, 0.5, ice ? -2.2 : -3.4, o.snow);
+    // 널판 선창: 물 위로 안쪽까지
+    const pu0 = 1.24, pu1 = 1.74, pz = 4;
+    for (const [u, v] of [[pu0 + 0.04, 0.1], [pu1 - 0.04, 0.1], [pu0 + 0.04, 0.6], [pu1 - 0.04, 0.6]]) post(c, u, v, -2.5, pz, 0.03, '#4a3020', { top: '#6b4428' });
+    box(c, pu0, 0.04, pu1, 1.02, pz - 1.6, pz, '#7a5a38', { top: '#a8804f', right: '#5a3e24' });
+    onTop(c, pu0, 0.04, pz, () => { c.fillStyle = 'rgba(70,44,22,0.55)'; for (let b = 3; b < 0.98 * 32; b += 3.2) c.fillRect(0, b, 0.5 * 32, 0.45); });
+    if (o.snow) fill3(c, 'rgba(240,244,249,0.85)', [[pu0, 0.2, pz + 0.1], [pu1 - 0.1, 0.2, pz + 0.1], [pu1 - 0.1, 1.02, pz + 0.1], [pu0, 1.02, pz + 0.1]]);
+    seg3(c, '#c9b48a', 0.5, [pu0 + 0.04, 0.6, pz - 0.5], [0.98, 0.5, 1]);
+    for (const [u, v] of [[1.56, 0.48], [1.42, 0.75]]) {
+      const x = X(u, v), y = Y(u, v, pz);
+      ell(c, '#8a6a3a', x, y - 1.5, 4.4, 2.4); ell(c, '#a8854a', x, y - 2.4, 4.4, 2); ell(c, '#9fb4bc', x, y - 2.6, 3.2, 1.3);
+      circ(c, '#c8d6dc', x - 1, y - 3, 0.7);
+    }
+    seg3(c, '#8a6a3a', 0.6, [1.62, 0.2, pz + 0.5], [1.95, 0.7, 24]);
+    // 물가 땅 (앞쪽 절반)과 오두막
+    box(c, 0.04, 0.96, 1.96, 1.96, -2, 2, '#7a6a4e', { top: o.snow ? '#e4e9ee' : '#9a8460', right: '#5e5038' });
+    onL(c, 0.04, 1.96, -2, () => { for (let x = 1; x < 61; x += 4.6) ell(c, x % 3 < 1.5 ? '#8a857a' : '#6e6a60', x, -0.6, 2.2, 1.2); });
+    const u0 = 0.14, v0 = 1.1, u1 = 1.02, v1 = 1.86, z0 = 2, H = 22;
+    walls(c, u0, v0, u1, v1, z0, H, { bays: 2, items: ['door1', 'win'], plaster: PAL.mud, pillar: '#6e4a2c', beam: '#5a3a22', mid: '#6e4a2c', hid: 16 * 0.18 + 5.5, rnd: o.rnd, winW: 7 }, { bays: 1, items: ['win'] });
+    thatchRoof(c, { u0, v0, u1, v1, e: 0.18, zE: z0 + H - 2, zR: 41, snow: o.snow, rnd: o.rnd, levels: 22 });
+    // 그물 건조대 (앞쪽 땅)
+    post(c, 1.3, 1.8, 2, 30, 0.022, '#5a3a20'); post(c, 1.85, 1.8, 2, 30, 0.022, '#5a3a20');
+    seg3(c, '#4a3020', 1.1, [1.28, 1.8, 29], [1.87, 1.8, 29]);
+    onL(c, 1.3, 1.8, 2, () => {
+      const L = 0.55 * 32;
+      c.fillStyle = 'rgba(120,130,120,0.35)';
+      c.beginPath(); c.moveTo(0, -27); c.lineTo(L, -27); c.quadraticCurveTo(L * 0.9, -12, L * 0.75, -6); c.lineTo(L * 0.2, -7); c.quadraticCurveTo(L * 0.1, -14, 0, -27); c.fill();
+      c.strokeStyle = 'rgba(60,64,58,0.65)'; c.lineWidth = 0.35;
+      for (let x = 1; x < L; x += 1.6) { c.beginPath(); c.moveTo(x, -27); c.lineTo(x * 0.9 + L * 0.06, -6.5); c.stroke(); }
+      for (let y = -24; y < -6; y += 2.2) { c.beginPath(); c.moveTo(L * 0.05, y); c.lineTo(L * 0.95, y); c.stroke(); }
+      for (let i = 0; i < 4; i++) ell(c, '#a8b8c0', 3 + i * 3.8, -23 + (i % 2) * 2, 0.9, 2.4);
+    });
+  }
   B.fishery = (c, o) => {
+    if (o.back) { fisheryBack(c, o); return; }
     const rnd = o.rnd, ice = o.snow;
     // 앞 절반은 물 (어장은 물가에 짓는다): 수면은 땅보다 조금 낮다
     fill3(c, ice ? '#a9bccb' : '#3d6f8c', [[0.04, 1.0, -2], [1.96, 1.0, -2], [1.96, 1.96, -2], [0.04, 1.96, -2]]);
@@ -1180,7 +1251,7 @@ const IsoArt = (() => {
       bays: 3, items: ['board', 'bigdoor', 'board'], plaster: '#7a5232', pillar: '#4e3018', beam: '#3a2414', mid: '#4e3018', hid: 16 * e + 4.2, pw: 3.4,
     }, { bays: 2, items: ['board', 'vent'], board: '#6e4a2c' });
     tileRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 1, zR: 73, form: 'matbae', lift: 3, snow: o.snow, zW: z0 + H, gableCol: '#7a5232', seed: 11 });
-    sack(c, 0.36, 1.93, 7); sack(c, 0.55, 1.94, 7); sack(c, 0.45, 1.9, 11);
+    if (!o.back) { sack(c, 0.36, 1.93, 7); sack(c, 0.55, 1.94, 7); sack(c, 0.45, 1.9, 11); }
     crate(c, 1.93, 0.5, 0.12, 7); crate(c, 1.93, 0.66, 0.1, 7);
   };
 
@@ -1234,13 +1305,26 @@ const IsoArt = (() => {
     fl.addColorStop(0, 'rgba(255,120,40,0.32)'); fl.addColorStop(1, 'rgba(255,90,30,0)');
     c.fillStyle = fl; path3(c, [[0.26, 0.26, 3], [1.92, 0.26, 3], [1.92, 1.92, 3], [0.26, 1.92, 3]]); c.fill();
     c.restore();
-    for (const [u, v] of [[1.89, 0.3], [1.89, 1.1], [1.89, 1.89], [1.05, 1.89], [0.3, 1.89]]) post(c, u, v, 3, 39, 0.035, '#5e3e22', { top: PAL.woodLight });
-    // 병기 걸이 (오른쪽)
-    onR(c, 1.8, 1.7, 3, () => {
-      rr(c, '#4a3020', 1, -20, 1.4, 20); rr(c, '#4a3020', 14, -20, 1.4, 20);
-      rr(c, '#5e3e22', 0, -17, 16.4, 1.2); rr(c, '#5e3e22', 0, -6, 16.4, 1.2);
-      for (let i = 0; i < 4; i++) { rr(c, '#c9d0d6', 3 + i * 3, -21, 0.8, 18); rr(c, '#6b4428', 2.5 + i * 3, -6.5, 1.8, 3.5); }
-    });
+    if (o.back) {
+      // 등을 보인 대장간: 트인 쪽이 화면 안쪽이라 보이는 두 면도 돌담으로 막혀 있다. 앞 담의 작은 바람구멍으로 화덕 불이 비친다
+      box(c, 1.74, 0.08, 1.92, 1.74, 3, zW, PAL.stoneDark, { left: '#7d786c', right: '#5f5b52', top: '#8a857a' });
+      onR(c, 1.92, 1.74, 3, () => { stoneCourses(c, 1.66 * 32, zW - 3, rnd, { rowH: 3.6, blk: 6 }); rr(c, 'rgba(10,6,4,0.3)', 0, -(zW - 3), 1.66 * 32, zW - 3); });
+      box(c, 0.08, 1.74, 1.92, 1.92, 3, zW, PAL.stoneDark, { left: '#7d786c', right: '#5f5b52', top: '#8a857a' });
+      onL(c, 0.08, 1.92, 3, () => {
+        stoneCourses(c, 1.84 * 32, zW - 3, rnd, { rowH: 3.6, blk: 6 });
+        rr(c, '#1a0e08', 18, -27, 9, 6); rr(c, '#ff7a2a', 19, -25, 7, 3.4); rr(c, '#ffd27a', 21, -24, 3, 1.4);
+        rr(c, '#3a3632', 17.4, -27.6, 10.2, 1);
+      });
+      for (const [u, v] of [[1.89, 0.1], [1.89, 1.89], [0.1, 1.89]]) post(c, u, v, zW, 39, 0.035, '#5e3e22', { top: PAL.woodLight });
+    } else {
+      for (const [u, v] of [[1.89, 0.3], [1.89, 1.1], [1.89, 1.89], [1.05, 1.89], [0.3, 1.89]]) post(c, u, v, 3, 39, 0.035, '#5e3e22', { top: PAL.woodLight });
+      // 병기 걸이 (오른쪽)
+      onR(c, 1.8, 1.7, 3, () => {
+        rr(c, '#4a3020', 1, -20, 1.4, 20); rr(c, '#4a3020', 14, -20, 1.4, 20);
+        rr(c, '#5e3e22', 0, -17, 16.4, 1.2); rr(c, '#5e3e22', 0, -6, 16.4, 1.2);
+        for (let i = 0; i < 4; i++) { rr(c, '#c9d0d6', 3 + i * 3, -21, 0.8, 18); rr(c, '#6b4428', 2.5 + i * 3, -6.5, 1.8, 3.5); }
+      });
+    }
     const zAt = tileRoof(c, { u0: 0.12, v0: 0.12, u1: 1.88, v1: 1.88, e: 0.18, zE: 39, zR: 65, form: 'paljak', gable: 0.48, lift: 4, snow: o.snow, seed: 5 });
     // 지붕을 뚫고 오른 굴뚝
     const zb = zAt(0.66, 0.47) - 2;
@@ -1250,6 +1334,42 @@ const IsoArt = (() => {
     if (o.snow) fill3(c, '#eef2f7', [[0.51, 0.32, 79], [0.81, 0.32, 79], [0.81, 0.4, 79], [0.51, 0.4, 79]]);
   };
 
+  // 등을 보인 시장: 진열대와 낮은 처마가 화면 안쪽, 화면 쪽에는 항아리를 얹은 뒷선반과 높은 처마. 깃발도 뒤쪽 모서리로
+  function marketBack(c, o, AW, GOODS) {
+    banner(c, 0.12, 0.16, 56, 8.5, 18, '#b53a2c', '市', 'L', '#fff0d8');
+    for (let i = 0; i < 3; i++) {
+      const u0 = 0.1 + i, u1 = 0.9 + i, vL = 0.38, vH = 1.68, zB = 31, zF = 21;
+      // 안쪽(진열대 쪽) 낮은 기둥과 진열대
+      post(c, u0 + 0.03, vL, 1.6, zF, 0.022, PAL.woodDark); post(c, u1 - 0.03, vL, 1.6, zF, 0.022, PAL.woodDark);
+      box(c, u0 + 0.04, 0.46, u1 - 0.04, 0.74, 1.6, 10, '#7a5232', { top: '#9a6c42', right: '#5a3a20', edge: 'rgba(40,24,12,0.5)' });
+      const gs = GOODS[i];
+      for (let k = 13; k >= 0; k--) {
+        const gu = u0 + 0.12 + (k % 7) * 0.1, gv = 0.67 - Math.floor(k / 7) * 0.12;
+        const x = X(gu, gv), y = Y(gu, gv, 10);
+        if (i === 1) box(c, gu - 0.04, gv - 0.04, gu + 0.04, gv + 0.04, 10, 12.6, gs[k % 4]);
+        else { circ(c, gs[k % 4], x, y - 1.6, 1.8); circ(c, 'rgba(255,255,255,0.35)', x - 0.6, y - 2.2, 0.6); }
+      }
+      // 화면 쪽 뒷선반과 항아리, 높은 기둥
+      box(c, u0 + 0.06, 1.48, u1 - 0.06, 1.66, 1.6, 15, '#6a4526', { top: '#8a5f36' });
+      onL(c, u0 + 0.06, 1.66, 1.6, () => { const L = (u1 - u0 - 0.12) * 32; c.fillStyle = 'rgba(30,18,10,0.35)'; for (let x = 2.4; x < L; x += 2.4) c.fillRect(x, -13.4, 0.4, 13.4); rr(c, 'rgba(30,18,10,0.5)', 0, -7.4, L, 1); });
+      for (let k = 0; k < 5; k++) jar(c, u0 + 0.15 + k * 0.14, 1.56, 0.5 + (k % 2) * 0.12, 15);
+      post(c, u0 + 0.03, vH, 1.6, zB, 0.022, PAL.woodDark); post(c, u1 - 0.03, vH, 1.6, zB, 0.022, PAL.woodDark);
+      // 차양: 화면 쪽이 높고 안쪽으로 낮아진다
+      const nS = 8, va = 0.28, vb = 1.73;
+      for (let s2 = 0; s2 < nS; s2++) {
+        const ua = lerp(u0 - 0.02, u1 + 0.02, s2 / nS), ub = lerp(u0 - 0.02, u1 + 0.02, (s2 + 1) / nS);
+        fill3(c, AW[i][s2 % 2], [[ua, va, zF], [ub, va, zF], [ub, vb, zB], [ua, vb, zB]]);
+      }
+      const sg = c.createLinearGradient(0, Y(u0, va, zF), 0, Y(u0, vb, zB));
+      sg.addColorStop(0, 'rgba(0,0,0,0.14)'); sg.addColorStop(1, 'rgba(255,255,255,0.05)');
+      fill3(c, sg, [[u0 - 0.02, va, zF], [u1 + 0.02, va, zF], [u1 + 0.02, vb, zB], [u0 - 0.02, vb, zB]]);
+      if (o.snow) fill3(c, 'rgba(242,245,249,0.95)', [[u0 - 0.02, vb, zB + 0.3], [u1 + 0.02, vb, zB + 0.3], [u1 + 0.02, 0.53, zF + 2.2], [u0 - 0.02, 0.53, zF + 2.2]]);
+      // 높은 처마 끝과 옆면 두께
+      fill3(c, shade(AW[i][0], -0.3), [[u0 - 0.02, vb, zB], [u1 + 0.02, vb, zB], [u1 + 0.02, vb, zB - 1.6], [u0 - 0.02, vb, zB - 1.6]]);
+      fill3(c, shade(AW[i][1], -0.35), [[u1 + 0.02, va, zF], [u1 + 0.02, vb, zB], [u1 + 0.02, vb, zB - 1.6], [u1 + 0.02, va, zF - 1.6]]);
+    }
+    sack(c, 0.6, 1.88, 1.6); sack(c, 0.75, 1.9, 1.6); jar(c, 2.25, 1.88, 0.7, 1.6); crate(c, 2.6, 1.86, 0.13, 1.6);
+  }
   B.market = (c, o) => {
     ao(c, 0, 0, 3, 2, 0.5);
     box(c, 0.03, 0.03, 2.97, 1.97, 0, 1.6, '#9a8c74', { top: o.snow ? '#e4e9ee' : '#b4a486' });
@@ -1260,6 +1380,7 @@ const IsoArt = (() => {
     });
     const AW = [['#b53a2c', '#efe3c2'], ['#3b6ea5', '#efe3c2'], ['#d6a63a', '#7a4a22']];
     const GOODS = [['#5aa04a', '#7fbf55', '#c94a3a', '#e0a040'], ['#8a6a4a', '#d8cba8', '#6a4a32', '#b05a5a'], ['#d9c27a', '#b05a7a', '#5a8aba', '#f0e6d0']];
+    if (o.back) { marketBack(c, o, AW, GOODS); return; }
     for (let i = 0; i < 3; i++) {
       const u0 = 0.1 + i, u1 = 0.9 + i, vB = 0.32, vF = 1.62, zB = 31, zF = 21;
       // 뒷기둥·뒷선반
@@ -1342,12 +1463,14 @@ const IsoArt = (() => {
     onL(c, U0, V1 + 0.06, Z1, () => rail((U1 - U0 + 0.06) * 32, 7));
     onR(c, U1 + 0.06, V1 + 0.06, Z1, () => { rail((V1 + 0.06 - V0) * 32, 7); rr(c, 'rgba(18,11,6,0.2)', 0, -7, (V1 - V0) * 32, 7); });
     tileRoof(c, { u0: U0, v0: V0, u1: U1, v1: V1, e, zE: Z1 + H2 - 1, zR: 95, form: 'paljak', gable: 0.42, lift: 7, trim: true, snow: o.snow, seed: 13 });
-    // 객잔 현판: 문 위 덧지붕 처마에 건다
-    onL(c, 1.5 - 14 / 32, v1 + 0.2, z0 + H - 5.4, () => {
-      rr(c, '#2a1a10', 5, -1.6, 0.6, 1.8); rr(c, '#2a1a10', 22.4, -1.6, 0.6, 1.8);
-      faceSign(c, 14, 0.4, 26, 9, '客棧');
-    });
-    for (const u of [0.4, 0.92, 2.08, 2.6]) lanternAt(c, u, v1 + 0.2, z0 + H - 4.5, 0.85);
+    // 객잔 현판: 문 위 덧지붕 처마에 건다 (현판과 등롱은 문 쪽에만)
+    if (!o.back) {
+      onL(c, 1.5 - 14 / 32, v1 + 0.2, z0 + H - 5.4, () => {
+        rr(c, '#2a1a10', 5, -1.6, 0.6, 1.8); rr(c, '#2a1a10', 22.4, -1.6, 0.6, 1.8);
+        faceSign(c, 14, 0.4, 26, 9, '客棧');
+      });
+      for (const u of [0.4, 0.92, 2.08, 2.6]) lanternAt(c, u, v1 + 0.2, z0 + H - 4.5, 0.85);
+    }
     // 酒 깃발
     banner(c, 2.95, 1.18, 92, 9, 22, '#efe3c2', '酒', 'R', '#1e1712');
   };
@@ -1401,10 +1524,12 @@ const IsoArt = (() => {
     const e = 0.24, rnd = o.rnd;
     ao(c, 0, 0, 2, 2);
     plinth(c, 0.03, 0.03, 1.97, 1.97, 0, 7, o);
-    const u0 = 0.15, v0 = 0.15, u1 = 1.85, v1 = 1.85, z0 = 7, H = 30, vw = 1.58;
+    const u0 = 0.15, v0 = 0.15, u1 = 1.85, v1 = 1.85, z0 = 7, H = 30, vw = o.back ? v1 : 1.58;
     walls(c, u0, v0, u1, vw, z0, H, {
       bays: 3, items: ['door', 'win', 'win'], hid: 16 * (e + v1 - vw) + 4.2, rnd: o.rnd, shade: 0.12, winW: 10,
     }, { bays: 2, items: ['win', 'wall'], hid: 16 * e + 4.2, shade: 0.22 });
+    // 등을 보이면 툇마루·채반·藥 간판·호리병(문 앞의 것들) 없이 지붕만
+    if (o.back) { tileRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 1, zR: 70, form: 'hip', lift: 5, snow: o.snow, seed: 19 }); return; }
     // 툇마루와 약초 채반
     box(c, u0, vw, u1, v1, z0, z0 + 3, '#8a5e34', { top: '#b8854e', right: '#5e3e22' });
     onTop(c, u0, vw, z0 + 3, () => { c.fillStyle = 'rgba(90,56,28,0.45)'; for (let a = 4; a < (u1 - u0) * 32; a += 4.2) c.fillRect(a, 0, 0.4, (v1 - vw) * 32); });
@@ -1430,13 +1555,14 @@ const IsoArt = (() => {
     ao(c, 0, 0, 2, 2);
     plinth(c, 0.03, 0.03, 1.97, 1.97, 0, 5, o);
     plinth(c, 0.14, 0.12, 1.86, 1.62, 5, 12, Object.assign({}, o, { col: '#a6a194' }));
-    steps(c, 0.78, 1.22, 1.62, 1.92, 5, 12, 3);
+    if (!o.back) steps(c, 0.78, 1.22, 1.62, 1.92, 5, 12, 3);
     const u0 = 0.25, v0 = 0.2, u1 = 1.75, v1 = 1.48, z0 = 12, H = 28;
     walls(c, u0, v0, u1, v1, z0, H, {
       bays: 3, items: ['red', 'red', 'red'], pillar: '#a8382a', beam: '#5a1c14', mid: '#8a2a20', dan: true, hid: 16 * e + 6.6, rnd: o.rnd,
     }, { bays: 2, items: ['wall', 'wall'], plaster: '#e8dcc2' });
     tileRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 1, zR: 64, form: 'matbae', lift: 5, trim: true, snow: o.snow, zW: z0 + H, gableCol: '#c9b896', seed: 23 });
-    // 향로와 석등
+    // 향로와 석등 (문 앞에만)
+    if (o.back) return;
     cylV(c, 0.5, 1.82, 0.075, 5, 9.5, '#5a4a32', '#2a2016', { rim: '#8a7a4a' });
     for (const d of [-0.05, 0.05]) seg3(c, '#5a4a32', 0.9, [0.5 + d, 1.82 + 0.05, 5], [0.5 + d * 1.4, 1.82 + 0.07, 3]);
     ell(c, '#8a7a4a', X(0.5, 1.82), Y(0.5, 1.82, 9.6), 3.6, 1.6);
@@ -1511,7 +1637,7 @@ const IsoArt = (() => {
     // 정자 기단
     const pu0 = 0.86, pv0 = 0.06, pu1 = 1.94, pv1 = 1.14, zb = 8;
     plinth(c, pu0, pv0, pu1, pv1, 0, zb, o);
-    steps(c, 1.2, 1.6, pv1, 1.32, 0, zb, 2);
+    if (!o.back) steps(c, 1.2, 1.6, pv1, 1.32, 0, zb, 2);
     const cu0 = pu0 + 0.08, cv0 = pv0 + 0.08, cu1 = pu1 - 0.08, cv1 = pv1 - 0.08, H = 30;
     // 마루
     box(c, cu0, cv0, cu1, cv1, zb, zb + 2, '#8a5e34', { top: '#a8784a' });
@@ -1522,7 +1648,7 @@ const IsoArt = (() => {
     post(c, cu0 + pr, cv1 - pr, zb + 2, zb + H, pr, PAL.red, { top: PAL.redDark });
     // 난간
     const rail = (len) => { rr(c, '#7a2e22', 0, -6.2, len, 1.1); rr(c, '#7a2e22', 0, -1.2, len, 1); for (let x = 1.5; x < len; x += 2.4) rr(c, '#8e3a2a', x, -6, 0.7, 5); };
-    onL(c, cu0, cv1, zb + 2, () => { const L = (cu1 - cu0) * 32; rail(L * 0.32); c.save(); c.translate(L * 0.68, 0); rail(L * 0.32); c.restore(); });
+    onL(c, cu0, cv1, zb + 2, () => { const L = (cu1 - cu0) * 32; if (o.back) { rail(L); return; } rail(L * 0.32); c.save(); c.translate(L * 0.68, 0); rail(L * 0.32); c.restore(); });
     onR(c, cu1, cv1, zb + 2, () => { rail((cv1 - cv0) * 32); rr(c, 'rgba(18,11,6,0.18)', 0, -6.2, (cv1 - cv0) * 32, 6.2); });
     post(c, cu1 - pr, cv1 - pr, zb + 2, zb + H, pr, PAL.red, { top: PAL.redDark });
     // 기둥 위 창방
@@ -1614,10 +1740,12 @@ const IsoArt = (() => {
     leg(1); leg(2);
     brace(1, 3); brace(2, 3);
     leg(3);
-    // 사다리 (왼쪽 앞면)
-    seg3(c, '#8a6a42', 1.2, [0.42, 0.98, 0], [0.42, 0.8, zP]);
-    seg3(c, '#8a6a42', 1.2, [0.58, 0.98, 0], [0.58, 0.8, zP]);
-    for (let z = 4; z < zP; z += 4.6) { const t = z / zP; seg3(c, '#a07a4e', 0.9, [0.42, lerp(0.98, 0.8, t), z], [0.58, lerp(0.98, 0.8, t), z]); }
+    // 사다리 (왼쪽 앞면 = 문 쪽. 등을 보이면 뒤로 돌아가 다리 사이로 조금 비친다)
+    if (!o.back) {
+      seg3(c, '#8a6a42', 1.2, [0.42, 0.98, 0], [0.42, 0.8, zP]);
+      seg3(c, '#8a6a42', 1.2, [0.58, 0.98, 0], [0.58, 0.8, zP]);
+      for (let z = 4; z < zP; z += 4.6) { const t = z / zP; seg3(c, '#a07a4e', 0.9, [0.42, lerp(0.98, 0.8, t), z], [0.58, lerp(0.98, 0.8, t), z]); }
+    }
     // 망대
     box(c, 0.03, 0.03, 0.97, 0.97, zP, zP + 5, '#7a5232', { top: '#a07a4e', right: '#4e3018', edge: 'rgba(40,24,12,0.6)' });
     onTop(c, 0.03, 0.03, zP + 5, () => { c.fillStyle = 'rgba(70,44,22,0.45)'; for (let a = 3.6; a < 30; a += 3.6) c.fillRect(a, 0, 0.45, 30); });
@@ -1914,7 +2042,7 @@ const IsoArt = (() => {
       for (let b = 5; b < 34; b += 6.2) { c.beginPath(); c.moveTo(0, b); c.lineTo(94, b); c.stroke(); }
     });
     plinth(c, 0.06, 0.04, 2.94, 1.9, 0, 10, o);
-    steps(c, 1.12, 1.88, 1.9, 2.3, 1.2, 10, 4);
+    if (!o.back) steps(c, 1.12, 1.88, 1.9, 2.3, 1.2, 10, 4);
     const u0 = 0.24, v0 = 0.2, u1 = 2.76, v1 = 1.72, z0 = 10, H = 26, e = 0.26;
     walls(c, u0, v0, u1, v1, z0, H, {
       bays: 5, items: ['win', 'lat', 'door', 'lat', 'win'], pillar: PL, beam: BM, mid: MD, hid: 16 * e + 5, rnd: o.rnd, winW: 9,
@@ -1926,6 +2054,8 @@ const IsoArt = (() => {
       sign: '義俠堂', signW: 26, signH: 8.5, signOpt: { frame: BM },
     }, { bays: 2, items: ['win', 'win'] });
     tileRoof(c, { u0: U0, v0: V0, u1: U1, v1: V1, e: 0.3, zE: Z1 + H2 - 1, zR: Z1 + H2 + 34, form: 'paljak', gable: 0.42, lift: 8, liftR: 1.0, trim: true, snow: o.snow, seed: 53 });
+    // 석등과 義 깃발은 문 앞 마당에만 (등을 보이면 앞 박석 마당은 뒤뜰이다)
+    if (o.back) return;
     stoneLantern(c, 0.62, 2.55, 1.2, o.snow);
     stoneLantern(c, 2.38, 2.55, 1.2, o.snow);
     banner(c, 0.2, 2.8, 64, 8.5, 26, '#3e5f8a', '義', 'L', '#f2ead2');
@@ -1946,9 +2076,9 @@ const IsoArt = (() => {
     };
     tier(0.04, 1.96, 0, 6, '#6e6469');
     tier(0.3, 1.7, 6, 12, '#625a60');
-    steps(c, 0.8, 1.2, 1.7, 1.96, 6, 12, 2, '#6e6469');
+    if (!o.back) steps(c, 0.8, 1.2, 1.7, 1.96, 6, 12, 2, '#6e6469');
     tier(0.56, 1.44, 12, 18, '#564e54');
-    steps(c, 0.84, 1.16, 1.44, 1.7, 12, 18, 2, '#625a60');
+    if (!o.back) steps(c, 0.84, 1.16, 1.44, 1.7, 12, 18, 2, '#625a60');
     if (!o.snow) onTop(c, 0.56, 0.56, 18, () => { c.fillStyle = 'rgba(100,14,20,0.45)'; c.beginPath(); c.ellipse(14, 14, 11, 9, 0.3, 0, Math.PI * 2); c.fill(); });
     // 돌기둥과 붉은 달
     const moon = (u, v, dir) => {
@@ -1991,7 +2121,8 @@ const IsoArt = (() => {
       c.fillStyle = '#ffb04a';
       c.beginPath(); c.moveTo(fx + dx - w * 0.45, fy); c.quadraticCurveTo(fx + dx, fy - h * 0.45, fx + dx, fy - h * 0.55); c.quadraticCurveTo(fx + dx, fy - h * 0.45, fx + dx + w * 0.45, fy); c.closePath(); c.fill();
     }
-    // 앞 비석과 붉은 초
+    // 앞 비석과 붉은 초 (문 쪽에만)
+    if (o.back) return;
     box(c, 0.3, 1.76, 0.52, 1.86, 6, 25, '#2e282c', { top: o.snow ? '#eef2f7' : '#4a4448' });
     onL(c, 0.3, 1.86, 6, () => faceSign(c, 3.5, -17.6, 5.4, 15.2, '血祭壇', { vertical: true, bg: '#221c20', fg: '#d0343c', frame: '#3a3236' }));
     for (const [u, v, h] of [[1.5, 1.8, 5], [1.63, 1.84, 4], [1.43, 1.89, 3.4]]) {
@@ -2011,7 +2142,7 @@ const IsoArt = (() => {
     capWall(c, 0.06, 0.06, 2.94, 0.17, WH, o);
     capWall(c, 0.06, 0.17, 0.17, 2.83, WH, o);
     plinth(c, 0.36, 0.3, 2.64, 1.62, 0, 7, o);
-    steps(c, 1.2, 1.8, 1.62, 1.88, 0, 7, 3);
+    if (!o.back) steps(c, 1.2, 1.8, 1.62, 1.88, 0, 7, 3);
     const u0 = 0.48, v0 = 0.4, u1 = 2.52, v1 = 1.5, z0 = 7, H = 26;
     walls(c, u0, v0, u1, v1, z0, H, {
       bays: 4, items: ['win', 'red', 'red', 'win'], pillar: '#6a3a24', beam: '#2e1c10', mid: '#5a3220', dan: true, hid: 16 * 0.26 + 6.6, rnd: o.rnd, winW: 9, doorCol: '#2f5a3a',
@@ -2028,6 +2159,8 @@ const IsoArt = (() => {
     c.restore();
     // 오른쪽·앞 담과 솟을대문
     capWall(c, 2.83, 0.17, 2.94, 2.83, WH, o);
+    // 등을 보인 종가: 솟을대문은 화면 안쪽 담에 있다. 앞 담은 끊김 없이 두른다
+    if (o.back) { capWall(c, 0.06, 2.83, 2.94, 2.94, WH, o); return; }
     capWall(c, 0.06, 2.83, 1.1, 2.94, WH, o);
     const g0 = 1.1, g1 = 1.9, gv0 = 2.78, gv1 = 2.97, gz = 30;
     box(c, g0, gv0, g1, gv1, 0, 1.6, PAL.stone, { top: o.snow ? '#eef2f7' : PAL.stoneLight });
@@ -2063,8 +2196,15 @@ const IsoArt = (() => {
     for (let k = 0; k < 9; k++) { const u = 0.34 + k * 0.28; if (k % 3 === 1) crate(c, u, 0.24, 0.12, 12); else jar(c, u, 0.24, 0.5 + (k % 2) * 0.12, 12); }
     for (const u of [0.5, 1.1, 2.0, 2.5]) sack(c, u, 0.5, 1.2);
     for (const u of [u0 + 0.03, 1.5, u1 - 0.03]) post(c, u, v1 - 0.03, 1.2, zE, 0.03, '#2e241c');
-    // 휘장: 반쯤 걷어 묶은 검은 천
-    onL(c, u0, v1, zE - 1, () => {
+    // 휘장: 반쯤 걷어 묶은 검은 천 (등을 보이면 막힌 판자벽)
+    if (o.back) onL(c, u0, v1, 1.2, () => {
+      const L = (u1 - u0) * 32;
+      rr(c, '#3e3026', 0, -zE + 1, L, zE - 1);
+      c.fillStyle = 'rgba(0,0,0,0.3)'; for (let x = 2.4; x < L; x += 2.4) c.fillRect(x, -zE + 1, 0.4, zE - 1);
+      rr(c, 'rgba(255,230,190,0.06)', 0, -zE + 1, L, zE - 1);
+      rr(c, '#2e241c', 0, -zE * 0.55, L, 1.2);
+    });
+    else onL(c, u0, v1, zE - 1, () => {
       const L = (u1 - u0) * 32;
       for (const [a, b] of [[0.01, 0.2], [0.3, 0.47], [0.53, 0.7], [0.8, 0.99]]) {
         const x0 = a * L, x1 = b * L, xm = (x0 + x1) / 2;
@@ -2076,7 +2216,7 @@ const IsoArt = (() => {
       }
     });
     tileRoof(c, { u0, v0, u1, v1, e: 0.16, zE, zR: 44, form: 'matbae', pal: ROOF_SOOT, lift: 2, snow: o.snow, orn: false, step: 0.16, zW: zE, seed: 73 });
-    onL(c, 1.5 - 12 / 32, v1 + 0.16, zE - 3.5, () => {
+    if (!o.back) onL(c, 1.5 - 12 / 32, v1 + 0.16, zE - 3.5, () => {
       rr(c, '#1a120c', 3, -1.6, 0.6, 1.8); rr(c, '#1a120c', 20.4, -1.6, 0.6, 1.8);
       faceSign(c, 12, 0.4, 20, 7.5, '黑市', { bg: '#14100e', fg: '#c8a050', frame: '#3a2a20' });
     });
@@ -2087,6 +2227,7 @@ const IsoArt = (() => {
     jar(c, 1.25, 1.35, 0.5, 1.3); crate(c, 1.6, 1.32, 0.13, 1.3); sack(c, 1.3, 1.62, 1.3);
     for (const [u, v] of [[1.55, 1.58], [1.7, 1.55]]) seg3(c, '#c9d0d6', 0.9, [u - 0.12, v + 0.04, 1.6], [u + 0.12, v - 0.04, 1.6]);
     tent(c, 2.32, 1.38, 0.32, 1.2, 9, 29, '#4a3428', o);
+    if (o.back) return;
     // 등롱 줄
     post(c, 2.9, 1.9, 1.2, 31, 0.022, '#2e241c', { top: '#1e1712' });
     const zr = t => lerp(33, 30, t) - 7 * 4 * t * (1 - t);
@@ -2100,7 +2241,7 @@ const IsoArt = (() => {
     const e = 0.26;
     ao(c, 0, 0, 3, 2);
     plinth(c, 0.03, 0.03, 2.97, 1.97, 0, 5, Object.assign({}, o, { col: '#8a8276' }));
-    const u0 = 0.14, v0 = 0.14, u1 = 2.86, v1 = 1.7, z0 = 5, H = 38, vw = 1.46;
+    const u0 = 0.14, v0 = 0.14, u1 = 2.86, v1 = 1.7, z0 = 5, H = 38, vw = o.back ? 1.7 : 1.46;
     const den = (cc, x0, x1, top, vis) => {
       const cx = (x0 + x1) / 2;
       const g = cc.createRadialGradient(cx, top + vis * 0.55, 1, cx, top + vis * 0.55, vis);
@@ -2116,14 +2257,16 @@ const IsoArt = (() => {
       bays: 5, items: ['win', 'open', 'red', 'open', 'win'], plaster: '#dccaa8', pillar: '#7a1e18', beam: '#3a0e0a', mid: '#6a1a14', dan: true,
       hid: 16 * (e + v1 - vw) + 4.2, rnd: o.rnd, openFn: den, winW: 9, doorCol: '#6a1a12', shade: 0.05,
     }, { bays: 2, items: ['win', 'wall'], hid: 16 * e + 4.2, shade: 0.22 });
-    box(c, u0, vw, u1, v1, z0, z0 + 2.6, '#6a2e1e', { top: '#8a4a30', right: '#4a1e14' });
-    onTop(c, u0, vw, z0 + 2.6, () => { c.fillStyle = 'rgba(60,20,10,0.45)'; for (let a = 4; a < (u1 - u0) * 32; a += 4.2) c.fillRect(a, 0, 0.4, (v1 - vw) * 32); });
-    for (let i = 0; i <= 4; i++) post(c, lerp(u0 + 0.035, u1 - 0.035, i / 4), v1 - 0.035, z0, z0 + H, 0.035, '#8a2418', { top: '#5a120c' });
+    if (!o.back) {
+      box(c, u0, vw, u1, v1, z0, z0 + 2.6, '#6a2e1e', { top: '#8a4a30', right: '#4a1e14' });
+      onTop(c, u0, vw, z0 + 2.6, () => { c.fillStyle = 'rgba(60,20,10,0.45)'; for (let a = 4; a < (u1 - u0) * 32; a += 4.2) c.fillRect(a, 0, 0.4, (v1 - vw) * 32); });
+      for (let i = 0; i <= 4; i++) post(c, lerp(u0 + 0.035, u1 - 0.035, i / 4), v1 - 0.035, z0, z0 + H, 0.035, '#8a2418', { top: '#5a120c' });
+    }
     const zR = 76;
     tileRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 1, zR, form: 'paljak', gable: 0.44, lift: 7, trim: true, snow: o.snow, seed: 67 });
-    for (const u of [0.42, 0.92, 2.08, 2.58]) lanternAt(c, u, v1 + 0.16, z0 + H - 6, 0.8);
-    // 賭坊 현판: 처마 끝에 건다
-    onL(c, 1.5 - 14 / 32, v1 + e - 0.02, z0 + H - 5.6, () => {
+    if (!o.back) for (const u of [0.42, 0.92, 2.08, 2.58]) lanternAt(c, u, v1 + 0.16, z0 + H - 6, 0.8);
+    // 賭坊 현판: 처마 끝에 건다 (문 쪽에만)
+    if (!o.back) onL(c, 1.5 - 14 / 32, v1 + e - 0.02, z0 + H - 5.6, () => {
       rr(c, '#2a0806', 5, -1.6, 0.6, 1.8); rr(c, '#2a0806', 22.4, -1.6, 0.6, 1.8);
       faceSign(c, 14, 0.4, 25, 9, '賭坊', { bg: '#5a120c', fg: '#f0c860', frame: '#2a0806' });
     });
@@ -2138,7 +2281,8 @@ const IsoArt = (() => {
       rr(c, 'rgba(255,240,190,0.5)', -r + 1.6, -1.2, 1, 2.4);
       if (o.snow) { c.fillStyle = 'rgba(244,247,250,0.9)'; c.beginPath(); c.arc(0, 0, r, Math.PI * 1.15, Math.PI * 1.85); c.fill(); }
     });
-    // 賭 큰 등롱
+    // 賭 큰 등롱 (문 앞에만)
+    if (o.back) return;
     post(c, 0.1, 1.9, 5, 52, 0.022, PAL.woodDark);
     seg3(c, PAL.woodDark, 1.1, [0.1, 1.9, 50], [0.44, 1.9, 50]);
     const lx = X(0.38, 1.9), ly = Y(0.38, 1.9, 50);
@@ -2186,7 +2330,8 @@ const IsoArt = (() => {
       crate(c, u, v, s, z);
       onL(c, u - s / 2, v + s / 2, z, () => rr(c, '#c0362a', s * 8, -s * 13, s * 16, s * 9));
     }
-    // 互市 현판 문
+    // 互市 현판 문과 互 깃발 (문 쪽에만. 등을 보이면 무늬 없는 깃발 하나)
+    if (o.back) { triFlag(c, 2.82, 2.82, 40, '#8a5a2a', null, { len: 13, hgt: 9 }); return; }
     const pa = 1.02, pb = 1.78, pv = 2.8, ph = 32;
     post(c, pa, pv, 1.2, ph, 0.04, '#6b4428', { top: '#3b2414' });
     seg3(c, '#3b2414', 2.4, [pa - 0.12, pv, ph], [pb + 0.12, pv, ph]);
@@ -2214,13 +2359,15 @@ const IsoArt = (() => {
       c.fillStyle = 'rgba(214,190,150,0.35)'; c.fillRect(37, 60, 20, 34);
     });
     plinth(c, 0.12, 0.1, 2.88, 1.74, 1.2, 9, o);
-    steps(c, 1.15, 1.85, 1.74, 2.04, 1.2, 9, 3);
+    if (!o.back) steps(c, 1.15, 1.85, 1.74, 2.04, 1.2, 9, 3);
     const u0 = 0.28, v0 = 0.24, u1 = 2.72, v1 = 1.56, z0 = 9, H = 29;
     walls(c, u0, v0, u1, v1, z0, H, {
       bays: 5, items: ['win', 'lat', 'door', 'lat', 'win'], pillar: '#9c3226', beam: '#4a1a12', mid: '#7a2a20', dan: true, hid: 16 * e + 6.6, rnd: o.rnd, winW: 10,
       sign: '衙門', signW: 20, signH: 8.5, signOpt: { frame: '#9a7a22', bg: '#1e1810' },
     }, { bays: 3, items: ['win', 'lat', 'win'] });
     tileRoof(c, { u0, v0, u1, v1, e, zE: z0 + H - 1, zR: 80, form: 'hip', lift: 8, liftR: 1.0, trim: true, snow: o.snow, seed: 71 });
+    // 돌짐승·등문고·홍살문은 문 앞에만 (등을 보이면 앞 박석 마당은 뒤뜰이다)
+    if (o.back) return;
     stoneBeast(c, 0.98, 2.1, 1.2, 1, o.snow);
     stoneBeast(c, 2.02, 2.1, 1.2, -1, o.snow);
     drum(c, 2.5, 2.2, 1.2, 7, o.snow);
@@ -2255,14 +2402,15 @@ const IsoArt = (() => {
       c.beginPath(); c.arc(L / 2, M / 2 + 4, 22, 0, Math.PI * 2); c.stroke();
       c.lineWidth = 0.6; c.beginPath(); c.arc(L / 2, M / 2 + 4, 18.5, 0, Math.PI * 2); c.stroke();
     });
-    steps(c, 1.15, 1.85, 2.62, 2.97, 0, zD - 1.6, 3, '#a19b8e');
+    if (!o.back) steps(c, 1.15, 1.85, 2.62, 2.97, 0, zD - 1.6, 3, '#a19b8e');
     triFlag(c, 0.26, 0.26, 44, '#4f7fb8', null, { z0: zD });
     // 현판 틀
     const ba = 0.62, bb = 2.38, bv = 0.24, bh = zD + 42;
     post(c, ba, bv, zD, bh + 2, 0.04, '#7a2a20', { top: '#4a1a12' });
     seg3(c, '#4a1a12', 2.4, [ba - 0.14, bv, bh], [bb + 0.14, bv, bh]);
     seg3(c, '#4a1a12', 1.6, [ba, bv, bh - 15], [bb, bv, bh - 15]);
-    onL(c, ba, bv, bh - 1.5, () => faceSign(c, (bb - ba) * 32 / 2, 0.6, 36, 10.5, '演武臺', { frame: '#5e2a1a' }));
+    if (o.back) onL(c, ba, bv, bh - 1.5, () => { const cx = (bb - ba) * 32 / 2; rr(c, '#5e2a1a', cx - 19.2, -0.6, 38.4, 12.9); rr(c, '#4a2c1a', cx - 18, 0.6, 36, 10.5); rr(c, 'rgba(0,0,0,0.25)', cx - 18, 5.6, 36, 0.6); });
+    else onL(c, ba, bv, bh - 1.5, () => faceSign(c, (bb - ba) * 32 / 2, 0.6, 36, 10.5, '演武臺', { frame: '#5e2a1a' }));
     if (o.snow) seg3(c, '#eef2f7', 1.2, [ba - 0.12, bv, bh + 1.4], [bb + 0.12, bv, bh + 1.4]);
     post(c, bb, bv, zD, bh + 2, 0.04, '#7a2a20', { top: '#4a1a12' });
     drum(c, 2.42, 0.62, zD, 5.5, o.snow);
@@ -2827,10 +2975,16 @@ const IsoArt = (() => {
     }
   }
 
-  // 그리기 진입점: 북쪽 꼭짓점이 원점인 문맥에 그린다
-  function draw(c, type, w, h, season, state, extra, rnd) {
+  // 그리기 진입점: 북쪽 꼭짓점이 원점인 문맥에 그린다.
+  // back: 문이 화면 안쪽(dir 2·3)이다. 보이는 두 면은 건물의 뒤와 옆이니 문·현판·문 앞 소품을 빼고 그린다 (o.back, walls 가 문을 창·벽으로)
+  // mir: 좌우로 뒤집어 그리는 중이다 (buildingSprite 가 문맥을 뒤집었다). 면의 밝기만 맞바꾼다
+  function draw(c, type, w, h, season, state, extra, rnd, back, mir) {
     const snow = season === 3;
-    const o = { snow, season, rnd, mask: 0 };
+    const o = { snow, season, rnd, mask: 0, back: !!back, mir: !!mir };
+    BACK = !!back; MIR = !!mir;
+    try { drawState(c, type, w, h, state, extra, o); } finally { BACK = false; MIR = false; }
+  }
+  function drawState(c, type, w, h, state, extra, o) {
     if (state === 'build') construction(c, type, w, h, clamp(parseFloat(extra) || 0, 0, 1), o);
     else if (state === 'ruin') ruin(c, type, w, h, o);
     else {
@@ -2853,11 +3007,29 @@ const IsoArt = (() => {
 // ── 캐시와 공개 함수 ─────────────────────────
 const SpriteCache = new Map();
 let _spriteScratch = null;
-// 반환: {c, ox, oy, w, h} — 캔버스를 발판 북쪽 꼭짓점 worldOf(b.x, b.y) + (ox, oy) 에 (w, h) 크기로 그린다
-function buildingSprite(type, w, h, season, state, extra = '') {
+// 좌우로 뒤집어 그리는 동안의 글자: 글자 하나하나는 제자리에서 다시 뒤집어 바로 읽히게 한다
+// (면에 붙인 현판이면 뒤집힌 면의 기울기를 그대로 따른다)
+function _mirrorText(t, x, y, mw) {
+  this.save();
+  this.translate(x, y); this.scale(-1, 1);
+  const a = this.textAlign;
+  if (a === 'left' || a === 'start') this.textAlign = 'right';
+  else if (a === 'right' || a === 'end') this.textAlign = 'left';
+  if (mw === undefined) CanvasRenderingContext2D.prototype.fillText.call(this, t, 0, 0);
+  else CanvasRenderingContext2D.prototype.fillText.call(this, t, 0, 0, mw);
+  this.restore();
+}
+// 반환: {c, ox, oy, w, h} — 캔버스를 발판 북쪽 꼭짓점 worldOf(b.x, b.y) + (ox, oy) 에 (w, h) 크기로 그린다.
+// w, h 는 놓인 발판(b.w, b.h). dir(b.dir): 0 처음 그림, 1 처음 그림을 좌우로 뒤집은 것, 2 등을 보인 그림, 3 등을 보인 그림을 뒤집은 것.
+// 뒤집힌 그림(1·3)은 처음 방향의 발판(h × w)으로 그려 뒤집는다
+function buildingSprite(type, w, h, season, state, extra = '', dir = 0) {
   // 공사·폐허는 눈만 계절을 탄다
   const sKey = state === 'done' ? season : (season === 3 ? 3 : 0);
-  const key = `${type}|${w}x${h}|${sKey}|${state}|${extra}`;
+  const mir = (dir & 1) === 1, back = dir >= 2;
+  const aw = mir ? h : w, ah = mir ? w : h;
+  // 처음 방향(0)의 열쇠는 예전 그대로 둔다 (같은 난수로 같은 그림). 뒤집힌 그림은 뒤집기 전 그림과 같은 난수를 쓴다
+  const base = `${type}|${aw}x${ah}|${sKey}|${state}|${extra}${back ? '|back' : ''}`;
+  const key = mir ? base + '|mir' : base;
   let s = SpriteCache.get(key);
   if (s) return s;
   const meta = SPRITE_META[type] || { height: 60 };
@@ -2872,8 +3044,9 @@ function buildingSprite(type, w, h, season, state, extra = '') {
   c.setTransform(SS, 0, 0, SS, 0, 0);
   const ox0 = padX + h * 32, oy0 = top;
   c.translate(ox0, oy0);
-  const rnd = mulberry32(IsoArt.hashStr(key));
-  IsoArt.draw(c, type, w, h, season, state, extra, rnd);
+  const rnd = mulberry32(IsoArt.hashStr(base));
+  if (mir) { c.scale(-1, 1); c.fillText = _mirrorText; }
+  try { IsoArt.draw(c, type, aw, ah, season, state, extra, rnd, back, mir); } finally { if (mir) delete c.fillText; }
   c.setTransform(1, 0, 0, 1, 0, 0);
   // 빈 곳을 잘라 낸다
   const W = cw * SS, Hh = ch * SS;

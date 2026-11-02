@@ -214,7 +214,9 @@ function actGoInside(v, b) {
 function workSpot(v, b) {
   const def = BDEF[b.type];
   if (def.walkRows) {
-    const p = randomTileNear(b.x + b.w / 2, b.y + b.h - def.walkRows / 2, Math.max(b.w, def.walkRows) / 2,
+    // 마당은 문 쪽 띠 (dir 0 이면 아래쪽 줄들)
+    const Y = yardRect(b);
+    const p = randomTileNear(Y.x + Y.w / 2, Y.y + Y.h / 2, Math.max(Y.w, Y.h) / 2,
       (x, y) => World.occ[y * MW + x] === b.id);
     if (p) return { p, goal: null };
   }
@@ -306,7 +308,9 @@ function wanderTarget(v) {
   if (act === 'hero') {
     const dojo = S.buildings.find(b => usable(b) && b.type === 'dojo');
     if (dojo && Math.random() < 0.6) {
-      const p = randomTileNear(dojo.x + 1.5, dojo.y + 2, 1.5, (x, y) => World.occ[y * MW + x] === dojo.id);
+      // 마당 가운데 (처음 방향이면 예전과 같은 (x + 1.5, y + 2))
+      const Y = yardRect(dojo);
+      const p = randomTileNear(Y.x + Y.w / 2, Y.y + Y.h / 2, 1.5, (x, y) => World.occ[y * MW + x] === dojo.id);
       if (p) return { p, train: true };
     }
     const inn = S.buildings.find(b => usable(b) && b.type === 'inn');
@@ -316,10 +320,11 @@ function wanderTarget(v) {
   if (act === 'patrol') {
     const bs = S.buildings.filter(b => usable(b) && b.type !== 'wall' && b.type !== 'stonewall');
     const b = pick(bs);
-    return { p: b ? (randomTileNear(b.x + b.w / 2, b.y + b.h + 1, 2) || doorOf(b)) : plaza };
+    const fp = b && frontPoint(b, 1);
+    return { p: b ? (randomTileNear(fp.x, fp.y, 2) || doorOf(b)) : plaza };
   }
   const home = getB(v.home);
-  if (home && Math.random() < 0.4) return { p: randomTileNear(home.x + home.w / 2, home.y + home.h + 1, 3) || plaza };
+  if (home && Math.random() < 0.4) { const fp = frontPoint(home, 1); return { p: randomTileNear(fp.x, fp.y, 3) || plaza }; }
   return { p: randomTileNear(plaza.x, plaza.y + 1, 6) || plaza };
 }
 function actWander(v, dtH) {
