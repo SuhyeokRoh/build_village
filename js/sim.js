@@ -121,8 +121,9 @@ function placeBuilding(type, x, y, done = false, dir = 0) {
   markDirty();
   return b;
 }
-// 발판 위에 서 있던 사람 비키기 (놓을 때·돌릴 때). 새로 막힌 칸을 지나던 길은 moveUnit 이 버리고 다시 찾는다
-function vacateFoot(b) {
+// 발판 위에 서 있던 사람 비키기 (놓을 때·돌릴 때). 새로 막힌 칸을 지나던 길은 moveUnit 이 버리고 다시 찾는다.
+// replan(돌릴 때): 비켜 선 마을 사람이 가던 중이었으면 그 자리를 다 온 것으로 치지 않고 다시 길을 찾게 한다
+function vacateFoot(b, replan = false) {
   for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) {
     if (u.inside) continue;
     const tx = Math.floor(u.x), ty = Math.floor(u.y);
@@ -130,6 +131,7 @@ function vacateFoot(b) {
       const p = nearestWalkable(tx, ty, 0, 6);
       if (p) { u.x = p.x + 0.5; u.y = p.y + 0.5; }
       u.path = null;
+      if (replan && arr === S.villagers && u.phase === 'go') u.phase = 'plan';
     }
   }
 }
@@ -137,15 +139,10 @@ function vacateFoot(b) {
 const ROT_WHY = [
   ['이미 다른 건물이 있다', '옆 건물과 겹친다'], ['길 위에는', '길을 덮는다'], ['물 위에는', '물에 걸친다'],
   ['바위산에는', '바위산에 걸친다'], ['지도 가장자리', '지도 가장자리를 넘는다'],
-  ['강물과', '강물에서 떨어진다'], ['가까이에 숲', '숲에서 멀어진다'], ['가까이에 바위산', '바위산에서 멀어진다'],
 ];
-// 놓인 건물을 제자리에서 다음 방향(step = −1 이면 앞 방향)으로 돌린다. 값은 들지 않는다.
-// 새 발판이 canPlace 의 땅 조건(비용·등급·하나만 빼고, 제 발판은 빈 땅으로 친다)을 넘어야 한다.
-// 가로세로가 바뀌는 건물은 원래 발판과 가장 많이 겹치는 자리부터 해 본다. 일꾼·식구·내구도·공사 진척은 그대로
-function rotateBuilding(b, step = 1) {
-  if (!b || !S.bmap.get(b.id)) return { ok: false, why: '건물이 없다' };
-  if (!canRotate(b.type)) return { ok: false, why: '돌릴 수 없는 건물이다' };
-  const dir = nextDir(b.type, b.dir || 0, step);
+// 건물 b 를 방향 dir 로 돌렸을 때 놓일 자리 { x, y } 또는 { why } (막힌 까닭, 돌리기 말로).
+// 가로세로가 바뀌는 건물은 원래 발판과 가장 많이 겹치는 자리부터 해 본다
+function rotateSpot(b, dir) {
   const f = footOf(b.type, dir);
   const cands = [];
   for (let oy = Math.min(0, b.h - f.h); oy <= Math.max(0, b.h - f.h); oy++) {
@@ -157,13 +154,35 @@ function rotateBuilding(b, step = 1) {
     }
   }
   cands.sort((p, q) => p.s - q.s);
-  let at = null, why = '';
+  let why = '';
   for (const c of cands) {
-    const r = canPlace(b.type, c.x, c.y, dir, { self: b.id, free: true });
-    if (r.ok) { at = c; break; }
+    // keepSite: 물·숲·바위 곁인지는 다시 묻지 않는다 (그런 건물은 모두 네모라 돌려도 발판이 그대로다)
+    const r = canPlace(b.type, c.x, c.y, dir, { self: b.id, free: true, keepSite: true });
+    if (r.ok) return { x: c.x, y: c.y };
     if (!why) why = r.why;
   }
-  if (!at) { const m = ROT_WHY.find(([k]) => why.startsWith(k)); return { ok: false, why: `돌리면 ${m ? m[1] : why || '자리가 맞지 않는다'}` }; }
+  const m = ROT_WHY.find(([k]) => why.startsWith(k));
+  return { why: m ? m[1] : why || '자리가 맞지 않는다' };
+}
+// 놓인 건물을 제자리에서 다음 방향(step = −1 이면 앞 방향)으로 돌린다. 값은 들지 않는다.
+// 새 발판이 canPlace 의 땅 조건(비용·등급·하나만·물/숲/바위 곁 빼고, 제 발판은 빈 땅으로 친다)을 넘어야 한다.
+// 다음 방향이 맞지 않으면 그다음 방향을 차례로 해 보고(지금 방향 앞에서 멈춘다), 어느 쪽도 맞지 않을 때만 거절한다.
+// 돌려줌 { ok, dir, skipped: [{ dir, why }] (건너뛴 방향과 까닭), blocked (새 문 앞 칸이 막혔나) } 또는 { ok: false, why }.
+// 일꾼·식구·내구도·공사 진척은 그대로
+function rotateBuilding(b, step = 1) {
+  if (!b || !S.bmap.get(b.id)) return { ok: false, why: '건물이 없다' };
+  if (!canRotate(b.type)) return { ok: false, why: '돌릴 수 없는 건물이다' };
+  const from = b.dir || 0, skipped = [];
+  let dir = from, at = null;
+  for (let k = 0; k < dirsOf(b.type).length - 1; k++) {
+    dir = nextDir(b.type, dir, step);
+    if (dir === from) break;
+    const r = rotateSpot(b, dir);
+    if (r.why) { skipped.push({ dir, why: r.why }); continue; }
+    at = r; break;
+  }
+  if (!at) return { ok: false, why: `돌리면 ${skipped.length ? skipped[0].why : '자리가 맞지 않는다'}`, skipped };
+  const f = footOf(b.type, dir);
   World.unstamp(b);
   b.x = at.x; b.y = at.y; b.w = f.w; b.h = f.h; b.dir = dir;
   let forest = 0, terrain = false;
@@ -175,14 +194,22 @@ function rotateBuilding(b, step = 1) {
   if (terrain) World.terrainDirty = true;
   if (forest) addRes('wood', forest * 3);
   World.stamp(b, b.id);
-  vacateFoot(b);
-  // 안에 든 사람·문 앞을 오가던 사람의 길은 새 문으로 다시 찾는다
-  for (const arr of [S.villagers, S.enemies, S.allies]) for (const u of arr) if (u.path && (u.site === b.id || u.job === b.id || u.home === b.id || u.destB === b.id || u.tb === b.id)) u.path = null;
+  vacateFoot(b, true);
+  // 이 건물로 가던 사람만 새 문으로 다시 길을 찾는다. 길만 버리면 '가던 중에 길이 없다'를 다 왔다로 읽어
+  // 그 자리에서 들어가 버리거나 일을 시작하니, 계획(plan)으로 되돌린다. 안에 든 사람은 나올 때 새 문으로 나온다
+  for (const u of S.villagers) {
+    if (u.inside) continue;
+    if (((u.act === 'sleep' || u.act === 'shelter') && u.destB === b.id) || (u.act === 'work' && u.job === b.id)
+      || (u.act === 'build' && u.site === b.id) || (u.wt && u.wt.b && u.wt.b.id === b.id)) { u.path = null; u.phase = 'plan'; }
+  }
+  // 쳐들어온 무리·도우러 온 이들은 길이 없으면 스스로 다시 찾는다
+  for (const arr of [S.enemies, S.allies]) for (const u of arr) if (u.tb === b.id) u.path = null;
   updateSiteFactors(b);
   for (const o of S.buildings) if (o.type === 'escort' && o !== b) o._connected = roadConnected(o);
   markDirty();
   Bus.emit('rotated', b);
-  return { ok: true, dir };
+  const fr = doorFront(b);
+  return { ok: true, dir, skipped, blocked: !doorTileOk(b.type, fr.x, fr.y) };
 }
 function updateSiteFactors(b) {
   if (b.type === 'lumber') b._forest = clamp(countTilesNear(b, T.FOREST, 4.5) / 10, 0.15, 1.25);
@@ -207,7 +234,7 @@ function roadConnected(b) {
   return false;
 }
 // dir: 문 방향(발판이 footOf 로 바뀐다). opt.self: 이 id 의 건물 칸은 빈 땅으로 친다(제자리 돌리기),
-// opt.free: 등급·갈래·하나만·비용은 묻지 않는다
+// opt.free: 등급·갈래·하나만·비용은 묻지 않는다, opt.keepSite: 물·숲·바위 곁인지는 묻지 않는다(제자리 돌리기)
 function canPlace(type, x, y, dir = 0, opt = null) {
   const def = BDEF[type];
   const free = !!(opt && opt.free), self = (opt && opt.self) || 0;
@@ -228,13 +255,14 @@ function canPlace(type, x, y, dir = 0, opt = null) {
     if (t === T.ROCK) return { ok: false, why: '바위산에는 지을 수 없다' };
   }
   const probe = { x, y, w: f.w, h: f.h };
-  if (def.needs === 'water') {
+  const site = def.needs && !(opt && opt.keepSite);
+  if (site && def.needs === 'water') {
     let n = 0;
     for (let xx = x - 1; xx <= x + f.w; xx++) for (let yy = y - 1; yy <= y + f.h; yy++) if (World.tile(xx, yy) === T.WATER && !World.isRoad(xx, yy)) n++;
     if (n < 2) return { ok: false, why: '강물과 맞닿아야 한다' };
   }
-  if (def.needs === 'forest' && countTilesNear(probe, T.FOREST, 4.5) < 3) return { ok: false, why: '가까이에 숲이 있어야 한다' };
-  if (def.needs === 'rock' && countTilesNear(probe, T.ROCK, 4.5) < 3) return { ok: false, why: '가까이에 바위산이 있어야 한다' };
+  if (site && def.needs === 'forest' && countTilesNear(probe, T.FOREST, 4.5) < 3) return { ok: false, why: '가까이에 숲이 있어야 한다' };
+  if (site && def.needs === 'rock' && countTilesNear(probe, T.ROCK, 4.5) < 3) return { ok: false, why: '가까이에 바위산이 있어야 한다' };
   if (!free && !canAfford(def.cost)) return { ok: false, why: '재료가 모자라다', poor: true };
   return { ok: true };
 }

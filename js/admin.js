@@ -207,8 +207,14 @@ const AdmSite = {
     }
     return d;
   },
-  // F: 놓을 발판과 방향 { w, h, dir } (findSite 가 footOf 로 만든다). 문 앞 칸
+  // F: 놓을 발판과 방향 { w, h, dir, type } (findSite 가 footOf 로 만든다). 문 앞 칸
   doorTile(F, x, y) { return doorAt(F.dir || 0, x, y, F.w, F.h); },
+  // 사람이 드나들 칸: 보통은 문 앞 칸. 어장의 선창이 물을 보면 doorOf 처럼 둘레의 뭍 칸 (공방의 길도 거기에 닿는다)
+  entryTile(F, x, y) {
+    const d = this.doorTile(F, x, y);
+    if (!F.type || !dockWater(F.type, d.x, d.y)) return d;
+    return doorOf({ type: F.type, x, y, w: F.w, h: F.h, dir: F.dir || 0 });
+  },
   context() {
     const m = getB(S.manorId);
     const ax = m ? m.x + m.w / 2 : World.center.x + 0.5, ay = m ? m.y + m.h / 2 : World.center.y + 0.5;
@@ -264,6 +270,7 @@ const AdmSite = {
     const d = this.doorTile(F, x, y);
     if (!World.inb(d.x, d.y)) return false;
     const di = d.y * MW + d.x, t = World.tiles[di];
+    if (F.type && dockWater(F.type, d.x, d.y)) return true;   // 물을 보는 선창
     return !(t === T.ROCK || (t === T.WATER && !World.road[di]));
   },
   // 비용은 빼고 canPlace 를 그대로 묻는다 (재료를 잠깐 넉넉히 두었다가 그대로 되돌린다)
@@ -274,8 +281,8 @@ const AdmSite = {
   },
   keepsPaths(F, x, y, ctx) {
     const reach = this.flood(ctx.start, { x, y, w: F.w, h: F.h });
-    const d = this.doorTile(F, x, y);
-    if (!reach[d.y * MW + d.x]) return false;
+    const d = this.entryTile(F, x, y);
+    if (!World.inb(d.x, d.y) || !reach[d.y * MW + d.x]) return false;
     for (const i of this.doors(ctx)) if (!reach[i]) return false;
     return true;
   },
@@ -283,11 +290,13 @@ const AdmSite = {
     const s = this.scoreFoot(type, F, P, x, y, dC, ctx, tw, opts);
     return s === null ? null : s + this.scoreDoor(F, P, x, y, ctx, tw);
   },
-  // 문 앞 칸에서 길 연결망까지 (P.road: 새로 깔 칸마다 깎고, P.front: 길가에 문을 내면 덤). 방향마다 다르다
+  // 문 앞 칸에서 길 연결망까지 (P.road: 새로 깔 칸마다 깎고, P.front: 길가에 문을 내면 덤). 방향마다 다르다.
+  // 어장은 선창이 물을 보는 쪽에 덤을 주고, 길은 드나드는 뭍 칸(entryTile)에서 잰다
   scoreDoor(F, P, x, y, ctx, tw) {
-    const d = this.doorTile(F, x, y);
-    const rd = ctx.rd[d.y * MW + d.x];
+    const d = this.entryTile(F, x, y);
+    const rd = World.inb(d.x, d.y) ? ctx.rd[d.y * MW + d.x] : 999;
     let s = 0;
+    if (F.type && BDEF[F.type].dock) { const f = this.doorTile(F, x, y); if (dockWater(F.type, f.x, f.y)) s += 3; }
     if (P.road) s -= Math.min(rd, 25) * P.road;
     if (P.front && rd <= 1) s += P.front;
     if (rd >= 999 && P.road) s -= 30;
@@ -964,7 +973,7 @@ const Admin = {
         const base = AdmSite.scoreFoot(type, g, P, x, y, dC, ctx, tw, opts);
         if (base === null) continue;
         for (const dir of g.dirs) {
-          const F = { w: g.w, h: g.h, dir };
+          const F = { w: g.w, h: g.h, dir, type };
           if (!AdmSite.doorFits(F, x, y)) continue;
           cands.push({ x, y, dir, s: base + AdmSite.scoreDoor(F, P, x, y, ctx, tw) - (dir ? 0.05 : 0) });
         }
@@ -976,7 +985,7 @@ const Admin = {
       if (tries >= 40) break;
       if (!AdmSite.placeOk(type, c.x, c.y, c.dir)) continue;
       tries++;
-      if (!AdmSite.keepsPaths(Object.assign({ dir: c.dir }, footOf(type, c.dir)), c.x, c.y, ctx)) continue;
+      if (!AdmSite.keepsPaths(Object.assign({ dir: c.dir, type }, footOf(type, c.dir)), c.x, c.y, ctx)) continue;
       return { x: c.x, y: c.y, dir: c.dir };
     }
     return null;

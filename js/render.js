@@ -952,11 +952,13 @@ function render(nowMs) {
     for (let xx = b.x; xx < b.x + b.w; xx++) renMarkRock(xx, b.y + b.h);
   }
   for (const b of grounds) drawBuilding(c, b, renSpriteOf(b, season), season, now);
-  // 등을 보인 건물(dir 2·3)의 문 앞 디딤돌: 화면 안쪽으로 난 입구가 어디인지 땅에 남긴다
+  // 등을 보인 건물(dir 2·3)의 문 앞 디딤돌: 화면 안쪽으로 난 입구가 어디인지 땅에 남긴다.
+  // 지붕이 문 앞 칸을 다 덮는 집채는 보이지 않으니 트인 건물만 (집채의 입구는 도구를 든 동안 drawOverlays 가 표시한다)
   for (const b of S.buildings) {
-    if ((b.dir || 0) < 2 || b.ruined || BDEF[b.type].ground) continue;
+    if ((b.dir || 0) < 2 || b.ruined || !REN_OPEN_FRONT.has(b.type)) continue;
     const f = doorFront(b), px = (f.x - f.y) * 32, py = (f.x + f.y) * 16;
     if (px < V.x0 - 40 || px > V.x1 + 40 || py < V.y0 - 40 || py > V.y1 + 40) continue;
+    if (dockWater(b.type, f.x, f.y)) continue;   // 물을 보는 선창 앞에는 돌을 놓지 않는다
     renDoorstep(c, b, f, season);
   }
   renExitCrests(V);
@@ -1408,6 +1410,17 @@ function drawOverlays(c, now) {
   const season = renSeason();
   const V = R.view;
   const sel = UI.sel;
+  // 건물·길·담을 든 동안은 놓인 건물마다 입구를 작게 보인다 (지붕 뒤로 난 문 앞에 길을 내거나 막지 않게)
+  const tk = UI.tool && UI.tool.kind;
+  if (tk === 'build' || tk === 'road' || tk === 'line') {
+    for (const b of S.buildings) {
+      if (b.ruined || !canRotate(b.type)) continue;
+      const f = doorFront(b), px = (f.x - f.y) * 32, py = (f.x + f.y) * 16;
+      if (px < V.x0 - 40 || px > V.x1 + 40 || py < V.y0 - 30 || py > V.y1 + 30) continue;
+      const dock = dockWater(b.type, f.x, f.y);
+      renDoorMark(c, b.dir || 0, f, dock || walkable(f.x, f.y), now, false, REN_MINI_MARK);
+    }
+  }
   if (sel && sel.b && S.bmap.get(sel.b.id)) {
     const b = sel.b;
     c.fillStyle = 'rgba(216,169,68,0.12)';
@@ -1418,7 +1431,7 @@ function drawOverlays(c, now) {
     c.setLineDash([]); c.lineDashOffset = 0;
     if (b.type === 'tower') rangeCircle(c, b.x + 0.5, b.y + 0.5, BDEF.tower.range);
     // 돌릴 수 있는 건물은 고르면 입구가 보인다
-    if (canRotate(b.type) && !b.ruined && !UI.tool) { const f = doorFront(b); renDoorMark(c, b.dir || 0, f, walkable(f.x, f.y), now, false); }
+    if (canRotate(b.type) && !b.ruined && !UI.tool) { const f = doorFront(b); renDoorMark(c, b.dir || 0, f, doorTileOk(b.type, f.x, f.y), now, false); }
   }
   if (sel && sel.u && !renGone(sel.u)) {
     const u = sel.u;
@@ -1590,9 +1603,11 @@ function drawToolGhost(c, now, season) {
     renFootPath(c, h.x, h.y, 1, 1, 0.08); c.stroke();
     if (tool.key === 'tower') rangeCircle(c, bx + 0.5, by + 0.5, def.range);
     // 입구: 문 앞 칸에 바깥을 가리키는 금빛 화살. 그 칸이 길이거나 걸을 수 있으면 초록, 막혔으면 붉게
-    if (P.rot) renDoorMark(c, P.dir, P.door, P.doorOk, now, true);
+    if (P.rot) renDoorMark(c, P.dir, P.door, P.doorOk, now, true, P.dock ? REN_DOCK_MARK : null);
   }
 }
+// 등을 보여도 문 앞 칸이 지붕에 가리지 않는 트인 건물 (그림을 그려 견주어 본 것: 나머지는 디딤돌이 한 점도 보이지 않는다)
+const REN_OPEN_FRONT = new Set(['fishery', 'lumber', 'quarry', 'market', 'tower', 'altar_ma', 'horsemarket', 'stage']);
 // 디딤돌: 문 앞 칸(f)의 건물 쪽 가장자리에 납작한 돌 하나와 밟아 다진 흙
 function renDoorstep(c, b, f, season) {
   const d = b.dir || 0, v = DIR_VEC[d], cu = f.x + 0.5, cv = f.y + 0.5;
@@ -1604,32 +1619,53 @@ function renDoorstep(c, b, f, season) {
   quad(-0.48, -0.16, 0.3, 2.2); c.fillStyle = season === 3 ? '#e6ebf0' : '#b4afa4'; c.fill();
   c.strokeStyle = 'rgba(40,36,30,0.55)'; c.lineWidth = 0.6; c.stroke();
 }
-// 문 앞 칸(door)과 그 칸을 지나 바깥으로 나가는 화살. ok: 드나들 수 있는 칸인가. label: '입구' 이름표
-function renDoorMark(c, dir, door, ok, now, label) {
+const REN_MINI_MARK = { mini: true }, REN_DOCK_MARK = { dock: true };
+// 문 앞 칸(door)과 그 칸을 지나 바깥으로 나가는 화살. ok: 드나들 수 있는 칸인가. label: '입구' 이름표.
+// opt.dock: 어장의 선창이 물을 본다 (이름표 '선창'). opt.mini: 도구를 든 동안 놓인 건물마다 그리는 작은 표시
+// (반투명, 깜박이지 않고, 화살이 문 앞 칸 안에 든다)
+function renDoorMark(c, dir, door, ok, now, label, opt) {
+  const mini = !!(opt && opt.mini), dock = !!(opt && opt.dock);
   const v = DIR_VEC[dir], cu = door.x + 0.5, cv = door.y + 0.5;
   const P = (u, w) => [(u - w) * 32, (u + w) * 16];
-  const pulse = 0.5 + 0.5 * Math.sin(now * 5);
+  const pulse = mini ? 0 : 0.5 + 0.5 * Math.sin(now * 5);
+  const ga = c.globalAlpha;
+  if (mini) c.globalAlpha = ga * 0.6;
   // 문 앞 칸
   c.fillStyle = ok ? `rgba(150,230,120,${(0.3 + 0.12 * pulse).toFixed(3)})` : `rgba(235,85,60,${(0.36 + 0.12 * pulse).toFixed(3)})`;
   renDia(c, (door.x - door.y) * 32, (door.x + door.y) * 16, -1); c.fill();
-  c.strokeStyle = ok ? 'rgba(255,214,110,0.95)' : 'rgba(255,120,95,0.95)'; c.lineWidth = Math.max(1.2, renPx(1.6));
+  c.strokeStyle = ok ? 'rgba(255,214,110,0.95)' : 'rgba(255,120,95,0.95)'; c.lineWidth = Math.max(mini ? 0.8 : 1.2, renPx(mini ? 1 : 1.6));
   c.stroke();
   // 화살: 발판 가장자리(문 칸의 안쪽 변)에서 문 칸 바깥 변 너머까지. 화면에서 늘 보이게 위에 겹쳐 그린다
-  const s = (t, side) => P(cu + v[0] * t - v[1] * side, cv + v[1] * t + v[0] * side);
+  const k = mini ? 0.7 : 1;
+  const s = (t, side) => P(cu + (v[0] * t - v[1] * side) * k, cv + (v[1] * t + v[0] * side) * k);
   const pts = [s(-0.62, 0.12), s(0.12, 0.12), s(0.12, 0.3), s(0.62, 0), s(0.12, -0.3), s(0.12, -0.12), s(-0.62, -0.12)];
   c.beginPath(); pts.forEach((p, i) => (i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]))); c.closePath();
   c.fillStyle = ok ? '#ffd36a' : '#ff8a6a'; c.fill();
-  c.strokeStyle = '#3a2410'; c.lineWidth = Math.max(1, renPx(1.4)); c.lineJoin = 'round'; c.stroke();
+  c.strokeStyle = '#3a2410'; c.lineWidth = Math.max(mini ? 0.8 : 1, renPx(mini ? 1 : 1.4)); c.lineJoin = 'round'; c.stroke();
+  c.globalAlpha = ga;
   if (!label) return;
   const fs = Math.max(10, renPx(12));
-  const [lx, ly0] = P(cu + v[0] * 0.95, cv + v[1] * 0.95);
-  const ly = ly0 + (v[1] < 0 || v[0] < 0 ? -fs * 0.9 : fs * 0.9);
-  const text = ok ? '입구' : '입구 막힘';
+  const text = dock ? '선창' : ok ? '입구' : '입구 막힘';
   c.font = `${fs.toFixed(1)}px "Gowun Batang", serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
   const tw = c.measureText(text).width + fs * 0.9, th = fs * 1.5;
+  // 이름표는 문 바깥쪽에. 그 자리가 아래쪽 띠(건설 띠·안내 띠·총관 카드)에 가리면 건물 쪽으로 옮긴다
+  const [lx, ly0] = P(cu + v[0] * 0.95, cv + v[1] * 0.95);
+  const down = !(v[1] < 0 || v[0] < 0);
+  let ly = ly0 + (down ? fs * 0.9 : -fs * 0.9);
+  if (down && renUnderBars(lx, ly + th / 2)) ly = P(cu - v[0] * 0.95, cv - v[1] * 0.95)[1] - fs * 0.9;
   c.fillStyle = 'rgba(28,20,17,0.9)'; c.fillRect(lx - tw / 2, ly - th / 2, tw, th);
   c.strokeStyle = ok ? 'rgba(216,169,68,0.85)' : 'rgba(240,110,90,0.9)'; c.lineWidth = Math.max(0.8, renPx(1)); c.strokeRect(lx - tw / 2, ly - th / 2, tw, th);
   c.fillStyle = ok ? '#ffe3a0' : '#ffb4a0'; c.fillText(text, lx, ly + fs * 0.05);
+}
+// 월드 점 (wx, wy) 가 화면 아래쪽 띠(건설 띠, 안내 띠, 총관 카드) 밑에 드는가. 띠의 자리는 반 초마다 다시 잰다
+function renUnderBars(wx, wy) {
+  const now = R.now;
+  if (!R.bars || now - R.barsT > 0.5 || now < R.barsT) {
+    R.barsT = now; R.bars = [];
+    for (const id of ['buildbar', 'tool-hint', 'steward']) { const e = document.getElementById(id); if (e && !e.hidden) { const q = e.getBoundingClientRect(); if (q.width) R.bars.push(q); } }
+  }
+  const p = worldToScreen(wx, wy);
+  return R.bars.some(q => p.x >= q.left - 20 && p.x <= q.right + 20 && p.y >= q.top);
 }
 
 // ── 날씨 (화면 공간) ───────────────────────

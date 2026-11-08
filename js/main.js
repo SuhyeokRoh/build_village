@@ -41,7 +41,8 @@ function onClick(btn, sx, sy) {
     const r = tryBuild(tool.key, P.x, P.y, P.dir);
     if (!r.ok) UI.toast(r.why, 'bad');
     else {
-      UI.dirMem[tool.key] = P.dir;
+      // 손으로 고른 방향만 기억한다 (길 쪽으로 저절로 돈 방향을 다음 미리 보기의 처음 방향으로 삼지 않는다)
+      if (UI.toolHand) UI.dirMem[tool.key] = P.dir;
       // 손가락 화면: 놓은 자리에 미리 보기를 남기지 않는다 (다음에 누르는 곳에 짓는다)
       if (Input.ptype !== 'mouse') UI.hover = null;
     }

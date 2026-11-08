@@ -59,6 +59,11 @@ function doorAt(dir, x, y, w, h) {
 }
 // 놓인 건물의 문 앞 칸 (막혀 있어도 그 자리). 걸어서 갈 곳은 doorOf
 function doorFront(b) { return doorAt(b.dir || 0, b.x, b.y, b.w, b.h); }
+// 선창이 문 쪽에 있는 건물(BDEF.dock: 어장)의 문 앞 칸이 물인가. 그러면 그 쪽은 물을 보는 선창이고,
+// 사람은 doorOf 가 고르는 둘레의 뭍 칸으로 드나든다
+function dockWater(type, x, y) { return !!BDEF[type].dock && World.tile(x, y) === T.WATER && !World.isRoad(x, y); }
+// 문 앞 칸이 제 구실을 하는가: 걸을 수 있거나, 선창이 물을 보거나 (미리 보기·정보 창의 '막힘')
+function doorTileOk(type, x, y) { return walkable(x, y) || dockWater(type, x, y); }
 // 마당(walkRows)은 문 쪽 띠: 발판 안의 (x, y) 가 그 띠에 드는가
 function inYard(b, x, y) {
   const n = BDEF[b.type].walkRows;

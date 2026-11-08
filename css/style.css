@@ -292,13 +292,15 @@ button[data-tip], button[data-tip-title] { cursor: pointer; }
   #tool-hint { width: max-content; max-width: calc(100% - 16px); }
   #tool-hint-text { white-space: normal; font-size: 12.5px; line-height: 1.4; }
 }
-/* 가로로 누운 폰: 지도가 낮으니 안내 띠를 오른쪽 아래 한 줄로 붙여 가운데(미리 보기 자리)를 비운다 */
+/* 가로로 누운 폰: 지도가 낮으니 안내 띠를 오른쪽 아래에 붙여 가운데(미리 보기 자리)를 비운다.
+   글은 [돌리기] 단추 높이(44px) 안에서 두세 줄로 접혀 '취소' 안내까지 다 보인다 */
 @media (max-height: 500px) and (orientation: landscape) {
-  #tool-hint { left: auto; right: max(10px, var(--safe-r)); transform: none; width: auto; max-width: 52%; bottom: calc(var(--bar-h) + var(--safe-b) + 6px); padding: 2px 4px 2px 10px; }
-  #tool-hint-text { white-space: nowrap; font-size: 12px; }
+  #tool-hint { left: auto; right: max(10px, var(--safe-r)); transform: none; width: auto; max-width: 56%; bottom: calc(var(--bar-h) + var(--safe-b) + 6px); padding: 2px 4px 2px 10px; }
+  #tool-hint-text { white-space: normal; font-size: 11.5px; line-height: 1.3; }
 }
-/* 좁은 화면에서는 정보 창도 건설 띠 위에 뜬다: 도구를 든 동안은 안내 띠 위로 올려 [돌리기]·[허물기]가 가리지 않게 */
-@media (max-width: 860px) {
+/* 좁은 세로 화면에서는 정보 창도 건설 띠 위에 뜬다: 도구를 든 동안은 안내 띠 위로 올려 [돌리기]·[허물기]가 가리지 않게.
+   가로로 누운 폰은 지도가 낮아 창이 너무 작아지니 예전 자리 그대로 */
+@media (max-width: 860px) and (min-height: 501px) {
   #app.tool-on #panel { bottom: calc(var(--bar-h) + var(--safe-b) + 76px); max-height: calc(46vh - 68px); }
 }
 #tooltip {
