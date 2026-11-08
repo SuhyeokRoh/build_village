@@ -298,6 +298,42 @@ const Story = (() => {
     return (st.ruins || []).map(getB).filter(b => b && b.ruined).slice(0, 5).map(b => ({ ...bCenter(b), text: `${BDEF[b.type].name} 터` }));
   }
 
+  // ── 총관의 권고(Advisor)가 짚을 곳 → 금빛 고리·화살표 ──
+  // 지도 위 건물을 눌러 창의 단추([일꾼 +]·[가동 재개]·[기와집으로])를 누르게 한다
+  function guidePanel(b, act, tag) {
+    const name = BDEF[b.type].name, c = bCenter(b);
+    const markers = [{ x: c.x, y: c.y, text: name }];
+    if (panelShows(b)) return { sel: `#panel [data-act="${act}"]`, tag, sub: `창의 [${tag}]${pp(tag, '을/를')} 누르십시오.`, markers, focus: c };
+    if (UI.tool) return toolDown(`화살표가 가리키는 ${name}`, markers, c);
+    return { markers, focus: c, sub: `화살표가 가리키는 ${name}${pp(name, '을/를')} 눌러 고르십시오.` };
+  }
+  // 세율: [마을 현황]을 열면 그 안의 단추를 짚는다
+  function guideTax(to) {
+    const name = ['낮게', '보통', '높게'][to];
+    if (UI.sheet === 'village') return { sel: `#sheet-body [data-act="tax"][data-tax="${to}"]`, tag: `세율 ${name}`, sub: `세율의 [${name}] 단추를 누르십시오.` };
+    return { sel: '#btn-village', tag: '마을 현황', sub: '[마을 현황]을 열어 세율을 고르십시오.' };
+  }
+  // 공사 중인 곳 + 빨리 감기 (guideWait 와 달리 없는 건물을 지으라 하지 않는다)
+  function guideSites(types) {
+    const sites = S.buildings.filter(b => types.includes(b.type) && !b.done && !b.ruined);
+    if (!sites.length) return null;
+    const markers = sites.slice(0, 4).map(b => ({ ...bCenter(b), text: `공사 ${Math.floor(b.progress / BDEF[b.type].time * 100)}%` }));
+    const g = { markers, focus: markers[0], sub: '일 없는 사람이 공사를 거듭니다. 오른쪽 위 ▶▶ 단추로 시간을 빨리 감을 수 있습니다.' };
+    if (S.speed < 2) { g.sel = '#spd-2'; g.tag = '빨리 감기'; }
+    return g;
+  }
+  function recGuide(a) {
+    if (!a || !S) return null;
+    if (a.k === 'build') return guideBuild(a.type, a.near);
+    if (a.k === 'repair') { const b = getB(a.id); return b && b.ruined ? guideRepair(b) : null; }
+    if (a.k === 'panel') { const b = getB(a.id); return b && usable(b) ? guidePanel(b, a.act, a.tag) : null; }
+    if (a.k === 'tax') return guideTax(a.to);
+    if (a.k === 'wait') return guideSites(a.types);
+    if (a.k === 'sel') return { sel: a.sel, tag: a.tag, sub: a.sub || `[${a.tag}]${pp(a.tag, '을/를')} 여십시오.` };
+    return null;
+  }
+  const advOn = () => typeof Advisor !== 'undefined' && !!Advisor.list;
+
   // ── 갈래 도구 (docs/jianghu.md §8) ───────────────
   const jhOn = () => typeof S !== 'undefined' && !!S && !!S.jh;
   const route = () => (jhOn() ? S.jh.route : null);
@@ -654,9 +690,10 @@ const Story = (() => {
         guide: () => {
           if (!flag('sheet_village')) return { sel: '#btn-village', tag: '마을 현황', sub: '[마을 현황]을 열어 민심을 움직이는 까닭을 살펴보십시오.' };
           if (S.rank < 1) {
-            const free = housingTotal() - popCount();
+            // 빈 집은 sim.js growthCheck 와 같은 셈으로 (길 위의 새 식구 몫을 뺀다: 권고 줄과 어긋나지 않게)
+            const free = advOn() ? Advisor.growth().free : housingTotal() - popCount();
             const g = free <= 1 ? guideBuild('house') : {};
-            g.sub = `사람이 오려면 빈 집, 넉넉한 식량, 민심 42 이상이 필요합니다. 지금 빈 자리 ${Math.max(0, free)}칸, 민심 ${Math.round(S.happy)}.${free <= 1 ? ' 초가를 더 지으십시오.' : ''}`;
+            g.sub = `사람이 오려면 빈 집, 넉넉한 식량, 민심 42 이상이 필요합니다. 지금 빈 집 ${Math.max(0, free)}칸, 민심 ${Math.floor(S.happy)}.${free <= 1 ? ' 초가를 더 지으십시오.' : ''}`;
             return g;
           }
           if (!nonRuined('market').length && !nonRuined('inn').length) return guideBuild('market');
@@ -1096,11 +1133,25 @@ const Story = (() => {
     },
     {
       id: 'food', cd: 3, when: () => popCount() > 0 && S.res.food < popCount() * 4,
-      lines: () => [
-        { m: 'worry', t: `곳간의 식량이 ${foodDays() < 1 ? '하루 치도' : `${Math.floor(foodDays())}일 치밖에`} 남지 않았습니다. 사람은 ${popCount()}명, 하루에 ${popCount() * 2}섬이 듭니다.` },
-        { m: 'calm', t: '논밭이나 어장을 늘리시고, 놀고 있는 손을 논밭으로 보내십시오. 겨울에는 논밭이 거의 쉽니다.' },
-      ],
-      guide: () => guideBuild('farm'),
+      lines: () => {
+        // 이미 거두는 것이 먹는 것보다 많거나 짓는 논밭이 그 몫을 메우면 「논밭을 늘리라」 하지 않는다 (발전 조언의 「기다리십시오」와 어긋나지 않게)
+        const ff = advOn() ? Advisor.foodFlow(popCount()) : null;
+        const up = ff && ff.prod > ff.cons + 0.5;
+        const fa = advOn() && !up ? Advisor.foodAdvice() : null;
+        return [
+          { m: 'worry', t: `곳간의 식량이 ${foodDays() < 1 ? '하루 치도' : `${Math.floor(foodDays())}일 치밖에`} 남지 않았습니다. 사람은 ${popCount()}명, 하루에 ${popCount() * 2}섬이 듭니다.` },
+          up ? { m: 'calm', t: `다만 지금은 거두는 양이 먹는 양보다 하루 ${fmt(ff.prod - ff.cons)}섬 많아 곳간이 다시 차오릅니다. ${ff.winterNext ? '겨울이 오기 전에 어장을 짓고 곳간을 채워 두십시오.' : '논밭 일손만 놓지 마십시오.'}` }
+            : fa && fa.wait ? { m: 'calm', t: fa.text }
+              : { m: 'calm', t: '논밭이나 어장을 늘리시고, 놀고 있는 손을 논밭으로 보내십시오. 겨울에는 논밭이 거의 쉽니다.' },
+        ];
+      },
+      // 짚을 곳은 권고와 같은 길: 무너진 논밭은 다시 짓기, 멈춘 논밭은 가동, 짓는 논밭은 기다리기
+      guide: () => {
+        if (!advOn()) return guideBuild('farm');
+        const ff = Advisor.foodFlow(popCount());
+        if (ff.prod > ff.cons + 0.5) return null;
+        return recGuide(Advisor.foodAdvice().act) || guideBuild('farm');
+      },
     },
     {
       id: 'winter', cd: 6, when: () => seasonIdx() === 2 && dayOf() % DAYS_PER_SEASON >= 4 && S.res.food < popCount() * 2 * 8,
@@ -1202,6 +1253,8 @@ const Story = (() => {
       flags: {}, acks: {}, rewards: {}, granted: {}, advice: {}, budgets: {},
       raid: 'none', raidDone: false, raidPaid: 0, ruins: [], newLord: false, arrivedAt: 0, stepAt: 0,
       adviceAt: -999, collapsed: false, petitionStub: false, adminStub: false,
+      // 발전 조언: quiet 스스로 권하는 말을 줄임 · devAt 마지막으로 스스로 권한 때 · grow 인구가 마지막으로 는 때 { pop, at } · stallAt 「인구가 멈췄습니다」를 아뢴 때
+      quiet: false, devAt: -999, grow: null, stallAt: -999,
       // 갈래: routeOk 굳힌 갈래인가(잠정이 아님) · lord 마지막으로 본 주군 · cross 갈림길을 펼쳤는가 · pend 사자를 보낸 계열
       // cg 이 장의 기록(장이 열린 날·해낸 의뢰·현상금·교역) · cx 절정(제6장) · heukGold 흑풍채를 거두어 날마다 받는 은자
       routeOk: false, lord: null, cross: 0, pend: null, cg: null, cx: null, heukGold: 0,
@@ -1376,7 +1429,7 @@ const Story = (() => {
   // ── 모듈 객체 ─────────────────────────────────
   const M = {
     el: null, cur: null, queue: [], faces: {}, guideNow: null,
-    _acc: 0, _sites: {}, _flash: 0, _scrolled: '', _trk: '', _open: false, _checking: false, _face: '', _adviseRaid: false, _broke: null, _reopen: null,
+    _acc: 0, _sites: {}, _flash: 0, _scrolled: '', _trk: '', _open: false, _checking: false, _face: '', _adviseRaid: false, _broke: null, _reopen: null, _recGuide: null,
 
     // ━━ 훅 ━━
     init() { S.story = freshState(); this.reset(); },
@@ -1498,7 +1551,9 @@ const Story = (() => {
         st.flags.night = 1;
         this.say([{ m: 'calm', t: '해가 졌습니다. 밤에는 다들 집에 들어가 쉬니 들일도 공사도 더딥니다. 오른쪽 위 ▶▶ 단추로 밤을 건너뛰셔도 됩니다.' }], { soft: true, tag: 'aside', expire: (30 - hourOf()) % 24 });
       }
+      this.trackGrowth();
       this.advise();
+      this.adviseDev();
     },
 
     dailySilver() { const st = ST(); return st && st.heukGold ? 3 : 0; },
@@ -1518,11 +1573,18 @@ const Story = (() => {
       if (st.intro === 'done') this.check();
       // 때가 지난 곁말·조언은 거둔다
       if (this.cur && this.cur.expireAt && !this.cur.pause && S.time > this.cur.expireAt) this.close(false);
-      // 습격 경보 두루마리가 닫히면 바로 방비를 아뢴다
-      if (this._adviseRaid && !UI.modalOpen && !this.cur && !this.queue.length) { this._adviseRaid = false; this.advise(true); }
+      // 권한 일을 해냈으면 그 말도 거둔다 (초가를 놓자 「초가를 지으십시오」가 사라진다)
+      else if (this.cur && this.cur.rec && !this.cur.pause && this.cur.rec.done()) this.close(false);
+      // 습격이 다가오면 스스로 권하던 발전 조언은 거둔다 (방비가 먼저다)
+      if (this.cur && this.cur.tag === 'dev' && (S.raid || (typeof Events !== 'undefined' && Events.raidPending && Events.raidPending()))) this.close(false);
+      // 습격 경보 두루마리가 닫히면 바로 방비를 아뢴다 (떠 있는 발전 조언은 advise 가 밀어낸다)
+      if (this._adviseRaid && !UI.modalOpen && (!this.cur || this.cur.tag === 'dev') && !this.queue.length) { this._adviseRaid = false; this.advise(true); }
       // 한자 풀이를 읽었는지 (위쪽 장부 단계)
       if (typeof Tips !== 'undefined' && Tips.cur && byId('res').contains(Tips.cur)) setFlag('tip');
-      this.guideNow = this.cur && this.cur.guide ? this.cur.guide() : this.currentGuide(false);
+      // 카드를 닫고 권고를 따르는 중이면 그 화살표를 남긴다
+      const rg = this._recGuide;
+      if (rg && (rg.rec.done() || !this.recEngaged(rg.rec.act))) this._recGuide = null;
+      this.guideNow = this.cur && this.cur.guide ? this.cur.guide() : this._recGuide ? this._recGuide.guide() : this.currentGuide(false);
       G.markers = (this.guideNow && this.guideNow.markers) || [];
       // 안내 중에 가리킬 곳이 바뀌면 그쪽으로 눈을 돌린다
       const f = this.guideNow && this.guideNow.focus;
@@ -1583,11 +1645,16 @@ const Story = (() => {
       if (st.intro !== 'done') { if (!this.cur) this.intro(); return; }
       const info = this.info();
       const choices = [
-        { label: '지금 무엇을 하면 되오?', run: () => this.hint() },
+        { label: '지금 무엇을 하면 되오?', run: () => this.whatNow() },
+        { label: '인구가 왜 늘지 않소?', run: () => this.whyNoGrowth() },
         { label: '마을 형편은 어떠하오?', run: () => this.say(this.report(), { tag: 'report', now: true }) },
         { label: '이 마을의 목표가 무엇이었소?', run: () => this.say(goalLines(), { tag: 'report', now: true }) },
       ];
       if (st.skipped && !st.finished && st.chapter <= 1) choices.push({ label: '안내를 받겠소', sub: '지금 장의 처음부터 하나씩 일러 준다', run: () => this.resumeTutorial() });
+      // 스스로 권하는 말을 줄이거나 되살린다 (급한 일과 두루마리의 권고 줄은 그대로)
+      choices.push(st.quiet
+        ? { label: '조언을 다시 해 주시오', sub: '마을을 키울 일을 때맞춰 먼저 아뢴다', run: () => this.setQuiet(false) }
+        : { label: '조언을 줄여 주시오', sub: '급한 일만 아뢰고, 권고는 할 일 두루마리에만 적는다', run: () => this.setQuiet(true) });
       // 갈림길: [더 지켜보겠소] 뒤에 다시 펼친다
       if (st.chapter === 3 && !st.finished && !routeOk() && !crossPending() && !offerPending() && jhOn()) {
         choices.unshift({ label: '갈림길을 다시 펼쳐 보겠소', sub: '깃발 하나를 고르거나 홀로 선다', run: () => this.queueCross() });
@@ -1629,6 +1696,7 @@ const Story = (() => {
       const d = {
         lines, i: 0, pause: !!opts.pause, choices: opts.choices || null, ack: opts.ack || null,
         onAck: opts.onAck || null, onClose: opts.onClose || null, guide: opts.guide || null,
+        rec: opts.rec || null,   // 총관의 권고: 해내면(rec.done) 저절로 거둔다
         tag: opts.tag || (opts.topic ? 'advice' : 'say'),
         expireAt: opts.expire ? S.time + opts.expire : 0,   // 게임 시간이 지나면 저절로 거둔다
       };
@@ -1636,6 +1704,8 @@ const Story = (() => {
         this.queue = this.queue.filter(q => q.tag !== 'step');
         if (this.cur && !this.cur.pause && (this.cur.tag === 'step' || this.cur.tag === 'hint' || this.cur.tag === 'aside')) this.cur = null;
       }
+      // 스스로 권한 발전 조언(tag 'dev')은 이야기와 영주가 부른 말에 자리를 내준다 (그 뒤에 줄 세우지 않고 거둔다)
+      if (this.cur && this.cur.tag === 'dev' && !opts.soft && !opts.topic) this.cur = null;
       if (this.cur && !this.cur.pause && (opts.now || d.pause)) {
         if (this.cur.tag === 'step' && d.tag !== 'step') this.queue.unshift(this.cur);
         this.cur = null;
@@ -1662,6 +1732,175 @@ const Story = (() => {
       const step = this.stepObj();
       const ack = !st.skipped && step && step.ack && !st.acks[step.id] ? step.ack : null;
       this.say(lines, { tag: 'hint', now: true, guide: (st.skipped || st.chapter >= 4) && g ? () => this.currentGuide(true) : null, ack, onAck: ack ? () => this.ackStep(step.id) : null });
+    },
+
+    // ━━ 발전 조언 (js/advisor.js 의 진단을 총관이 아뢴다) ━━
+    // 권할 일 (급한 것부터). 안내 중(제1·2장)에는 짜인 단계를 흐리지 않게 점령 말고는 내놓지 않는다
+    devRecs() {
+      const st = ST();
+      if (!st || st.intro !== 'done' || !advOn()) return [];
+      const list = Advisor.list();
+      return this.tutorialActive() ? list.filter(r => r.id === 'occ') : list;
+    },
+    // 할 일 두루마리의 권고 줄에 적을 일 (끝난 이야기에서도 마을은 계속 큰다).
+    // 짚을 곳 없는 가벼운 이야기(명성·다음 등급)보다 손댈 수 있는 일을 먼저 적는다
+    trackerRec() { const L = this.devRecs(); return L.find(r => r.act || r.pri >= 45) || L[0] || null; },
+    // [총관] → 「지금 무엇을 하면 되오?」: 지금 장의 할 일(힌트와 같다), 그다음 마을을 키울 일 두셋
+    whatNow() {
+      const st = ST();
+      if (!st) return;
+      const recs = this.devRecs().slice(0, 3);
+      if (st.intro !== 'done' || this.tutorialActive() || !recs.length) { this.hint(); return; }
+      const info = this.info();
+      const g = st.finished ? null : this.currentGuide(true);
+      const f = g && (g.focus || (g.markers && g.markers[0]));
+      if (f) UI.focusOn(f.x, f.y);
+      this._flash = performance.now() + 4000;
+      const lines = [{ m: 'calm', t: `지금 할 일은 <b>${info.title}</b>입니다. ${info.why || ''}` }];
+      const left = info.goals.filter(x => !x.done);
+      if (g && g.sub) lines.push({ m: 'calm', t: g.sub });
+      else if (left.length && left[0].tip) lines.push({ m: 'calm', t: left[0].tip });
+      lines.push({ m: 'smile', t: `그와 함께 마을을 키우는 데에는 이것들이 보탬이 됩니다. 고르시면 까닭과 할 곳을 짚어 드리지요.` });
+      const choices = recs.map(r => ({ label: r.label, run: () => this.explainRec(r) }));
+      choices.push({ label: '알겠소', run: () => {} });
+      this.say(lines, { tag: 'hint', now: true, guide: (st.skipped || st.chapter >= 4) && g ? () => this.currentGuide(true) : null, choices });
+    },
+    // 권할 일 하나를 자세히: 진단과 할 일, 그리고 짚을 곳. brief 면 할 일만
+    explainRec(r, brief) {
+      if (!r) return;
+      const lines = r.lines();
+      this.say(brief && lines.length > 1 ? lines.slice(1) : lines, { tag: 'hint', now: true, rec: r, ack: '알겠소', guide: r.act ? () => recGuide(r.act) : null });
+      // 카드가 뜬 뒤에 눈을 돌린다 (그 자리가 카드 밑에 숨지 않게)
+      const g = recGuide(r.act);
+      const f = g && (g.focus || (g.markers && g.markers[0]));
+      if (f) this.focusSpot(f);
+      this._flash = performance.now() + 4000;
+    },
+    // 지도 위 자리로 눈을 돌린다. 화면 가운데가 총관 카드 밑이면(가로로 눕힌 폰: 카드가 지도 띠를 거의 다 덮는다)
+    // 그 자리가 카드 오른쪽(모자라면 위쪽)의 빈 땅에 오게 비켜 본다
+    focusSpot(f) {
+      let tx = f.x, ty = f.y;
+      const card = this.el && this.el.card;
+      if (card && !card.hidden && typeof Cam !== 'undefined' && Cam.zoom > 0) {
+        const W = window.innerWidth, H = window.innerHeight, cr = card.getBoundingClientRect();
+        const top = byId('topbar').getBoundingClientRect().bottom, barTop = byId('buildbar').getBoundingClientRect().top || H;
+        const cx = W / 2, cy = H / 2, pad = 30;
+        if (cx > cr.left - pad && cx < cr.right + pad && cy > cr.top - pad && cy < cr.bottom + pad) {
+          let sx = cx, sy = cy;
+          if (W - cr.right >= 150) {
+            sx = (cr.right + W) / 2;
+            // 표시의 이름표는 자리보다 60px 남짓 위에 뜬다: 할 일 두루마리 밑에 숨지 않게 조금 내린다 (건설 띠는 넘지 않고)
+            const tr = this.el.trk.getBoundingClientRect();
+            if (tr.height && tr.left < sx && tr.right > sx && tr.bottom + 70 > sy) sy = Math.max(sy, Math.min(tr.bottom + 70, barTop - 30));
+          } else if (cr.top - top >= 110) sy = (top + cr.top) / 2;
+          else if (barTop - cr.bottom >= 110) sy = (cr.bottom + barTop) / 2;
+          const w = worldOf(f.x, f.y), t = tileOfWorld(w.x - (sx - cx) / Cam.zoom, w.y - (sy - cy) / Cam.zoom);
+          tx = t.x; ty = t.y;
+        }
+      }
+      UI.focusOn(tx, ty);
+    },
+    // [총관] → 「인구가 왜 늘지 않소?」: 새 식구가 오는 문 넷을 ✓/✗ 와 숫자로, 한 번에 오는 수, 그리고 가장 먼저 할 일
+    whyNoGrowth() {
+      const st = ST();
+      if (!st || !advOn()) return;
+      if (st.intro !== 'done') { if (!this.cur) this.intro(); return; }
+      const g = Advisor.growth(), rows = Advisor.gates(g);
+      const li = r => `<li class="${r.ok === undefined ? 'rate' : r.ok ? 'ok' : 'no'}"><i>${r.ok === undefined ? '+' : r.ok ? '✓' : '✗'}</i><b>${r.name}</b><span class="g-long">${r.text}</span><span class="g-short">${r.short}</span></li>`;
+      const gates = `<ul class="stw-gates">${rows.filter(r => r.ok !== undefined).map(li).join('')}</ul>`;
+      const rate = `<ul class="stw-gates">${rows.filter(r => r.ok === undefined).map(li).join('')}</ul>`;
+      const closed = rows.filter(r => r.ok === false).length;
+      const lines = [{ m: closed ? 'worry' : 'calm', t: `새 식구는 이 넷이 모두 갖춰져야 찾아옵니다.${gates}` }];
+      // 한 번에 오는 수는 빈 집 수를 넘지 않는다 (sim.js growthCheck: min(빈 집, 1~maxN))
+      const am = Math.min(g.free, g.maxN + 1), pm = Math.min(g.free, g.maxN);
+      lines.push({ m: 'calm', t: closed
+        ? `${Advisor.blockText(g)} 문이 열리면 하루 두 번, 아침(묘시)과 오후(미시)에 찾아옵니다. 한 번에 오는 수는 이렇게 늘어납니다.${rate}`
+        : `지금은 문이 다 열려 있어 아침(묘시)에 많게는 ${am}명, 오후(미시)에 ${pm}명까지 찾아옵니다.${g.free <= g.maxN ? ` 빈 집이 ${g.free}칸뿐이라 그 이상은 오지 않습니다.` : ''} 한 번에 오는 수는 이렇게 늘어납니다.${rate}` });
+      let r = null;
+      if (this.tutorialActive()) lines.push({ m: 'smile', t: `지금은 안내를 따라 <b>${this.info().title}</b>부터 하시지요. 그것이 사람을 부르는 첫걸음입니다.` });
+      else {
+        // 닫힌 문이 있으면 그 문을 여는 일, 다 열렸으면 두루마리의 권고와 같은 일
+        r = (closed && Advisor.gateRec(g)) || this.trackerRec();
+        const todo = r ? r.lines().slice(1) : [];
+        if (r) lines.push({ m: 'smile', t: `가장 먼저 하실 일은 이것입니다. ${todo.length ? todo[0].t : r.lines()[0].t}` });
+      }
+      const choices = r && r.act ? [{ label: '보여 주시오', sub: '할 곳을 짚어 준다', run: () => this.explainRec(r, true) }, { label: '알겠소', run: () => {} }] : null;
+      this.say(lines, { tag: 'report', now: true, choices });
+    },
+    setQuiet(on) {
+      const st = ST();
+      if (!st) return;
+      st.quiet = !!on;
+      this.say([{ m: 'calm', t: on
+        ? '알겠습니다. 급한 일이 아니면 먼저 말씀드리지 않겠습니다. 권할 일은 할 일 두루마리의 「권고」 줄에 늘 적어 두지요.'
+        : '알겠습니다. 마을을 키울 일이 보이면 때맞춰 다시 아뢰겠습니다.' }], { tag: 'aside', now: true, expire: 6 });
+      this._trk = '';
+    },
+    // 인구가 마지막으로 는 때를 적는다 (줄었다가 다시 늘면 그것도 는 것이다). pop 그 뒤 가장 적었던 수 · peak 그때의 수
+    trackGrowth() {
+      const st = ST();
+      if (!st) return;
+      const pop = popCount(), g = st.grow;
+      if (!g || typeof g !== 'object' || !(g.at <= S.time) || !Number.isFinite(g.pop)) st.grow = { pop, at: S.time, peak: pop };
+      else if (pop > g.pop) { g.pop = pop; g.at = S.time; g.peak = pop; }
+      else if (pop < g.pop) g.pop = pop;
+    },
+    // 사흘(72시간) 넘게 인구가 늘지 않았고, 아직 다음 등급이 남았다
+    stalled() {
+      const st = ST();
+      return !!(st && st.grow && S.time - st.grow.at >= 72 && S.rank < RANKS.length - 1 && !S.occupation);
+    },
+    // 스스로 권하기 (시각마다): 급한 조언·장 제목·두루마리·천하도·큰 창·건설 도구가 없을 때, 하루에 한 번쯤.
+    // 같은 이야기는 cd 날 안에 다시 하지 않고, 인구가 사흘째 멈추면 (이틀에 한 번까지) 곧바로 아뢴다
+    adviseDev() {
+      const st = ST();
+      if (!st || st.intro !== 'done' || st.quiet || S.ended || !advOn() || this.tutorialActive()) return false;
+      this.dropStale();
+      if (this.cur || this.queue.length || UI.modalOpen || S.eventQueue.length || UI.sheet || UI.tool) return false;
+      if ((typeof WorldMap !== 'undefined' && WorldMap.isOpen()) || this._card || (this.el && !this.el.chap.hidden)) return false;
+      if (S.raid || S.occupation || Events.raidPending()) return false;   // 급한 일은 위기 조언이 맡는다
+      if (S.time - st.adviceAt < 3) return false;
+      const recs = this.devRecs();
+      if (!recs.length) return false;
+      // 위기 조언이 막 꺼낸 이야기와 같은 것은 하루 동안 다시 꺼내지 않는다
+      const twin = { house: 'homeless', food: 'food', happy: 'unrest', lumber: 'nowood', occ: 'occupied' };
+      const fresh = r => !(twin[r.topic] && st.advice[twin[r.topic]] !== undefined && S.time - st.advice[twin[r.topic]] < 24);
+      // 인구가 멈췄습니다: 지금 닫힌 문을 짚는다. 문이 다 열려 있으면(방금 민심이 42를 넘었거나 집이 섰다) 다음 묘시·미시에 사람이 오니 아뢰지 않고,
+      // 그 문의 이야기를 하루 안에 이미 했으면 되풀이하지 않는다
+      const g = Advisor.growth();
+      const nClosed = ['occ', 'food', 'house', 'happy'].filter(k => !g.ok[k]).length;
+      const gate = nClosed ? Advisor.gateRec(g) : null;
+      const saidGate = gate && st.advice['dev:' + gate.topic] !== undefined && S.time - st.advice['dev:' + gate.topic] < 24;
+      if (nClosed && !saidGate && this.stalled() && S.time - st.stallAt >= 48 && S.time - st.devAt >= 12) {
+        const days = Math.floor((S.time - st.grow.at) / 24), pop = popCount();
+        const peak = Math.max(+st.grow.peak || 0, +st.grow.pop || 0);
+        const head = `인구가 멈췄습니다. ${pop < peak ? `${days}일째 늘지 않고 오히려 ${peak - pop}명 줄었습니다(${peak}→${pop}명).` : `${days}일째 ${pop}명 그대로입니다.`}`;
+        const L = gate ? gate.lines() : [];
+        let lines;
+        if (gate && nClosed === 1) lines = [{ m: 'worry', t: `${head} ${L[0].t}` }, ...L.slice(1)];
+        else {
+          lines = [{ m: 'worry', t: `${head} ${Advisor.blockText(g)}` }, ...L];
+          // 닫힌 문의 권고가 없으면(드묾) 지금 할 수 있는 일 하나를 붙인다
+          const alt = !gate && recs.find(r => r.act);
+          if (alt) lines.push(...alt.lines().slice(1));
+        }
+        const rec = gate || recs.find(r => r.act) || null;
+        if (this.say(lines, { topic: 'stall', cd: 2, soft: true, tag: 'dev', ack: '알겠소', expire: 10, rec, guide: rec && rec.act ? () => recGuide(rec.act) : null })) {
+          st.stallAt = S.time; st.devAt = S.time;
+          if (gate) st.advice['dev:' + gate.topic] = S.time;   // 같은 할 일을 반나절 뒤 발전 조언으로 되풀이하지 않게
+          return true;
+        }
+      }
+      if (S.time - st.devAt < 24) return false;
+      for (const r of recs.slice(0, 3)) {
+        if (r.pri < 40) break;
+        if (!fresh(r)) continue;
+        if (this.say(r.lines(), { topic: 'dev:' + r.topic, cd: r.cd, soft: true, tag: 'dev', ack: '알겠소', expire: 8, rec: r, guide: r.act ? () => recGuide(r.act) : null })) {
+          st.devAt = S.time;
+          return true;
+        }
+      }
+      return false;
     },
 
     info() {
@@ -1769,6 +2008,7 @@ const Story = (() => {
       }
       st.chapter = i + 1;
       st.step = 0;
+      st.devAt = Math.max(st.devAt || -999, S.time - 18);   // 새 장의 말이 지나고 여섯 시간쯤 뒤부터 발전 조언
       // 다음 장의 차림 (갈림길 두루마리, 갈래의 기록과 절정). 그 말은 지난 장의 끝말에 잇는다
       const op = this.openChapter(st.chapter);
       const lines = end.concat((op && op.lines) || []);
@@ -1781,6 +2021,8 @@ const Story = (() => {
       st.intro = 'done';
       st.skipped = !!skip;
       st.chapter = 0; st.step = 0;
+      st.devAt = S.time - 18;   // 첫 발전 조언은 여섯 시간쯤 뒤부터
+      st.grow = { pop: popCount(), at: S.time };
       if (skip) {
         hook(Admin, 'recommend');
         S.factions.heukpung.threat = Math.max(S.factions.heukpung.threat, 35);
@@ -1846,13 +2088,22 @@ const Story = (() => {
     // ━━ 조언 ━━
     advise(force) {
       const st = ST();
-      if (!st || st.intro !== 'done' || this.cur || this.queue.length) return;
+      if (!st || st.intro !== 'done') return;
+      this.dropStale();
+      if (this.queue.length) return;
+      // 스스로 권하던 발전 조언(tag 'dev')은 급한 말에 자리를 내준다
+      if (this.cur && this.cur.tag !== 'dev') return;
       if (UI.modalOpen) return;
       const tut = this.tutorialActive();
       if (!force && S.time - st.adviceAt < 6) return;
       for (const a of ADVICE) {
         if (tut && a.id !== 'occupied') continue;
         if (!a.when()) continue;
+        if (this.cur) {
+          const last = st.advice[a.id];
+          if (last !== undefined && S.time - last < a.cd * 24) continue;   // 어차피 말하지 않을 것이면 발전 조언을 거두지 않는다
+          this.showNext();
+        }
         if (this.say(a.lines(), { topic: a.id, cd: a.cd, guide: a.guide, expire: 12, choices: a.choices ? a.choices() : null })) { st.adviceAt = S.time; return; }
       }
     },
@@ -2363,6 +2614,13 @@ const Story = (() => {
           else if (st) st.collapsed = !st.collapsed;
           this._trk = ''; this.renderTracker(); this.layout();
         } else if (a === 'hint') { this._open = false; this.hint(); }
+        else if (a === 'adv') {
+          // 권고 줄: 총관이 까닭과 할 일을 아뢰고 할 곳을 짚는다
+          const r = advOn() && (Advisor.find(b.dataset.rec) || this.trackerRec());
+          this._open = false; this._trk = '';
+          if (r) this.explainRec(r);
+          this.renderTracker(); this.layout();
+        }
         else if (a === 'ack') {
           const s = this.stepObj();
           if (!s) return;
@@ -2387,7 +2645,7 @@ const Story = (() => {
     },
     reset() {
       this.cur = null; this.queue = []; this._sites = {}; this._open = false; this._scrolled = ''; this._trk = '';
-      this._card = false; this._focusKey = ''; this._adviseRaid = false; this._broke = null;
+      this._card = false; this._focusKey = ''; this._adviseRaid = false; this._broke = null; this._recGuide = null;
       if (typeof G !== 'undefined') G.markers = [];
       if (this.el) { this.el.card.hidden = true; this.el.scrim.hidden = true; this.el.ring.hidden = true; this.el.tag.hidden = true; }
     },
@@ -2413,6 +2671,7 @@ const Story = (() => {
     // ━━ 대화창 ━━
     open(d) {
       this.cur = d;
+      d.openedAt = S.time;
       if (d.pause) this.fold();
       this.renderCard();
     },
@@ -2429,10 +2688,29 @@ const Story = (() => {
     close(ok) {
       const d = this.cur;
       if (!d) return;
+      this.keepRecGuide(d);
       this.showNext();
       if (ok && d.onAck) d.onAck();
       if (!ok && d.onClose) d.onClose();
       this._trk = '';
+    },
+    // 권고를 따르는 중에(도구를 쥐었거나 그 건물을 골랐을 때) 카드를 닫으면 화살표·금빛 고리는 남긴다. 해내거나 손을 놓으면 거둔다
+    keepRecGuide(d) {
+      if (d && d.rec && d.guide && d.rec.act && !d.rec.done() && this.recEngaged(d.rec.act)) this._recGuide = { rec: d.rec, guide: d.guide };
+    },
+    recEngaged(a) {
+      if (!a || typeof UI === 'undefined') return false;
+      if (a.k === 'build') return !!(UI.tool && UI.tool.key === a.type);
+      if (a.k === 'repair' || a.k === 'panel') return !!(UI.sel && UI.sel.b && UI.sel.b.id === a.id);
+      return false;
+    },
+    // 오래 답이 없는 가벼운 말(확인 단추 하나뿐인 알림·곁말, 영주가 불러 놓고 둔 메뉴)은 거둔다:
+    // 구석의 카드 하나가 열두 시간 넘게 떠 있다고 총관이 위기 조언도 발전 조언도 못 하게 되지 않게. 멈춤·안내 단계·답을 기다리는 이야기는 두고
+    dropStale() {
+      const d = this.cur;
+      if (!d || d.pause || d.onAck || d.tag === 'step' || d.tag === 'intro' || !(S.time - (d.openedAt ?? S.time) > 12)) return;
+      if (d.choices && !['advisor', 'hint', 'report'].includes(d.tag)) return;
+      this.close(false);
     },
     choose(i) {
       const d = this.cur;
@@ -2495,11 +2773,15 @@ const Story = (() => {
       const headTxt = compact
         ? `${st.chapter + 1}장 · ${info.title}`
         : `${this.chapterLabel()} · ${ch.title}`;
+      // 총관의 권고 한 줄 (장의 목표 아래). 접혀 있으면 머리에 勸 도장만
+      const rec = this.trackerRec();
+      const adv = rec ? `<button type="button" class="trk-adv" data-act="adv" data-rec="${escapeHtml(rec.id)}"><span class="trk-adv-seal" data-tip-title="勸">勸</span><span class="trk-adv-t"><small>권고</small>${escapeHtml(rec.label)}</span></button>` : '';
       const html = `
         <button type="button" class="trk-head" data-act="toggle" aria-expanded="${!collapsed}">
           <span class="trk-seal" data-tip-title="${ch.seal}">${ch.seal}</span>
           <span class="trk-ch">${headTxt}</span>
           ${compact ? '' : `<span class="trk-mini">${collapsed ? escapeHtml(info.title) : ''}</span>`}
+          ${collapsed && rec ? `<span class="trk-adv-dot" data-act="adv" data-rec="${escapeHtml(rec.id)}" data-tip-title="勸" data-tip="${escapeHtml(`권고 · ${rec.label}\n누르면 총관이 까닭과 할 곳을 짚어 준다.`)}">勸</span>` : ''}
           <span class="trk-caret${collapsed ? '' : ' up'}" aria-hidden="true"></span>
         </button>
         <div class="trk-body">
@@ -2507,6 +2789,7 @@ const Story = (() => {
           <div class="trk-step"><h4>${info.title}</h4>${info.why ? `<p>${info.why}</p>` : ''}</div>
           ${goals ? `<ul class="trk-goals">${goals}</ul>` : ''}
           ${sub ? `<p class="trk-sub">${sub}</p>` : ''}
+          ${adv}
           <div class="trk-acts">
             ${st.intro === 'done' && !st.finished ? '<button type="button" data-act="hint">힌트</button>' : ''}
             ${info.ack ? `<button type="button" class="pri" data-act="ack">${escapeHtml(info.ack)}</button>` : ''}
@@ -2619,7 +2902,8 @@ const Story = (() => {
       if (body) {
         let lim = (card.hidden ? barTop : Math.min(barTop, card.getBoundingClientRect().top)) - 10 - (trk.getBoundingClientRect().top + 44);
         if (compact && this._open) lim = barTop - 10 - (trk.getBoundingClientRect().top + 44);
-        body.style.maxHeight = Math.max(120, lim) + 'px';
+        // 키 낮은 화면(가로로 눕힌 폰)에서는 건설 띠를 덮지 않게 더 줄인다 (몸통은 굴러간다)
+        body.style.maxHeight = Math.max(H < 500 ? 72 : 120, lim) + 'px';
       }
     },
 

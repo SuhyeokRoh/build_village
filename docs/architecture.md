@@ -19,7 +19,8 @@
 | `js/jianghu.js` | **`JH`**: 천하의 세력·힘·이웃, 전쟁, 의뢰와 파견, 외교, 산하·동맹·고을·갈래 건물의 혜택 (`S.jh`). 설계는 `docs/jianghu.md` | 공통(엔진) |
 | `js/ui.js` | 상단 띠, 건설 메뉴, 선택 패널, 세력·현황 창, 사건 두루마리 | 공통 |
 | `js/tips.js` | `data-tip` 풀이 말풍선, 지도 위 풀이 | 공통 |
-| `js/story.js` + `css/story.css` | 이야기·튜토리얼·총관, 갈림길과 여덟 갈래(`ROUTES`, 제5·6장, 절정, 결말). `S.jh.route`는 이야기만 바꾼다 | **이야기** |
+| `js/advisor.js` | **`Advisor`**: 총관의 발전 진단(새 식구가 오는 문, 권할 일과 그 말·짚을 곳). S 를 읽기만 한다 | **이야기** |
+| `js/story.js` + `css/story.css` | 이야기·튜토리얼·총관, 갈림길과 여덟 갈래(`ROUTES`, 제5·6장, 절정, 결말), 조언과 권고(두루마리의 권고 줄, 메뉴, 때맞춘 권고). `S.jh.route`는 이야기만 바꾼다 | **이야기** |
 | `js/petitions.js` + `css/petitions.css` | 상소 | **상소** |
 | `js/admin.js` + `css/admin.css` | 육방과 예산, 자동 건설 | **육방** |
 | `js/worldmap.js` + `css/worldmap.css` | 천하도(天下圖): 새 게임의 고을 고르기, 천하의 판도 보기 | **천하도** |
@@ -27,9 +28,9 @@
 **담당이 아닌 파일은 고치지 않는다.** 다른 모듈이 필요한 것은 아래 훅·`Bus`·공개 함수로만 주고받는다.
 꼭 공통 파일을 고쳐야 한다면 최소한으로 고치고 보고서에 정확히 적는다.
 
-스크립트 순서(`index.html`): util → data → world → sprites → render → units → sim → events → jianghu → admin → petitions → story → tips → ui → worldmap → main.
+스크립트 순서(`index.html`): util → data → world → sprites → render → units → sim → events → jianghu → admin → petitions → advisor → story → tips → ui → worldmap → main.
 스타일 순서: style → admin → petitions → story → worldmap.
-모듈 객체(`Story`, `Admin`, `Petitions`, `JH`, `WorldMap`)는 `const`로 전역에 둔다. 다른 파일은 **실행 시점에만** 이들을 부른다.
+모듈 객체(`Story`, `Admin`, `Petitions`, `JH`, `WorldMap`, `Advisor`)는 `const`로 전역에 둔다. 다른 파일은 **실행 시점에만** 이들을 부른다.
 
 ## 2. 좌표와 투영
 
@@ -96,6 +97,7 @@
   - 그래서 습격 길목은 객체 대신 번호로 남긴다: `S.raid.exitIdx`와 `S.scheduled`의 습격 항목 `exitIdx`는 `World.exits`의 번호이고, `deserialize()`가 이것으로 `exit`을 되살린다. 사람(유닛)의 `exit`은 그냥 버리고 다시 찾는다.
 - 모듈 상태는 `S.story`, `S.admin`, `S.petitions`에 **순수 JSON**(숫자·문자열·배열·객체)으로만 둔다. 함수·DOM·Map 금지. 다른 객체는 id로 가리킨다(`S.bmap.get(id)`, `S.villagers.find(v => v.id === id)`).
   - `S.story`의 갈래 몫: `routeOk`(굳힌 갈래인가, 아니면 잠정), `lord`(마지막으로 본 주군), `cross`(갈림길을 펼쳤나), `pend`(사자를 보낸 계열), `cg`(이 장의 기록: 열린 날 `day`, 해낸 의뢰 `q`, 현상금 `b`, 교역 `t`, `mAt`), `cx`(제6장 절정: 짜인 전쟁 `war ws wn wa wb side wAt`, 대습격 `rs rAt rf rk rb rw`, 무림대회 `tAt tw`, 흑풍채 `hs hAt hq`), `heukGold`(흑풍채를 거두어 날마다 받는 은자). 승리하면 `S.victoryTitle`(결말 칭호)도 저장된다.
+  - `S.story`의 권고 몫: `quiet`(「조언을 줄여 주시오」: 때맞춘 발전 조언을 멈춤), `devAt`(마지막으로 스스로 권한 때, `S.time`), `grow: { pop, at, peak }`(인구가 마지막으로 는 때 `at`, 그때의 인구 `peak`, 그 뒤 가장 적었던 인구 `pop`: 줄면 `pop`만 낮춘다. 옛 저장에 `peak`가 없으면 `pop`으로 본다), `stallAt`(「인구가 멈췄습니다」를 아뢴 때). 권한 이야기의 되풀이 막기는 위기 조언과 같은 `advice[topic]`(발전 조언은 `dev:주제`·`stall`)에 둔다. 옛 저장에는 없으니 `freshState()`의 값으로 채운다. `Advisor`의 기억(권할 일 목록, 지을 자리가 있는가)은 저장하지 않는다.
   - `S.admin.workH = { farm, fishery }`: 일꾼 하나가 하루에 실제로 일하는 시간. 호방이 날마다 고쳐 식량 내다보기에 쓴다.
 - 저장되지 않는 일시 상태는 모듈 객체 안이나 `G`(렌더러용), 또는 `_` 접두 키에 둔다.
 - 불러온 뒤 `onLoad()`가 불린다. 옛 저장(모듈 상태 없음)도 받아들여야 한다.
@@ -240,6 +242,14 @@
   - 의뢰: `badge()`(열린 의뢰 수), `quest(qid)`, `canSend(v)`, `chance(qid, ids)`, `dispatchInfo(qid, ids)` → `{ p, spare, threat: { id, word, pct, n } }`(threat 는 주군·동맹·점령군을 뺀 군사 이웃 가운데 가장 위협이 큰 하나), `dispatch(qid, ids)`, `recall(qid)` → `{ ok, text, why }`, `questCap()`, `partyCap()`, `makeQuest(fid, kind?)`
   - 외교: `canAct(kind, id, opts)` → `{ ok, why, cost }`, `act(kind, id, opts)` → `{ ok, text, why }`. kind: `gift envoy trade pact unpact bounty spy support mediate`, 그리고 편의로 `vassal unvassal`(`becomeVassal`·`breakVassal`). `support`는 `id` = 도울 편의 세력, `opts = { war, silver, food, weapons }`. 하루 몫(`supportLeft`)을 넘기면 `canAct`가 `cost`를 그만큼 줄여 돌려주고, 다 보탰으면 '오늘은 더 보탤 수 없다'. `mediate`는 `id` = 전쟁 id나 싸우는 세력 id. 교역은 이웃이 아닌 상단·새외·세가와도 맺는다(사신·예물과 함께 먼 세력에 쓸 수 있는 셋). 예물·산하는 `allowJianghu()`가 거짓이어도 쓸 수 있다. 동맹의 명성 조건은 `S.flags['pact_nofame_' + id]`가 서 있으면 빠진다(세가 혼담).
   - 강호 두루마리 `jh_war_sides { war }`, `jh_survivors { f }`, `jh_surge { f }`, `jh_pact_call { war, f }`는 JH가 `S.eventQueue`에 바로 넣는다(하루 하나). `EV[id]`가 없으면 넣지 않는다.
+- 총관의 발전 진단(advisor.js, 읽기만. 이야기 모듈이 말로 옮긴다):
+  - `Advisor.growth()` → `{ pop, arriving, idle, homeless, H, free, soon, food, need, happy, target, occ, ok: { occ, food, house, happy }, open, fame, fameN, maxN, riseH, leaving }`. `free = housingTotal() − popCount() − 길 위의 새 식구`, `need = 사람 × 1.2` 등 **sim.js `growthCheck`와 같은 식과 수**(42·70·120·1.2·25)다. growthCheck 를 바꾸면 advisor.js 머리의 수도 함께 바꾼다
+  - `Advisor.gates(g?)` → `[{ id, name, ok, text, short }]`: 문 넷(`house food happy occ`, ok 는 참·거짓)과 한 번에 오는 수 둘(`fame bonus`, ok 없음). 「인구가 왜 늘지 않소?」의 표
+  - `Advisor.list()` → 권할 일(급한 것부터). 하나는 `{ id, topic, pri, cd, label, diag(g, ff), todo(g, ff), lines(), act, done() }`. `label`은 두루마리 한 줄, `lines()`는 총관의 말(진단 다음에 할 일: 무엇을 짓거나 바꾸고, 값이 얼마이며, 얼마나 보탬이 되고, 어디서 하는지), `done()`은 그 일이 풀렸거나 권한 대로 따랐는가(만들 때의 장부를 적어 두고: 그 건물 자리를 놓았다·다시 짓기 시작했다·창의 단추나 세율을 바꿨다·상소를 처결했다). 만든 순간에는 늘 거짓이다(만들자마자 참인 것은 목록에서 뺀다). `act`는 짚을 곳: `{ k: 'build', type }` · `{ k: 'repair', id }` · `{ k: 'panel', id, act: 'want+'|'want-'|'toggle', tag }` · `{ k: 'tax', to }` · `{ k: 'wait', types }` · `{ k: 'sel', sel, tag }` — story.js 의 `recGuide`가 금빛 고리·화살표(`guideBuild`, `guideRepair`, 선택 창의 단추, 마을 현황의 세율 단추)로 바꾼다
+    - 차례: 점령(100) · 식량의 문(95, 멈춘·줄인 논밭 → 거두는 것이 많으면 기다리기 → 짓는 논밭·어장이 메우면 기다리기 → 일손 옮기기 → 무너진 논밭·어장 다시 짓기(절반 값) → 겨울엔 어장 → 논밭) · 빈 집의 문(92, 무너진 집 다시 짓기 → 초가 → 목재부터) · 민심의 문(90, 가장 크게 깎는 까닭과 그 처방. 짓고 있는 사당·시장 등은 다 섰다고 보고 셈하며, 그것으로 42를 넘으면 「짓는 ○○이 서면」(68)으로 기다리게 한다) · 문은 열렸지만 민심이 42 아래로 흘러감(85, `happy_fall`) · 벌목장(목재 60 아래 80, 150 아래 52, 그 위면 없음) · 식량이 줄고 있음(78) · 멈춰 둔/줄여 둔 일터(76·74·66·64) · 일꾼이 하나도 없는 벌목장·장사 일터·채석장(75·60·47, 일 없는 이가 없을 때: 한 사람을 빼면 그리로 가는 일터의 [일꾼 −], 아니면 집) · 빈 집 한두 칸(72) · 은자가 줄어듦(70) · 짓는 집 기다리기(70) · 창고(62·66) · 육방 예산(62) · 일 없는 사람의 일터(58) · 무사(55) · 민심 70(50, 흐름이 42 위일 때만) · 채석장(48) · 민심이 오르는 중(45) · 명성(40) · 공사가 더딤(36) · 다음 등급(30). 같은 곳을 짚는 일은 앞의 것만 남긴다
+    - 급하지 않은 일(민심 70, 객잔, 일터, 채석장)은 재료가 있고 쓰고도 은자가 `40 + 사람 × 1.5` 남을 때만 권한다
+  - `Advisor.top()`, `Advisor.find(id)`, `Advisor.gateRec(g?)`(지금 닫힌 문의 권고: 「인구가 멈췄습니다」와 「인구가 왜 늘지 않소?」의 첫 할 일. 열린 문의 `food_low`·`happy_fall`은 빼고), `Advisor.foodAdvice()`(`{ act, text, wait }`: 위기 조언 「식량」이 같은 길을 짚는다), `Advisor.blockText(g)`(닫힌 문을 한 문장으로), `Advisor.invalidate()`. 목록은 같은 15분 안에서 문을 여닫는 값(빈 집·길 위의 새 식구·식량의 문·민심과 그 목표·민심 70·일 없는 이·은자 수지의 부호)과 재료(5 단위)·건물·일꾼 자리·일꾼이 하나도 없는 일터의 수·세율이 그대로이면 기억해 둔 것을 쓴다(문턱을 넘는 순간 다시 셈해 권고가 장부와 어긋나지 않는다). 또 `placed built demolished destroyed repairStarted arrived rankUp occupied liberated day petitionResolved petitionNew budgetChanged sheetClose vassal`에 지운다
+- 총관의 권고(story.js): `Story.whatNow()`(메뉴 「지금 무엇을 하면 되오?」: 장의 할 일 → 권고 두셋), `Story.whyNoGrowth()`(「인구가 왜 늘지 않소?」), `Story.explainRec(rec, brief)`, `Story.trackerRec()`(두루마리 권고 줄, 안내 중에는 점령만), `Story.setQuiet(on)`, `Story.adviseDev()`(시각마다 `advise()` 다음: 위기 조언·장 제목·두루마리·천하도·큰 창·건설 도구·습격이 없고, 마지막 위기 조언에서 3시각, 마지막 발전 조언에서 24시각이 지났을 때 맨 위 셋 가운데 cd 가 지난 하나를 `tag: 'dev'`의 가벼운 카드로. 인구가 72시각 늘지 않으면 48시각에 한 번 「인구가 멈췄습니다」: 지금 닫힌 문만 짚고(`Advisor.gateRec`), 문이 다 열려 있으면 다음 묘시·미시에 사람이 오니 아뢰지 않으며, 그 문의 `dev:주제`를 하루 안에 말했으면 미루고, 말하면 `dev:주제`도 적어 반나절 뒤 같은 말을 되풀이하지 않는다. 인구가 줄었으면 「오히려 K명 줄었습니다」). 발전 조언 카드는 시간을 멈추지 않고, 위기 조언이나 이야기·메뉴의 말(`soft`·`topic`이 아닌 `say`)이 오면 그 뒤에 줄 서지 않고 자리를 내주며, `rec.done()`이면 저절로 거둔다. 곁말(`soft`)은 그 위에 쌓이지 않는다. 습격이 다가오면 발전 조언 카드는 거두고, 경보 두루마리가 닫히면 그 자리에 방비를 아뢴다. 권고 카드를 닫아도 그 일을 하는 중(그 건물 도구를 쥐었거나 그 건물을 골랐을 때)이면 화살표를 남긴다(`_recGuide`). 「권고」를 눌러 짚는 자리는 카드 밑에 숨지 않게 카드 옆(가로로 눕힌 폰)이나 위로 비켜 비춘다(`focusSpot`). 열두 시각 넘게 답이 없는 가벼운 카드(멈춤·안내 단계·`onAck`·이야기의 고르기가 없는 것)는 조언 전에 거둔다(`dropStale`: 구석에 남은 카드 하나가 총관의 입을 막지 않게). 두루마리의 권고 줄과 「가장 먼저 하실 일」은 짚을 곳 없는 명성·등급 이야기보다 손댈 수 있는 일을 먼저 든다
 - 육방(admin.js, 읽기만): `Admin.threats()` → `[{ k, threat, n, exitIdx, word, spied }]`(위협이 큰 순서의 군사 이웃), `Admin.defenders()`(마을에 있는 무사·객경 수), `Admin.awayFighters()`, `Admin.watchText()`, `Admin.wages()`, `Admin.tribute()`, `Admin.expectedIncome()` → `{ tax, trade, jh, wages, tribute, upkeep, gross, net }`(`jh`에는 `Story.dailySilver()`도 든다)
 - 그림(sprites.js·render.js): `sealSprite(id)`(세력 문장, 64px), `exitPostSprite(snow)`·`EXIT_POST_H`(길목 말뚝), `SPRITE_META[type].sign`·`.light`(갈래 건물의 현판과 밤 불빛), `renSeason()`(그릴 철: 겨울이 없는 고을의 넷째 철은 가을빛), `renGone(u)`(죽었거나 안에 있거나 의뢰로 떠나 숨은 사람), `exitCrestAt(sx, sy)` → `{ i, name, ids } | null`(길목 문장판·말뚝. tips.js 의 길목 풀이가 먼저 본다)
 - 기타: `markDirty()`(일자리 다시 배치), `refreshAssign()`, `logMsg`, `UI.toast`, `UI.focusOn(tx, ty)`, `UI.select({b})`, `UI.setTool(key)`, `UI.openSheet(kind)`
