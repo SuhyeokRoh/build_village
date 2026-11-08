@@ -30,7 +30,66 @@ const World = {
     for (let y = b.y; y < b.y + b.h; y++)
       for (let x = b.x; x < b.x + b.w; x++) this.occ[y * MW + x] = id;
   },
+  unstamp(b) { this.stamp(b, 0); },
 };
+
+// ── 건물 방향 (b.dir) ─────────────────────────
+// 0: 문이 +y 쪽 (화면 왼쪽 아래 면, 예전 모습) · 1: +x 쪽 (오른쪽 아래 면)
+// 2: −y 쪽 (오른쪽 위, 화면 안쪽으로 등을 보인다) · 3: −x 쪽 (왼쪽 위)
+// 1·3 은 0·2 의 그림을 화면 세로축으로 뒤집은 것이고, 그러면 타일 (x, y) 가 (y, x) 로 가니 발판의 가로세로가 바뀐다
+// (b.w = def.h, b.h = def.w). 옛 저장처럼 b.dir 이 없으면 0.
+const DIR_VEC = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+const DIR_WORD = ['왼쪽 아래', '오른쪽 아래', '오른쪽 위', '왼쪽 위'];
+function dirsOf(type) { const d = BDEF[type]; return (d && d.dirs) || [0]; }
+function canRotate(type) { return dirsOf(type).length > 1; }
+// 그 건물이 돌 수 없는 방향이면 0
+function normDir(type, dir) { const d = (((dir | 0) % 4) + 4) % 4; return dirsOf(type).includes(d) ? d : 0; }
+// 허용된 방향 가운데 dir 다음(step = 1) 또는 앞(step = −1)
+function nextDir(type, dir, step = 1) {
+  const ds = dirsOf(type), i = ds.indexOf(dir | 0);
+  return ds[((i < 0 ? 0 : i) + (step < 0 ? ds.length - 1 : 1)) % ds.length];
+}
+function footOf(type, dir) { const d = BDEF[type]; return dir & 1 ? { w: d.h, h: d.w } : { w: d.w, h: d.h }; }
+// 문 앞 칸: 발판 (x, y, w, h) 의 dir 쪽 바로 바깥. 1·3 은 0·2 를 뒤집은 자리, 2 는 0 을 반 바퀴 돌린 자리
+function doorAt(dir, x, y, w, h) {
+  if (dir === 1) return { x: x + w, y: y + Math.floor(h / 2) };
+  if (dir === 2) return { x: x + w - 1 - Math.floor(w / 2), y: y - 1 };
+  if (dir === 3) return { x: x - 1, y: y + h - 1 - Math.floor(h / 2) };
+  return { x: x + Math.floor(w / 2), y: y + h };
+}
+// 놓인 건물의 문 앞 칸 (막혀 있어도 그 자리). 걸어서 갈 곳은 doorOf
+function doorFront(b) { return doorAt(b.dir || 0, b.x, b.y, b.w, b.h); }
+// 선창이 문 쪽에 있는 건물(BDEF.dock: 어장)의 문 앞 칸이 물인가. 그러면 그 쪽은 물을 보는 선창이고,
+// 사람은 doorOf 가 고르는 둘레의 뭍 칸으로 드나든다
+function dockWater(type, x, y) { return !!BDEF[type].dock && World.tile(x, y) === T.WATER && !World.isRoad(x, y); }
+// 문 앞 칸이 제 구실을 하는가: 걸을 수 있거나, 선창이 물을 보거나 (미리 보기·정보 창의 '막힘')
+function doorTileOk(type, x, y) { return walkable(x, y) || dockWater(type, x, y); }
+// 마당(walkRows)은 문 쪽 띠: 발판 안의 (x, y) 가 그 띠에 드는가
+function inYard(b, x, y) {
+  const n = BDEF[b.type].walkRows;
+  if (!n) return false;
+  const d = b.dir || 0;
+  if (d === 0) return y >= b.y + b.h - n;
+  if (d === 1) return x >= b.x + b.w - n;
+  if (d === 2) return y < b.y + n;
+  return x < b.x + n;
+}
+// 마당 띠의 사각형 (마당이 없으면 null)
+function yardRect(b) {
+  const n = BDEF[b.type].walkRows;
+  if (!n) return null;
+  const d = b.dir || 0;
+  if (d === 0) return { x: b.x, y: b.y + b.h - n, w: b.w, h: n };
+  if (d === 1) return { x: b.x + b.w - n, y: b.y, w: n, h: b.h };
+  if (d === 2) return { x: b.x, y: b.y, w: b.w, h: n };
+  return { x: b.x, y: b.y, w: n, h: b.h };
+}
+// 문 앞으로 k칸 나간 점 (실수 타일 좌표, 문 칸의 가운데 줄). 마실·야경이 건물 앞을 고를 때
+function frontPoint(b, k) {
+  const d = b.dir || 0, f = doorFront(b), v = DIR_VEC[d];
+  const along = d & 1 ? { x: f.x + 0.5, y: b.y + b.h / 2 } : { x: b.x + b.w / 2, y: f.y + 0.5 };
+  return { x: along.x + v[0] * (k - 0.5), y: along.y + v[1] * (k - 0.5) };
+}
 
 // biome: 고을의 땅 생김 (0.2..0.8, 없으면 모두 0.5 = 예전 그대로). 분류 문턱만 옮기고 주 난수 r() 를 뽑는 횟수는 바꾸지 않는다.
 // 그래서 길·길목·tvar·광장은 땅 생김과 상관없이 같다 (docs/jianghu.md §11)
@@ -189,7 +248,7 @@ function walkCost(x, y, mode) {
       const def = BDEF[b.type];
       if (b.type === 'gate') return mode === 1 ? 24 : 0.8;
       if (b.type === 'wall' || b.type === 'stonewall') return mode === 1 ? 24 : Infinity;
-      if (def.walkRows && b.done && !b.ruined && y >= b.y + b.h - def.walkRows) return 1.1;
+      if (def.walkRows && b.done && !b.ruined && inYard(b, x, y)) return 1.1;
       return Infinity;
     }
   }
@@ -302,16 +361,28 @@ function buildingApproachGoal(b, mode = 0) {
     return walkable(x, y, mode);
   };
 }
+// 사람이 건물에 들고 날 칸: 마당이 있으면 마당의 문 쪽 가운데, 아니면 문 앞 칸. 문 앞이 막혔으면 둘레에서 걸을 수 있는 칸
 function doorOf(b) {
-  const def = BDEF[b.type];
-  if (def.walkRows) return { x: b.x + Math.floor(b.w / 2), y: b.y + b.h - 1 };
-  const x = b.x + Math.floor(b.w / 2), y = b.y + b.h;
-  if (walkable(x, y)) return { x, y };
+  const def = BDEF[b.type], dir = b.dir || 0;
+  const f = doorAt(dir, b.x, b.y, b.w, b.h);
+  if (def.walkRows) return { x: f.x - DIR_VEC[dir][0], y: f.y - DIR_VEC[dir][1] };
+  if (walkable(f.x, f.y)) return f;
   const ring = [];
-  for (let xx = b.x - 1; xx <= b.x + b.w; xx++) { ring.push({ x: xx, y: b.y + b.h }); ring.push({ x: xx, y: b.y - 1 }); }
-  for (let yy = b.y; yy < b.y + b.h; yy++) { ring.push({ x: b.x - 1, y: yy }); ring.push({ x: b.x + b.w, y: yy }); }
-  for (const p of ring) if (walkable(p.x, p.y)) return p;
-  return { x, y };
+  if (dir === 0) {
+    // 예전 순서 그대로 (옛 마을이 똑같이 움직이게)
+    for (let xx = b.x - 1; xx <= b.x + b.w; xx++) { ring.push({ x: xx, y: b.y + b.h }); ring.push({ x: xx, y: b.y - 1 }); }
+    for (let yy = b.y; yy < b.y + b.h; yy++) { ring.push({ x: b.x - 1, y: yy }); ring.push({ x: b.x + b.w, y: yy }); }
+  } else {
+    // 문 쪽 면부터, 그 안에서는 문 앞 칸에 가까운 것부터
+    const v = DIR_VEC[dir], cx = b.x + b.w / 2 - 0.5, cy = b.y + b.h / 2 - 0.5;
+    for (let yy = b.y - 1; yy <= b.y + b.h; yy++) for (let xx = b.x - 1; xx <= b.x + b.w; xx++) {
+      if (xx >= b.x && xx < b.x + b.w && yy >= b.y && yy < b.y + b.h) continue;
+      ring.push({ x: xx, y: yy, k: -((xx - cx) * v[0] + (yy - cy) * v[1]) * 10 + Math.abs(xx - f.x) + Math.abs(yy - f.y) });
+    }
+    ring.sort((p, q) => p.k - q.k);
+  }
+  for (const p of ring) if (walkable(p.x, p.y)) return { x: p.x, y: p.y };
+  return f;
 }
 function nearestWalkable(x, y, mode = 0, maxR = 8) {
   x = Math.floor(x); y = Math.floor(y);

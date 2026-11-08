@@ -33,7 +33,9 @@ function realmOf(m) { return REALMS[clamp(Math.floor(m), 0, REALMS.length - 1)];
 
 // 건물 정의
 // light: [x, y, 반경(타일), 색, 높이?] — 발판 좌상단 기준 타일 단위. 높이(월드 px)가 없으면 lightLift(기본 16)만큼 땅에서 띄운다
-// walkRows: 발판 아래쪽에서 사람이 드나들 수 있는 줄 수 (마당/밭)
+// walkRows: 발판의 문 쪽에서 사람이 드나들 수 있는 줄 수 (마당/밭). 처음 방향(dir 0)이면 아래쪽(+y) 줄들
+// w, h: 처음 방향의 발판. 놓인 건물의 발판은 b.w, b.h (dir 1·3 이면 서로 바뀐다, world.js footOf)
+// dock: 문 쪽에 선창(물과 배다리)을 그리는 건물. 문 앞 칸이 물이면 막힌 것이 아니라 물을 보는 것이다 (world.js dockWater)
 const BUILD_CATS = [
   { id: 'home', name: '주거' },
   { id: 'prod', name: '생산' },
@@ -63,7 +65,7 @@ const BDEF = {
     cat: 'prod', walkRows: 3, ground: true, desc: '곡식을 기른다. 가을에 수확이 가장 많고 겨울엔 거의 자라지 않는다.',
   },
   fishery: {
-    name: '어장', hanja: '漁', w: 2, h: 2, top: 0.5, cost: { wood: 25 }, hp: 120, time: 5, workers: 2,
+    name: '어장', hanja: '漁', w: 2, h: 2, top: 0.5, cost: { wood: 25 }, hp: 120, time: 5, workers: 2, dock: true,
     cat: 'prod', needs: 'water', desc: '물가에 지어 물고기를 잡는다. 계절을 덜 탄다. 강물과 맞닿아야 한다.',
   },
   lumber: {
@@ -186,6 +188,13 @@ const BDEF = {
     desc: '누구나 올라 비무를 겨루는 대. 날마다 명성이 오르고 무림대회가 자주 열린다. 홀로 서는 길에서만 짓는다.',
   },
 };
+// 돌릴 수 있는 방향 (b.dir: 0 문이 +y · 1 +x · 2 −y · 3 −x, docs/architecture.md §2.2). 따로 적지 않으면 네 방향 모두.
+// 문 쪽에 걸어 다니는 마당(walkRows)이 발판 일부인 무관·표국은 마당을 화면 앞쪽에 그려야 하니 앞을 보는 0·1 만.
+// 영주관·우물은 돌리지 않고, 목책·석벽·성문은 이웃 담장을 따라 저절로 돈다
+for (const k in BDEF) {
+  const d = BDEF[k];
+  d.dirs = ['manor', 'well', 'wall', 'stonewall', 'gate'].includes(k) ? [0] : d.walkRows && d.walkRows < d.h ? [0, 1] : [0, 1, 2, 3];
+}
 const BUILD_ORDER = ['house', 'house2', 'farm', 'fishery', 'lumber', 'quarry', 'warehouse', 'smithy', 'market', 'inn', 'escort',
   'blackmarket', 'gambling', 'horsemarket', 'clinic', 'well', 'shrine', 'pavilion', 'ancestral', 'yamen',
   'dojo', 'hall_jeong', 'altar_ma', 'stage', 'tower', 'wall', 'stonewall', 'gate'];

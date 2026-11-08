@@ -35,8 +35,12 @@ function actTextOf(u) {
 }
 // 「읍(邑)」「정파(正派)」처럼 괄호 안의 한자에 풀이를 단다
 const tipParen = s => s.replace(/\(([^)]+)\)/, (m, h) => `(<span data-tip-title="${h}">${h}</span>)`);
+// [돌리기] 단추의 둥근 화살 (글꼴마다 ↻ 가 없을 수 있어 그림으로)
+const ROT_ICON = '<svg class="rot-ico" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M13.2 8.6A5.2 5.2 0 1 1 11.6 4.3" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M12.4 1.6v3.6H8.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 // 손가락으로 다루는 화면인가 (story.js 의 coarse() 와 같은 기준)
 const coarsePointer = () => !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+// 정보 창이 지도 아래쪽에 뜨는 좁은 화면인가 (style.css 의 860px 경계)
+const narrowView = () => !!(window.matchMedia && window.matchMedia('(max-width: 860px)').matches);
 
 // ── 세력 창 (docs/jianghu.md §7·§11) ──
 const FX_TRADE = ['sang', 'saeoe', 'sega'];   // 교역 협정을 맺는 계열
@@ -91,6 +95,8 @@ function remainText(h) {
 
 const UI = {
   sel: null, tool: null, hover: null, dragTiles: null, cat: 'home',
+  // 든 건물의 방향(b.dir 과 같은 뜻), 손으로 돌렸는가, 종류마다 이번 판에 마지막으로 고른 방향 (저장하지 않는다)
+  toolDir: 0, toolHand: false, dirMem: {},
   modalOpen: false, modalEntry: null, modalAt: 0, buildMenuDirty: true, lastPanel: '', lastTop: '', sheet: null,
   camTarget: null,
   // 세력 창의 화면 상태: 다시 그려도(0.22초마다) 남는다. 탭, 펼친 이웃 카드·계열, 의뢰마다 고른 사람, 전쟁 지원의 몫.
@@ -112,6 +118,11 @@ const UI = {
     $('btn-log').onclick = () => { $('log').hidden = !$('log').hidden; this.renderLog(); };
     $('log-close').onclick = () => { $('log').hidden = true; };
     $('btn-save').onclick = () => saveGame(false);
+    // [돌리기]: 손가락 화면은 미리 보기가 없으면 화면 가운데에 띄워 돌아가는 모습을 보인다
+    $('tool-rotate').onclick = () => {
+      if (!this.hover) this.hover = this.viewCenterTile();
+      this.rotateTool(1);
+    };
     $('sheet-close').onclick = () => this.closeSheet();
     $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') this.closeSheet(); });
     $('sheet-body').addEventListener('click', e => this.onSheetClick(e));
@@ -296,14 +307,138 @@ const UI = {
     this.dragTiles = null;
     $('tooltip').hidden = true;
     this.buildMenuDirty = true;
+    // 든 건물의 방향: 이번 판에 마지막으로 고른 방향에서 시작하고, 손으로 돌리기 전에는 맞닿은 길 쪽으로 저절로 돈다
+    this.toolHand = false;
+    this.toolDir = this.tool && this.tool.kind === 'build' ? normDir(k, this.dirMem[k] || 0) : 0;
     const hint = $('tool-hint');
-    if (!this.tool) { hint.hidden = true; Bus.emit('tool', null); return; }
-    const name = (BDEF[k] || TOOLS[k]).name;
-    const how = this.tool.kind === 'road' || this.tool.kind === 'line' ? '끌어서 잇기' : this.tool.kind === 'build' ? '눌러서 놓기' : '눌러서 실행';
-    // 터치 화면에는 우클릭도 Esc도 없다: 고른 단추를 다시 눌러 거둔다
-    hint.textContent = `${name} · ${how} · ${coarsePointer() ? '같은 단추를 다시 누르면 취소' : '우클릭이나 Esc로 취소'}`;
+    $('app').classList.toggle('tool-on', !!this.tool);
+    if (!this.tool) { hint.hidden = true; $('tool-rotate').hidden = true; Bus.emit('tool', null); return; }
+    this.renderToolHint();
     hint.hidden = false;
+    this.placeToolHint();
+    // 좁은 화면·손가락 화면: 정보 창이 지도 가운데를 덮고 그 창의 [돌리기]는 놓인 건물을 돌리니, 건물을 들면 고른 것을 놓는다
+    if (this.tool.kind === 'build' && this.sel && (narrowView() || coarsePointer())) this.select(null);
+    // 손가락 화면에는 커서가 없다: 돌릴 수 있는 건물을 들면 보이는 지도 가운데에 미리 보기를 띄운다 (누르는 곳에 짓는다)
+    if (this.tool.kind === 'build' && canRotate(k) && coarsePointer() && S) this.hover = this.viewCenterTile();
     Bus.emit('tool', k);
+  },
+  // 총관 카드(#steward)가 안내 띠를 덮으면 띠를 비킨다: 카드 오른쪽에 자리가 넉넉하면 그리로, 아니면 카드 바로 위로,
+  // 위에도 자리가 없으면(가로로 누운 폰) 카드 오른쪽의 좁은 자리에 글을 접어 넣는다.
+  // 둘 다 z 19 라 겹치면 카드가 [돌리기]를 가린다 (story.css 는 건드리지 않는다)
+  placeToolHint() {
+    const hint = $('tool-hint'), st = hint.style;
+    if (hint.hidden) return;
+    const want = { left: '', right: '', bottom: '', transform: '', maxWidth: '' };
+    const card = $('steward');
+    const cr = card && !card.hidden ? card.getBoundingClientRect() : null;
+    for (const k in want) st[k] = '';
+    if (cr && cr.width && cr.height) {
+      const hr = hint.getBoundingClientRect();
+      if (hr.left < cr.right && hr.right > cr.left && hr.top < cr.bottom && hr.bottom > cr.top) {
+        const r = id => { const e = $(id); return e && !e.hidden ? e.getBoundingClientRect() : null; };
+        // 오른쪽 끝은 화면 끝, 아래 귀퉁이의 작은 지도가 있으면 그 왼쪽
+        const vw = window.innerWidth, mm = r('minimap-wrap');
+        const edge = mm && mm.width && mm.top < hr.bottom && mm.bottom > hr.top ? Math.min(vw, mm.left) : vw;
+        const room = edge - cr.right - 20;
+        const tb = r('topbar'), mb = r('menubar');
+        let top = tb ? tb.bottom : 0;
+        if (mb && mb.width > vw / 2) top = Math.max(top, mb.bottom);
+        if (room >= hr.width) { want.left = `${Math.round(cr.right + 10 + (room - hr.width) / 2)}px`; want.right = 'auto'; want.transform = 'none'; }
+        else if (cr.top - 8 - hr.height >= top) want.bottom = `${Math.round(window.innerHeight - cr.top + 8)}px`;
+        else if (room >= 180) { want.left = `${Math.round(cr.right + 10)}px`; want.right = 'auto'; want.transform = 'none'; want.maxWidth = `${Math.round(room)}px`; }
+      }
+    }
+    for (const k in want) if (want[k]) st[k] = want[k];
+  },
+  // 위 띠·메뉴와 아래를 덮는 것(안내 띠·총관 카드·정보 창·건설 띠) 사이, 지도가 보이는 곳의 가운데 칸 (손가락 화면의 미리 보기 자리)
+  viewCenterTile() {
+    if (typeof screenToTile !== 'function') return null;
+    const r = id => { const e = $(id); if (!e || e.hidden) return null; const q = e.getBoundingClientRect(); return q.width && q.height ? q : null; };
+    const tb = r('topbar'), mb = r('menubar'), hb = r('tool-hint'), bb = r('buildbar');
+    let top = tb ? tb.bottom : 0, bottom = bb ? bb.top : Cam.vh, left = 0, right = Cam.vw;
+    if (mb && mb.width > Cam.vw / 2) top = Math.max(top, mb.bottom);   // 좁은 화면의 가로 메뉴
+    // 가로로 누운 폰은 안내 띠가 오른쪽 아래에 붙는다: 그 왼쪽의 가운데
+    const side = hb && window.matchMedia && window.matchMedia('(max-height: 500px) and (orientation: landscape)').matches;
+    if (side) right = hb.left;
+    // 화면 아래쪽을 가로질러 가운데를 덮는 것은 그 위까지만 (넓은 화면의 옆 창·왼쪽 카드는 셈하지 않는다)
+    for (const q of [side ? null : hb, r('steward'), r('panel')]) {
+      if (!q || q.top < top + 40) continue;
+      const cx = (left + right) / 2;
+      if (q.left < cx && q.right > cx) bottom = Math.min(bottom, q.top);
+    }
+    const t = screenToTile((left + right) / 2, bottom > top + 20 ? (top + bottom) / 2 : Cam.vh / 2);
+    return { x: Math.floor(t.x), y: Math.floor(t.y) };
+  },
+  // 건설 도구 안내 한 줄과 [돌리기] 단추. 돌릴 수 있는 건물이면 R 키(손가락은 단추)와 지금 입구 방향을 적는다
+  renderToolHint(plan) {
+    if (!this.tool) return;
+    const k = this.tool.key, name = (BDEF[k] || TOOLS[k]).name, touch = coarsePointer();
+    const how = this.tool.kind === 'road' || this.tool.kind === 'line' ? '끌어서 잇기' : this.tool.kind === 'build' ? '눌러서 놓기' : '눌러서 실행';
+    const rot = this.tool.kind === 'build' && canRotate(k);
+    const parts = [name, how];
+    if (rot) {
+      const d = plan ? plan.dir : this.toolDir, dock = plan && plan.dock;
+      // 어장의 선창이 물을 보면 문 쪽은 선창이다
+      parts.push(`${dock ? '선창' : '입구'} ${DIR_WORD[d]}${plan && plan.auto ? (dock ? '(물 쪽)' : '(길 쪽)') : ''}`);
+      // 손가락 화면은 바로 옆의 [돌리기] 단추가 말해 준다
+      if (!touch) parts.push('R로 돌리기');
+      if (dirsOf(k).length === 2) parts.push('마당이 있어 앞쪽 두 방향만');
+    }
+    // 터치 화면에는 우클릭도 Esc도 없다: 고른 단추를 다시 눌러 거둔다
+    parts.push(touch ? '같은 단추를 다시 누르면 취소' : '우클릭이나 Esc로 취소');
+    const text = parts.join(' · ');
+    if ($('tool-hint-text').textContent !== text) $('tool-hint-text').textContent = text;
+    $('tool-rotate').hidden = !rot;
+  },
+  // 든 건물을 돌린다 (step = −1 이면 거꾸로). 손으로 돌린 방향은 도구를 내려놓을 때까지 그대로다
+  rotateTool(step = 1) {
+    if (!this.tool || this.tool.kind !== 'build' || !canRotate(this.tool.key)) return false;
+    const k = this.tool.key;
+    // 길 쪽으로 저절로 돌아 있던 방향에서 이어 돌린다 (보이는 것에서 한 칸)
+    const cur = this.hover && !this.toolHand ? this.buildPlan(this.hover.x, this.hover.y).dir : this.toolDir;
+    this.toolDir = nextDir(k, cur, step);
+    this.toolHand = true;
+    this.dirMem[k] = this.toolDir;
+    this.renderToolHint();
+    Bus.emit('toolRotated', k, this.toolDir);
+    return true;
+  },
+  // 칸 (hx, hy) 를 눌렀을 때 놓일 자리와 방향: { dir, x, y, w, h, door, doorOk, auto, rot }
+  buildPlan(hx, hy) {
+    const k = this.tool.key;
+    const rot = canRotate(k);
+    let dir = normDir(k, this.toolDir), auto = false;
+    if (rot && !this.toolHand) { const a = this.autoFace(k, hx, hy, dir); if (a !== null && a !== dir) { dir = a; auto = true; } }
+    const f = footOf(k, dir);
+    const x = hx - Math.floor((f.w - 1) / 2), y = hy - Math.floor((f.h - 1) / 2);
+    const door = doorAt(dir, x, y, f.w, f.h);
+    // 어장의 선창(문 쪽)이 물을 보면 막힌 것이 아니다
+    const dock = dockWater(k, door.x, door.y);
+    return { dir, x, y, w: f.w, h: f.h, door, doorOk: dock || walkable(door.x, door.y), dock, auto, rot };
+  },
+  // 손대지 않은 건물은 발판이 길에 닿으면 길 쪽으로 문을 낸다: 지을 수 있는 방향 가운데, 문 앞 칸이 길인 쪽, 그다음 길이 가까운 쪽.
+  // 선창이 있는 어장은 물을 보는 쪽이 먼저다 (물가에 닿으면 길이 없어도 돈다).
+  // 어느 방향으로도 발판이 길(어장은 물)에 닿지 않으면 null (들고 있던 방향 그대로)
+  autoFace(k, hx, hy, base) {
+    let best = null, bs = Infinity, touch = false;
+    for (const d of dirsOf(k)) {
+      const f = footOf(k, d);
+      const x = hx - Math.floor((f.w - 1) / 2), y = hy - Math.floor((f.h - 1) / 2);
+      let near = false;
+      for (let yy = y - 1; yy <= y + f.h && !near; yy++) for (let xx = x - 1; xx <= x + f.w; xx++) {
+        if (xx >= x && xx < x + f.w && yy >= y && yy < y + f.h) continue;
+        if (World.isRoad(xx, yy)) { near = true; break; }
+      }
+      const door = doorAt(d, x, y, f.w, f.h);
+      const water = dockWater(k, door.x, door.y);
+      if (near || water) touch = true;
+      let rd = 9;
+      for (let yy = door.y - 3; yy <= door.y + 3; yy++) for (let xx = door.x - 3; xx <= door.x + 3; xx++) if (World.isRoad(xx, yy)) rd = Math.min(rd, Math.abs(xx - door.x) + Math.abs(yy - door.y));
+      const r = canPlace(k, x, y, d);
+      const s = (r.ok || r.poor ? 0 : 100) + (water ? -40 : walkable(door.x, door.y) ? 0 : 30) + (water ? 0 : rd * 2) + (d === base ? -0.5 : 0) + (d >= 2 ? 0.3 : 0);
+      if (s < bs) { bs = s; best = d; }
+    }
+    return touch ? best : null;
   },
 
   // ── 선택 정보 ──
@@ -350,6 +485,10 @@ const UI = {
     if (b.type === 'quarry') rows.push(['바위의 풍성함', `${Math.round((b._rock || 0) * 100)}%`]);
     if (b.type === 'escort') rows.push(['관도 연결', b._connected ? '이어짐' : '<span style="color:var(--bad)">끊김 (수입 감소)</span>']);
     if (b.type === 'tower') rows.push(['사거리', `${def.range}칸`]);
+    if (canRotate(b.type)) {
+      const f = doorFront(b);
+      rows.push(['입구', `${DIR_WORD[b.dir || 0]}${World.isRoad(f.x, f.y) ? ' · 길에 닿음' : dockWater(b.type, f.x, f.y) ? ' · 물가 (선창)' : walkable(f.x, f.y) ? '' : ' · <span style="color:var(--bad)">막힘</span>'}`]);
+    }
     if (def.upkeep) rows.push(['품삯', `1인당 매일 은자 ${def.upkeep}`]);
     if (def.storage) rows.push(['저장', `+${def.storage}`]);
     if (!b.done && !b.ruined) rows.push(['일손', `${b._builders || 0}명`]);
@@ -369,6 +508,9 @@ const UI = {
       const up = upgradeCost();
       acts.push(`<button type="button" class="btn" data-act="upgrade" ${S.rank >= 1 && canAfford(up) ? '' : 'disabled'} title="${S.rank < 1 ? '마을 등급이 필요하다' : ''}">기와집으로 (${costText(up)})</button>`);
     }
+    // 제자리에서 입구 방향을 돌린다 (값 없음, 자리가 맞지 않으면 까닭을 알린다)
+    // 건물을 든 동안은 안내 띠의 [돌리기](든 건물)만 둔다
+    if (canRotate(b.type) && !(this.tool && this.tool.kind === 'build')) acts.push(`<button type="button" class="btn btn-rot" data-act="rotate" title="입구를 다음 방향으로 돌린다 (옆 건물이나 길에 걸리는 방향은 건너뛴다). 값은 들지 않는다.">${ROT_ICON}돌리기</button>`);
     if (b.type !== 'manor') acts.push(`<button type="button" class="btn danger" data-act="demolish">${UI.confirmDemolish === b.id ? '정말 허문다' : '허물기'}</button>`);
     const bar = !b.done && !b.ruined
       ? `<div class="bar prog"><span style="width:${clamp(b.progress / def.time, 0, 1) * 100}%"></span></div>`
@@ -418,6 +560,18 @@ const UI = {
     else if (a === 'toggle' && b) { b.active = !b.active; markDirty(); }
     else if (a === 'repair' && b) { if (repair(b)) this.toast(`${BDEF[b.type].name}${pp(BDEF[b.type].name, '을/를')} 다시 짓기 시작했다.`, 'good'); }
     else if (a === 'upgrade' && b) upgradeHouse(b);
+    else if (a === 'rotate' && b) {
+      const r = rotateBuilding(b);
+      if (!r.ok) this.toast(r.why, 'bad');
+      else {
+        const w = DIR_WORD[r.dir], name = BDEF[b.type].name;
+        // 다음 방향이 맞지 않아 건너뛰었으면 그렇다고, 새 문 앞이 막혔으면 그것도 (그때는 초록 알림이 아니다)
+        const sk = r.skipped && r.skipped[0];
+        const skip = sk ? ` (${DIR_WORD[sk.dir]}${pp(DIR_WORD[sk.dir], '으로/로')} 돌리면 ${sk.why})` : '';
+        this.toast(`${name}의 입구를 ${w}${pp(w, '으로/로')} 돌렸다${skip}.${r.blocked ? ' 다만 입구 앞이 막혀 있다.' : ''}`, r.blocked ? '' : 'good');
+        this.revealAbovePanel(b);
+      }
+    }
     else if (a === 'demolish' && b) {
       if (UI.confirmDemolish === b.id) { UI.confirmDemolish = 0; demolish(b); this.select(null); }
       else { UI.confirmDemolish = b.id; setTimeout(() => { UI.confirmDemolish = 0; }, 3000); }
@@ -804,6 +958,7 @@ const UI = {
       <ul>
         <li><b>집</b>이 비어 있고 <b>식량</b>이 넉넉하고 <b>민심</b>이 42 이상이면 사람들이 찾아온다.</li>
         <li>일자리가 있는 건물을 지으면 놀고 있는 사람이 알아서 일하러 간다. 건물을 눌러 일꾼 수를 조절할 수 있다.</li>
+        <li>건물을 들면 <b>입구</b>가 금빛 화살로 보인다. 발판이 길에 닿으면 문이 길 쪽으로 저절로 돌고, <b>R</b> 키나 안내 띠의 <b>[돌리기]</b>로 직접 돌리면 내려놓을 때까지 그 방향을 지킨다. 무관·표국은 마당이 있어 앞쪽 두 방향만 돈다. 건물이나 길을 든 동안에는 놓인 건물마다 입구가 작은 화살로 보인다. 어장은 문 쪽이 선창이라 물을 보게 놓는다. 놓인 건물도 눌러서 [돌리기]로 제자리에서 돌릴 수 있다(값 없음, 걸리는 방향은 건너뛴다).</li>
         <li>논밭은 계절을 탄다. 가을에 가장 많이 나고 겨울에는 거의 나지 않으니 미리 쌓아두자. 어장은 계절을 덜 탄다.</li>
         <li>인구가 15·35·70·120명이 되면 마을 등급이 오르고 새 건물이 열린다.</li>
       </ul>
@@ -848,6 +1003,8 @@ const UI = {
       <h3>조작</h3>
       <div class="help-keys">
         <kbd>좌클릭</kbd><span>선택 · 건설</span>
+        <kbd>R · Shift+R</kbd><span>든 건물 돌리기 (입구 방향) · 거꾸로</span>
+        <kbd>[돌리기] 단추</kbd><span>든 건물 돌리기 (휴대폰) · 놓인 건물은 정보 창에서</span>
         <kbd>끌기 / 우클릭 끌기</kbd><span>지도 이동 (건설 중에는 우클릭으로)</span>
         <kbd>휠 / 두 손가락 / + −</kbd><span>확대·축소</span>
         <kbd>W A S D · 방향키</kbd><span>지도 이동</span>
@@ -995,6 +1152,24 @@ const UI = {
   // ── 카메라 ──
   // 카메라 목표는 타일 좌표로 둔다 (main.js 루프가 투영해서 따라간다)
   focusOn(tx, ty) { this.camTarget = { tx, ty }; },
+  // 좁은 화면: 아래쪽 정보 창이 건물(문 앞 칸까지)을 가리면, 건물이 위 띠와 정보 창 사이의 보이는 곳에 오도록 지도를 옮긴다
+  revealAbovePanel(b) {
+    const pn = $('panel');
+    if (!b || pn.hidden || !narrowView()) return;
+    const pr = pn.getBoundingClientRect();
+    const f = doorFront(b);
+    const pts = [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h], [f.x + 0.5, f.y + 0.5]].map(([x, y]) => tileToScreen(x, y));
+    if (Math.max(...pts.map(p => p.y)) < pr.top - 6) return;
+    const r = id => { const e = $(id); return e && !e.hidden ? e.getBoundingClientRect() : null; };
+    const tb = r('topbar'), mb = r('menubar');
+    let top = tb ? tb.bottom : 0;
+    if (mb && mb.width > Cam.vw / 2) top = Math.max(top, mb.bottom);
+    // 지붕이 위로 솟으니 발판 가운데는 보이는 띠의 60% 높이에
+    const c = tileToScreen(b.x + b.w / 2, b.y + b.h / 2);
+    const want = top + Math.max(40, pr.top - top) * 0.6;
+    const t = screenToTile(Cam.vw / 2, Cam.vh / 2 + (c.y - want));
+    this.camTarget = { tx: t.x, ty: t.y };
+  },
   onMinimap(e) {
     const r = e.currentTarget.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
@@ -1021,6 +1196,10 @@ const UI = {
       const held = this.sheetHold && now - this.sheetHold < 1200;   // 누르는 중이면 한 박자 쉰다
       if (this.sheet && this.sheet !== 'help' && !held && !(this.sheets[this.sheet] && this.sheets[this.sheet].live === false)) this.renderSheet();
       if (this.buildMenuDirty || this.affordKey() !== this.lastAfford) this.renderBuildItems();
+      // 들고 있는 건물의 입구 방향 (길 쪽으로 저절로 돌았으면 그렇다고)
+      if (this.tool && this.tool.kind === 'build' && canRotate(this.tool.key)) this.renderToolHint(this.hover ? this.buildPlan(this.hover.x, this.hover.y) : null);
+      // 총관 카드가 뜨고 지는 데 따라 안내 띠를 비킨다
+      if (this.tool) this.placeToolHint();
       hook(Admin, 'uiTick');
       hook(Petitions, 'uiTick');
       hook(Story, 'uiTick');

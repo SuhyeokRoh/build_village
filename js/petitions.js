@@ -173,7 +173,7 @@ function petDept(id, n, sub, run, opt = {}) {
 
 // ── 건설: 육방에 시키고, 없거나 실패하면 스스로 터를 찾는다 ──
 function petBuildCost(type) { const c = BDEF[type].cost; return (c.silver || 0) + (c.wood || 0) + (c.stone || 0); }
-function petSiteOk(type, x, y) { const r = canPlace(type, x, y); return r.ok || !!r.poor; }
+function petSiteOk(type, x, y, dir = 0) { const r = canPlace(type, x, y, dir); return r.ok || !!r.poor; }
 function petRingFree(x, y, w, h) {
   for (let yy = y - 1; yy <= y + h; yy++) for (let xx = x - 1; xx <= x + w; xx++) {
     if (xx >= x && xx < x + w && yy >= y && yy < y + h) continue;
@@ -195,6 +195,7 @@ function petNear(type) {
   }
   return c;
 }
+// 스스로 찾는 터는 처음 방향(dir 0)의 발판과 문으로 셈한다 (짓는 tryBuild·placeBuilding 도 dir 0)
 function petFindSite(type) {
   const def = BDEF[type];
   const c = petNear(type);
@@ -222,8 +223,10 @@ function petFindSite(type) {
   return best;
 }
 function petAdminSite(type) {
+  // 육방이 고른 자리는 방향(문이 길 쪽)까지 함께 받는다
   const s = hook(Admin, 'findSite', type);
-  return s && Number.isFinite(s.x) && Number.isFinite(s.y) && petSiteOk(type, s.x, s.y) ? { x: s.x, y: s.y } : null;
+  const dir = s && Number.isFinite(s.dir) ? s.dir : 0;
+  return s && Number.isFinite(s.x) && Number.isFinite(s.y) && petSiteOk(type, s.x, s.y, dir) ? { x: s.x, y: s.y, dir } : null;
 }
 function petBuild(type, dept) {
   const def = BDEF[type];
@@ -233,7 +236,7 @@ function petBuild(type, dept) {
     const site = petAdminSite(type) || petFindSite(type);
     if (!site) return { ok: false, why: '지을 만한 빈 터가 없다' };
     if (!petSpend(dept, n)) return { ok: false, why: `${PET_DEPT[dept]} 예산이 모자라다` };
-    const b = placeBuilding(type, site.x, site.y, false);
+    const b = placeBuilding(type, site.x, site.y, false, site.dir || 0);
     Bus.emit('placed', b);
     return { ok: true, b };
   }
