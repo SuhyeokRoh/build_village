@@ -24,11 +24,16 @@ const Advisor = (() => {
   const catOf = t => ((BUILD_CATS.find(c => c.id === BDEF[t].cat) || {}).name || '');
   const where = t => `아래 건설 띠의 [${catOf(t)}]에서 [${nm(t)}]`;
   const has = t => S.buildings.some(b => b.type === t && !b.ruined);
-  const countLive = t => S.buildings.filter(b => b.type === t && !b.ruined).length;
+  const countLive = t => S.buildings.filter(b => b.type === t && !b.ruined).length;   // 다 지은 것과 짓는 것
   const ruinOf = t => S.buildings.find(b => b.type === t && b.ruined);
   const sitesOf = types => S.buildings.filter(b => types.includes(b.type) && !b.done && !b.ruined);
   const rankOk = t => !BDEF[t].rank || S.rank >= BDEF[t].rank;
   const n1 = x => { const r = Math.round(x * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
+  // 「다섯 식구」: 열까지는 우리말 수로 (그 위는 「12명」)
+  const KN = ['', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
+  const kin = n => (KN[n] ? `${KN[n]} 식구` : `${n}명`);
+  // 이름 여럿을 「사당과 우물」처럼
+  const andList = a => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join('·')}${pp(a[a.length - 2], '과/와')} ${a[a.length - 1]}`);
   // 문턱 가까이에서는 소수 한 자리(내림)까지: 41.96 이 「42」로 읽혀 문이 열린 것처럼 보이지 않게
   const near = (x, thr) => (Math.abs(x - thr) < 1 ? (Math.floor(x * 10) / 10).toFixed(1) : String(Math.round(x)));
   // 숫자 뒤 조사: 받침 있는 끝자리 0·1·3·6·7·8 (영·일·삼·육·칠·팔, 십·백·천), ㄹ받침 1·7·8 은 「로」
@@ -88,7 +93,7 @@ const Advisor = (() => {
     if (!g.ok.food) parts.push(`식량이 ${fmt(g.food)}섬으로 ${n1(g.need)}섬(사람의 1.2배)에 못 미칩니다`);
     if (!g.ok.house) parts.push(`빈 집이 없습니다(집 ${g.H}칸에 ${g.pop}명)`);
     if (!g.ok.happy) parts.push(`민심이 ${near(g.happy, HAPPY_GATE)}${jn(near(g.happy, HAPPY_GATE), '으로/로')} 42에 못 미칩니다`);
-    if (!parts.length) return '사람이 오는 문은 다 열려 있는데, 그사이 떠나거나 잃은 사람이 그만큼 됩니다.';
+    if (!parts.length) return '지금은 사람이 오는 문이 다 열려 있습니다.';
     return parts.join('. ') + '.';
   }
 
@@ -130,11 +135,16 @@ const Advisor = (() => {
   }
 
   // ── 민심 ─────────────────────────────────
-  function amenity() { let a = 0; for (const b of S.buildings) if (usable(b)) a += BDEF[b.type].happy || 0; return a; }
-  // 편의 시설 하나를 더하면 오르는 민심 (인구가 늘수록 묽어지고 28에서 막힌다: sim.js happinessFactors)
+  // 편의 시설의 몫 (sim.js happinessFactors). sites 면 짓고 있는 것도 다 섰다고 셈한다
+  function amenity(sites) { let a = 0; for (const b of S.buildings) if (usable(b) || (sites && !b.done && !b.ruined)) a += BDEF[b.type].happy || 0; return a; }
+  const amenK = pop => Math.sqrt(12 / Math.max(12, pop));
+  // 짓고 있는 편의 시설(사당·시장·기와집…)이 다 서면 오를 민심
+  function amenPending(pop) { const k = amenK(pop); return Math.min(28, amenity(true) * k) - Math.min(28, amenity(false) * k); }
+  const amenSites = () => sitesOf(Object.keys(BDEF).filter(t => BDEF[t].happy > 0));
+  // 편의 시설 하나를 더하면 오르는 민심 (인구가 늘수록 묽어지고 28에서 막힌다). 짓고 있는 것은 이미 선 것으로 보고 그 위에 더한다
   function amenGain(type, pop) {
-    const a = amenity(), k = Math.sqrt(12 / Math.max(12, pop));
-    return Math.min(28, (a + (BDEF[type].happy || 0)) * k) - (a ? Math.min(28, a * k) : 0);
+    const a = amenity(true), k = amenK(pop);
+    return Math.min(28, (a + (BDEF[type].happy || 0)) * k) - Math.min(28, a * k);
   }
   const costSum = c => (c.silver || 0) + (c.wood || 0) * 1.2 + (c.stone || 0) * 1.7;
   // 모자란 재료: 「 지금은 은자 7이 모자랍니다.」 (다 있으면 '')
@@ -173,7 +183,7 @@ const Advisor = (() => {
     if (pend) {
       const gain = Math.max(0, -val('쌓인 상소')) + Math.min(6, pend * 2);
       out.push({ id: 'petition', gain, cost: 15, act: { k: 'sel', sel: '#btn-petitions', tag: '상소함' },
-        text: `[상소함]에 상소가 ${pend}건 기다립니다. 들어주시면 민심이 오르고${pend > 2 ? ', 쌓인 상소가 깎는 몫도 풀립니다' : ''}.` });
+        text: `[상소함]에 상소가 ${pend}건 기다립니다. 들어주시면 민심이 오릅니다.${pend > 2 ? ' 쌓인 상소가 깎는 몫도 풀립니다.' : ''}` });
     }
     const ruin = val('타다 남은 집터');
     if (ruin) {
@@ -184,7 +194,14 @@ const Advisor = (() => {
       const d = S.buildings.find(b => b.type === 'dojo' && usable(b));
       if (d && d.want < BDEF.dojo.workers) out.push({ id: 'guard', gain: 6, cost: 30, act: { k: 'panel', id: d.id, act: 'want+', tag: '일꾼 +' }, text: '무사가 모자라 치안이 불안합니다(−6). 무관을 눌러 [일꾼 +]로 수련생을 채우십시오.' });
     }
-    if (val('아전들의 탐학')) out.push({ id: 'greedy', gain: -val('아전들의 탐학'), cost: 10, act: { k: 'sel', sel: '#btn-admin', tag: '육방' }, text: '탐욕스러운 아전이 백성을 쥐어짭니다. [육방]에서 그 아전을 바꾸십시오.' });
+    if (val('아전들의 탐학')) {
+      // 탐욕스러운 아전을 둔 부서 (예산을 받는 곳만 원성을 산다: admin.js happinessFactors)
+      const ids = (Admin.ORDER || []).filter(id => { const d = Admin.dept(id); return d && d.head && d.head.trait === 'greedy' && d.budget > 0; });
+      const dn = ids.map(id => Admin.DEPTS[id].name);
+      const rc = +hook(Admin, 'replaceCost') || 12;
+      if (dn.length) out.push({ id: 'greedy', gain: -val('아전들의 탐학'), cost: rc, res: { silver: rc }, act: { k: 'sel', sel: '#btn-admin', tag: '육방' },
+        text: `${andList(dn)}의 아전이 탐욕스러워 백성을 쥐어짭니다. [육방]에서 ${dn[0]}${pp(dn[0], '을/를')} 열어 그 아전을 바꾸십시오(은자 ${rc}냥).${shortText({ silver: rc })}` });
+    }
     for (const t of ['shrine', 'market', 'pavilion', 'inn', 'well']) {
       if (!rankOk(t)) continue;
       const gain = amenGain(t, g.pop);
@@ -229,7 +246,7 @@ const Advisor = (() => {
     const a = houseAct();
     if (a.k === 'repair') {
       const b = getB(a.id), rc = repairCost(b), n = nm(b.type);
-      return [{ m: 'calm', t: `무너진 ${n}${pp(n, '은/는')} 새로 짓는 값의 절반인 ${ifCost(rc)} 다시 섭니다. 눌러서 [다시 짓기]를 누르십시오. ${BDEF[b.type].housing}식구가 살 수 있습니다.` }];
+      return [{ m: 'calm', t: `무너진 ${n}${pp(n, '은/는')} 새로 짓는 값의 절반인 ${ifCost(rc)} 다시 섭니다. 그 터를 눌러 [다시 짓기]를 누르십시오. ${kin(BDEF[b.type].housing)}${pp(kin(BDEF[b.type].housing), '이/가')} 살 수 있습니다.${shortText(rc)}` }];
     }
     const c = BDEF.house.cost;
     if (a.type === 'house2') return [{ m: 'calm', t: `목재가 초가 한 채 값(${c.wood})에도 못 미치지만, 기와집은 지을 수 있습니다. ${where('house2')}${pp('기와집', '을/를')} 지으십시오(${costText(BDEF.house2.cost)}). 여덟 식구가 살고 민심도 조금 오릅니다.` }];
@@ -262,6 +279,8 @@ const Advisor = (() => {
     return !!(ri && ri.budget > 0 && Array.isArray(ri.lowered) && ri.lowered.includes(b.id));
   }
   const staffed = b => (b._workers || []).length;
+  // 일꾼 자리가 다 찼다: [일꾼 −]를 한 번 누르면 한 사람이 정말로 빠진다 (모자란 곳은 자리만 줄고 아무도 빠지지 않는다)
+  const staffedFull = b => staffed(b) >= Math.min(BDEF[b.type].workers, b.want);
   function yieldText(type, ff) {
     if (type === 'farm') return `한 사람이 하루 ${n1(ff.perFarmer)}섬쯤 거둡니다.`;
     if (type === 'fishery') return `한 사람이 하루 ${n1(ff.perFisher)}섬쯤 잡습니다.`;
@@ -280,10 +299,37 @@ const Advisor = (() => {
   const marketIncome = pop => Math.round(2 * (0.36 + pop * 0.007) * tradeMul() * SHOP_H);
   const taxDelta = to => Math.round(popCount() * (TAX_RATE[to] - TAX_RATE[S.tax]) * (0.4 + S.happy / 100) * JH.perk('tax') * (hook(Admin, 'taxMul') || 1));
 
+  // ── 권한 일을 따랐는가 ─────────────────────────
+  // 만들 때의 장부를 적어 두고: 그 건물 자리를 놓았거나, 다시 짓기 시작했거나, 창의 단추·세율을 바꿨거나, 상소를 처결했으면 따른 것이다.
+  // 따랐으면 그 말은 거둔다 (사당을 놓았는데 「사당을 지으십시오」가 남아 또 짓게 하지 않게)
+  function snapAct(a) {
+    if (!a) return null;
+    if (a.k === 'build') return countLive(a.type);
+    if (a.k === 'panel') { const b = getB(a.id); return b ? { want: b.want, active: b.active } : null; }
+    if (a.k === 'sel' && a.sel === '#btn-petitions') return petPending();
+    return null;
+  }
+  function followed(a, s) {
+    if (!a) return false;
+    if (a.k === 'build') return countLive(a.type) > s;
+    if (a.k === 'repair') { const b = getB(a.id); return !b || !b.ruined; }
+    if (a.k === 'tax') return S.tax === a.to;
+    if (a.k === 'panel' && s) {
+      const b = getB(a.id);
+      if (!b) return true;
+      return a.act === 'want+' ? b.want > s.want : a.act === 'want-' ? b.want < s.want : a.act === 'toggle' ? b.active !== s.active : false;
+    }
+    if (a.k === 'sel' && a.sel === '#btn-petitions' && typeof s === 'number') return petPending() < s;
+    return false;
+  }
+
   // ── 권할 일 만들기 ───────────────────────────
   // r: { id, pri, cd, label, diag(g, ff) → 글, todo(g, ff) → [{m,t}], act, done() }
+  //  done(): 그 일이 풀렸거나(o.done) 권한 대로 따랐다. 만든 그 순간에는 늘 거짓이다 (아니면 말을 꺼내자마자 거둔다)
   function mk(o) {
-    const r = Object.assign({ cd: 3, act: null, done: () => false, topic: o.id.split(':')[0] }, o);
+    const r = Object.assign({ cd: 3, act: null, topic: o.id.split(':')[0] }, o);
+    const base = o.done || (() => false), snap = snapAct(r.act);
+    r.done = () => base() || followed(r.act, snap);
     r.lines = () => {
       const g = growth(), ff = foodFlow(g.pop);
       return [{ m: o.mood || 'calm', t: r.diag(g, ff) }, ...(r.todo ? r.todo(g, ff) : [])].filter(l => l && l.t);
@@ -345,30 +391,61 @@ const Advisor = (() => {
               : `${nm(a.type)}${pp(nm(a.type), '을/를')} 지으십시오 · 빈 집 0칸`,
           diag: houseDiag, todo: houseTodo,
           act: (woodShort && has('lumber') && lumberAct()) || a, topic: 'house',
-          done: () => { const x = growth(); return x.ok.house || x.soon > 0; },
+          // 만든 조건(문이 닫혔고 짓는 집으로도 모자람)의 반대: 짓는 집이 다 서면 빈 집이 생기는 때는 house_wait 가 맡는다
+          done: () => { const x = growth(); return x.ok.house || (x.soon > 0 && x.free + x.soon > 0); },
         }));
       }
     }
+    // 민심: 짓고 있는 편의 시설(사당·시장…)은 다 섰다고 보고 셈한다 (따른 일을 또 권하지 않게)
+    const pendH = amenPending(pop), tgtH = g.target + pendH;
+    const worstText = () => {
+      const worst = happinessFactors().filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]).slice(0, 2);
+      return worst.length ? ` 가장 큰 까닭은 ${worst.map(([k, v]) => `「${k}」(${Math.round(v)})`).join(', ')}입니다.` : '';
+    };
+    const pendNames = () => andList([...new Set(amenSites().map(b => nm(b.type)))]);
     if (!g.ok.happy) {
       if (g.riseH) {
         R.push(mk({
-          id: 'happy_rise', pri: 45, cd: 2, label: `민심이 오르는 중 · ${near(g.happy, HAPPY_GATE)} → ${Math.round(g.target)}`,
-          diag: g2 => `민심이 ${near(g2.happy, HAPPY_GATE)}입니다. 42는 넘어야 사람이 찾아오는데, 지금 흐름이면 ${Math.round(g2.target)}까지 오르니 ${g2.riseH || 1}시간쯤 뒤면 넘습니다.`,
+          id: 'happy_rise', pri: 45, cd: 2, label: `민심이 오르는 중 · ${near(g.happy, HAPPY_GATE)} → ${near(g.target, HAPPY_GATE)}`,
+          diag: g2 => `민심이 ${near(g2.happy, HAPPY_GATE)}입니다. 42는 넘어야 사람이 찾아오는데, 지금 흐름이면 ${near(g2.target, HAPPY_GATE)}까지 오르니 ${g2.riseH || 1}시간쯤 뒤면 넘습니다.`,
           todo: () => [{ m: 'calm', t: '그동안 빈 집과 곳간을 채워 두시면 문이 열리자마자 사람이 듭니다.' }],
           done: () => S.happy >= HAPPY_GATE,
         }));
+      } else if (pendH > 0 && tgtH >= HAPPY_GATE + 0.5) {
+        // 권한 대로 사당 등을 짓고 있다: 다 서면 문이 열린다
+        const types = [...new Set(amenSites().map(b => b.type))];
+        R.push(mk({
+          id: 'happy_wait', topic: 'happy', pri: 68, cd: 2, label: `짓는 ${nm(types[0])}${pp(nm(types[0]), '이/가')} 서면 민심 ${near(tgtH, HAPPY_GATE)}`,
+          diag: g2 => `민심이 ${near(g2.happy, HAPPY_GATE)}입니다. 42는 넘어야 사람이 찾아오는데, 지금 형편대로면 ${near(g2.target, HAPPY_GATE)}에 머뭅니다.${worstText()}`,
+          todo: g2 => { const p = amenPending(g2.pop), n = pendNames(); return [{ m: 'calm', t: `짓고 있는 ${n}${pp(n, '이/가')} 서면 민심이 ${n1(p)} 올라 ${near(g2.target + p, HAPPY_GATE)}까지 갑니다. 그러면 문이 열립니다. 일 없는 사람이 공사를 거들수록 빨리 끝나니, 기다리시거나 오른쪽 위 ▶▶로 시간을 빨리 감으십시오.` }]; },
+          act: { k: 'wait', types }, done: () => S.happy >= HAPPY_GATE,
+        }));
       } else {
-        const best = pickRemedies(remedies(g, true), HAPPY_GATE + 2 - g.target)[0];
+        const best = pickRemedies(remedies(g, true), HAPPY_GATE + 2 - tgtH)[0];
         R.push(mk({
           id: 'happy', pri: 90, cd: 2, mood: 'worry', label: `민심을 42 위로 · 지금 ${near(g.happy, HAPPY_GATE)}`,
           diag: g2 => {
-            const worst = happinessFactors().filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]).slice(0, 2);
-            return `민심이 ${near(g2.happy, HAPPY_GATE)}입니다. 42는 넘어야 사람이 찾아오는데, 지금 형편대로면 ${Math.round(g2.target)}에 머뭅니다.${worst.length ? ` 가장 큰 까닭은 ${worst.map(([k, v]) => `「${k}」(${Math.round(v)})`).join(', ')}입니다.` : ''}${g2.leaving ? ' 25 아래라 아침마다 사람이 마을을 등집니다.' : ''}`;
+            const p = amenPending(g2.pop), t = g2.target;
+            // 흐름이 42 언저리면 소수 한 자리까지: 41.7 이 「42」로 읽혀 문이 열릴 것처럼 보이지 않게
+            const flow = t >= HAPPY_GATE ? `지금 흐름이면 ${near(t, HAPPY_GATE)}까지 오르지만 문턱에 겨우 걸칩니다` : `지금 형편대로면 ${near(t, HAPPY_GATE)}에 머뭅니다`;
+            const pend = p > 0 ? ` 짓고 있는 ${pendNames()}${pp(pendNames(), '이/가')} 서면 ${n1(p)} 더 오르지만 그것으로는 모자랍니다.` : '';
+            return `민심이 ${near(g2.happy, HAPPY_GATE)}입니다. 42는 넘어야 사람이 찾아오는데, ${flow}.${pend}${worstText()}${g2.leaving ? ' 25 아래라 아침마다 사람이 마을을 등집니다.' : ''}`;
           },
-          todo: g2 => remedyLines(pickRemedies(remedies(g2, true), HAPPY_GATE + 2 - g2.target)),
+          todo: g2 => remedyLines(pickRemedies(remedies(g2, true), HAPPY_GATE + 2 - g2.target - amenPending(g2.pop))),
           act: best ? best.act : { k: 'sel', sel: '#btn-village', tag: '마을 현황' }, done: () => S.happy >= HAPPY_GATE,
         }));
       }
+    } else if (tgtH < HAPPY_GATE) {
+      // 문은 열려 있어도 민심이 42 아래로 흘러간다 (식량의 food_low 와 같은 경고)
+      const hours = Math.max(1, Math.ceil(Math.log((HAPPY_GATE - g.target) / Math.max(0.01, g.happy - g.target)) / Math.log(0.88)));
+      const best = pickRemedies(remedies(g, true), HAPPY_GATE + 2 - tgtH)[0];
+      R.push(mk({
+        id: 'happy_fall', topic: 'happy', pri: 85, cd: 2, mood: 'worry', label: `민심이 내려갑니다 · ${near(g.happy, HAPPY_GATE)} → ${near(g.target, HAPPY_GATE)}`,
+        diag: g2 => `민심이 ${near(g2.happy, HAPPY_GATE)}이지만 지금 형편대로면 ${near(g2.target, HAPPY_GATE)}까지 내려가, ${hours}시간쯤 뒤면 42 아래로 떨어집니다. 그러면 새 식구가 오지 않습니다.${worstText()}`,
+        todo: g2 => remedyLines(pickRemedies(remedies(g2, true), HAPPY_GATE + 2 - g2.target - amenPending(g2.pop))),
+        act: best ? best.act : { k: 'sel', sel: '#btn-village', tag: '마을 현황' },
+        done: () => happinessTarget() + amenPending(popCount()) >= HAPPY_GATE,
+      }));
     }
     // 문이 열렸어도 빈 집이 한두 칸뿐이면 곧 막힌다
     if (g.ok.occ && g.ok.house && g.free <= 2 && g.soon === 0) {
@@ -382,10 +459,11 @@ const Advisor = (() => {
     }
 
     // ━━ 2. 살림과 일손 ━━
-    if (!has('lumber') && pop >= 3) {
+    // 목재가 넉넉하면(집 일곱 채 값 넘게) 급하지 않다: 곳간이 목재로 가득한데 벌목장부터 지으라 하지 않는다
+    if (!has('lumber') && pop >= 3 && S.res.wood < 150) {
       const r = ruinOf('lumber');
       R.push(mk({
-        id: 'lumber', pri: 80, cd: 3, label: `벌목장을 ${r ? '다시 ' : ''}지으십시오 · 목재 ${fmt(S.res.wood)}`,
+        id: 'lumber', pri: S.res.wood < 60 ? 80 : 52, cd: 3, label: `벌목장을 ${r ? '다시 ' : ''}지으십시오 · 목재 ${fmt(S.res.wood)}`,
         diag: () => '벌목장이 없어 목재가 들어오지 않습니다. 집도 논밭도 일터도 모두 목재로 짓습니다.',
         todo: () => [{ m: 'calm', t: r ? `무너진 벌목장을 눌러 [다시 짓기]를 누르십시오(${costText(repairCost(r))}).` : `${where('lumber')}${pp('벌목장', '을/를')} 골라 숲 가까이 지으십시오(${costText(BDEF.lumber.cost)}). 숲이 울창할수록 많이 납니다.` }],
         act: r ? { k: 'repair', id: r.id } : { k: 'build', type: 'lumber' }, done: () => has('lumber'),
@@ -429,7 +507,8 @@ const Advisor = (() => {
           return `${head} ${s.net < 0 ? `날마다 ${-s.net}냥씩 줄어` : `남는 것은 하루 ${s.net}냥뿐이라`} 곳간에는 ${fmt(S.res.silver)}냥 남았습니다. 은자가 없으면 집 한 채, 논밭 하나도 못 짓습니다.`;
         },
         todo: () => [{ m: 'calm', t: silverPlan(g).text }],
-        act: silverPlan(g).act, done: () => { const s = silverInfo(); return !s || s.net >= 0; },
+        act: silverPlan(g).act,
+        done: () => { const s = silverInfo(); return !s || !((s.net < 0 && S.res.silver < 200) || (s.net < 2 && S.res.silver < 30)); },
       }));
     } else if (S.admin && S.admin.short && S.admin.short.day >= dayOf() - 1 && S.res.silver < 40 && sv) {
       R.push(mk({
@@ -476,7 +555,7 @@ const Advisor = (() => {
         const firstOpen = S.buildings.filter(b => usable(b) && b.active && BDEF[b.type].workers && staffed(b) < Math.min(BDEF[b.type].workers, b.want))
           .sort((a, b) => prio(b) - prio(a))[0];
         const foodSpare = ff.prod > ff.cons * 1.3 && g.food > g.need * 2;
-        const donor = firstOpen === empty ? S.buildings.filter(b => usable(b) && b.active && b !== empty && staffed(b) > 0 && !BDEF[b.type].fighter
+        const donor = firstOpen === empty ? S.buildings.filter(b => usable(b) && b.active && b !== empty && staffed(b) > 0 && staffedFull(b) && !BDEF[b.type].fighter
           && ((b.type !== 'farm' && b.type !== 'fishery') || (foodSpare && staffed(b) > 1)))
           .sort((a, b) => (b.type === 'farm') - (a.type === 'farm') || prio(a) - prio(b))[0] : null;
         const n = nm(empty.type), dn = donor && nm(donor.type);
@@ -524,13 +603,14 @@ const Advisor = (() => {
     // ━━ 3. 문이 열렸을 때: 한 번에 오는 수를 늘린다 ━━
     // 곳간과 은자가 넉넉할 때만 (모자라면 먹을 것과 집이 먼저다)
     const spare = r => (r.id !== 'tax' || S.tax === 2) && (!r.res || rich(r.res)) && !r.temp;
-    if (g.open && g.happy <= HAPPY_BONUS && g.target <= HAPPY_BONUS && ff.prod >= ff.cons && g.food >= g.pop * 3) {
-      const best = pickRemedies(remedies(g, false).filter(spare), HAPPY_BONUS + 1 - g.target)[0];
+    // 흐름이 42 아래면(happy_fall) 문이 곧 닫히니 70 이야기는 꺼내지 않는다
+    if (g.open && g.happy <= HAPPY_BONUS && tgtH >= HAPPY_GATE && tgtH <= HAPPY_BONUS && ff.prod >= ff.cons && g.food >= g.pop * 3) {
+      const best = pickRemedies(remedies(g, false).filter(spare), HAPPY_BONUS + 1 - tgtH)[0];
       if (best) {
         R.push(mk({
           id: 'happy70', pri: 50, cd: 4, label: `민심 70을 넘기면 더 많이 옵니다 · 지금 ${Math.round(g.happy)}`,
-          diag: g2 => `사람이 오는 문은 다 열렸습니다. 민심이 70을 넘으면 한 번에 한 사람씩 더 찾아옵니다. 지금 ${Math.round(g2.happy)}, 흐름대로면 ${Math.round(g2.target)}입니다.`,
-          todo: g2 => remedyLines(pickRemedies(remedies(g2, false).filter(spare), HAPPY_BONUS + 1 - g2.target)),
+          diag: g2 => `사람이 오는 문은 다 열렸습니다. 민심이 70을 넘으면 한 번에 한 사람씩 더 찾아옵니다. 지금 ${Math.round(g2.happy)}, 흐름대로면 ${Math.round(g2.target + amenPending(g2.pop))}입니다.`,
+          todo: g2 => remedyLines(pickRemedies(remedies(g2, false).filter(spare), HAPPY_BONUS + 1 - g2.target - amenPending(g2.pop))),
           act: best.act, done: () => S.happy > HAPPY_BONUS,
         }));
       }
@@ -542,7 +622,11 @@ const Advisor = (() => {
       R.push(mk({
         id: 'fame', pri: 40, cd: 6, label: `명성 ${fmt(S.fame)} · ${next}이면 한 번에 한 명 더`,
         diag: () => `명성이 ${fmt(S.fame)}입니다. 명성이 120 오를 때마다 한 번에 찾아오는 사람이 한 명씩 늡니다. 다음은 ${next}입니다.`,
-        todo: () => [{ m: 'calm', t: `습격을 막아 내면 명성이 크게 오르고, ${jhOpen() ? '[세력] 창의 의뢰를 해내도 오릅니다. ' : ''}객잔과 표국도 조금씩 이름을 냅니다.${inn ? ` ${where('inn')}${pp('객잔', '을/를')} 지으시면(${costText(BDEF.inn.cost)}) 은자와 명성을 함께 법니다.` : ''}` }],
+        todo: () => {
+          // 이 등급에서 지을 수 있는 이름난 일터만 (마을이 되기 전에는 객잔·표국을 권하지 않는다)
+          const shops = ['inn', 'escort'].filter(rankOk).map(nm);
+          return [{ m: 'calm', t: `습격을 막아 내면 명성이 크게 오릅니다.${jhOpen() ? ' [세력] 창의 의뢰를 해내도 오릅니다.' : ''}${shops.length ? ` ${andList(shops)}도 조금씩 이름을 냅니다.` : ''}${inn ? ` ${where('inn')}${pp('객잔', '을/를')} 지으시면(${costText(BDEF.inn.cost)}) 은자와 명성을 함께 법니다.` : ''}` }];
+        },
         act: q ? { k: 'sel', sel: '#btn-factions', tag: '세력' } : inn ? { k: 'build', type: 'inn' } : null,
         done: () => S.fame >= next,
       }));
@@ -572,9 +656,11 @@ const Advisor = (() => {
     }
 
     R.sort((a, b) => b.pri - a.pri);
-    // 같은 곳을 짚는 일은 앞의 것만 (빈 집이 없어 초가 · 집 없는 사람 때문에 초가)
+    // 같은 곳을 짚는 일은 앞의 것만 (빈 집이 없어 초가 · 집 없는 사람 때문에 초가).
+    // 만들자마자 done() 인 것은 버린다 (말을 꺼내자마자 저절로 거둬지지 않게: 만든 조건과 done 이 어긋났을 때의 안전망)
     const seen = new Set(), out = [];
     for (const r of R) {
+      if (r.done()) continue;
       const key = r.act ? JSON.stringify(r.act) : r.id;
       if (seen.has(key)) continue;
       seen.add(key); out.push(r);
@@ -593,18 +679,41 @@ const Advisor = (() => {
       const days = Math.max(1, Math.ceil((g.need + 1 - g.food) / (ff.prod - ff.cons)));
       return { act: null, text: `거두는 양이 먹는 양보다 하루 ${fmt(ff.prod - ff.cons)}섬 많으니 ${days}일쯤이면 ${n1(g.need)}섬을 넘습니다. 그사이 빈 집과 민심을 챙겨 두십시오.` };
     }
-    if ((ff.winter || ff.winterNext) && siteOk('fishery')) return { act: { k: 'build', type: 'fishery' }, text: `겨울에는 논밭이 거의 쉽니다. ${where('fishery')}${pp('어장', '을/를')} 물가에 지으십시오(${costText(BDEF.fishery.cost)}). 일꾼 둘이 하루 ${fmt(2 * ff.perFisher)}섬쯤 잡습니다.` };
+    // 짓고 있는(다시 짓는) 논밭·어장: 그것으로 모자람이 메워지면 기다리라 하고, 또 지으라 하지 않는다
+    const fs = sitesOf(['farm', 'fishery']);
+    let pre = '';
+    if (fs.length) {
+      const gain = fs.reduce((a, b) => a + (b.type === 'farm' ? BDEF.farm.workers * ff.perFarmer : BDEF.fishery.workers * ff.perFisher), 0);
+      const sn = andList([...new Set(fs.map(b => nm(b.type)))]);
+      if (ff.prod + gain > ff.cons + 0.5) {
+        return { act: { k: 'wait', types: ['farm', 'fishery'] }, wait: true,
+          text: `짓고 있는 ${sn}${pp(sn, '이/가')} 끝나면 하루 ${fmt(gain)}섬쯤 더 거두어 먹는 것보다 많아집니다. 일 없는 사람이 공사를 거들수록 빨리 끝나니, 기다리시거나 오른쪽 위 ▶▶로 시간을 빨리 감으십시오.` };
+      }
+      pre = `짓고 있는 ${sn}${pp(sn, '이/가')} 끝나도 하루 ${fmt(gain)}섬쯤 늘 뿐이라 모자랍니다. `;
+    }
+    // 무너진 논밭·어장은 새로 짓는 값의 절반에 다시 선다 (습격 뒤). 겨울에는 논밭이 쉬니 어장부터
+    const repairPlan = rf => {
+      const rc = repairCost(rf), n = nm(rf.type);
+      const crew = rf.type === 'farm' ? `일꾼 셋이 하루 ${fmt(3 * ff.perFarmer)}섬쯤 거둡니다.` : `일꾼 둘이 하루 ${fmt(2 * ff.perFisher)}섬쯤 잡습니다.`;
+      return { act: { k: 'repair', id: rf.id }, text: `${pre}무너진 ${n}${pp(n, '은/는')} 새로 짓는 값의 절반인 ${ifCost(rc)} 다시 섭니다. 그 터를 눌러 [다시 짓기]를 누르십시오. ${crew}${shortText(rc)}` };
+    };
+    const winterNow = ff.winter || ff.winterNext;
+    if (winterNow && ruinOf('fishery')) return repairPlan(ruinOf('fishery'));
+    if (winterNow && siteOk('fishery')) return { act: { k: 'build', type: 'fishery' }, text: `${pre}겨울에는 논밭이 거의 쉽니다. ${where('fishery')}${pp('어장', '을/를')} 물가에 지으십시오(${costText(BDEF.fishery.cost)}). 일꾼 둘이 하루 ${fmt(2 * ff.perFisher)}섬쯤 잡습니다.${shortText(BDEF.fishery.cost)}` };
     const openF = farms.find(b => b.active && staffed(b) < Math.min(BDEF.farm.workers, b.want));
     if (openF && g.idle === 0) {
-      const donor = S.buildings.filter(b => usable(b) && b.active && staffed(b) > 0 && b.type !== 'farm' && b.type !== 'fishery' && !BDEF[b.type].fighter)
+      const donor = S.buildings.filter(b => usable(b) && b.active && staffed(b) > 0 && staffedFull(b) && b.type !== 'farm' && b.type !== 'fishery' && !BDEF[b.type].fighter)
         .sort((a, b) => (JOB_PRIORITY[a.type] || 0) - (JOB_PRIORITY[b.type] || 0))[0];
-      if (donor) return { act: { k: 'panel', id: donor.id, act: 'want-', tag: '일꾼 −' }, text: `논밭에 빈 자리가 있는데 일할 사람이 없습니다. ${nm(donor.type)}${pp(nm(donor.type), '을/를')} 눌러 [일꾼 −]로 한 사람을 빼면 그 사람이 논밭으로 갑니다.` };
+      if (donor) return { act: { k: 'panel', id: donor.id, act: 'want-', tag: '일꾼 −' }, text: `${pre}논밭에 빈 자리가 있는데 일할 사람이 없습니다. ${nm(donor.type)}${pp(nm(donor.type), '을/를')} 눌러 [일꾼 −]로 한 사람을 빼면 그 사람이 논밭으로 갑니다.` };
     }
+    const rf = ruinOf('farm') || ruinOf('fishery');
+    if (rf) return repairPlan(rf);
     const fc = BDEF.farm.cost;
     let lack = shortText(fc);
     if (lack && S.res.silver < (fc.silver || 0) && S.res.wood >= (fc.wood || 0) && S.res.silver + dailyTax() >= fc.silver) lack += ' 내일 아침 세금이 들어오면 지으실 수 있습니다.';
     const act = S.res.wood < (fc.wood || 0) && has('lumber') ? (lumberAct() || { k: 'build', type: 'farm' }) : { k: 'build', type: 'farm' };
-    return { act, text: `${where('farm')}${pp('논밭', '을/를')} 하나 더 지으십시오(${costText(fc)}). 일꾼 셋이 하루 ${fmt(3 * ff.perFarmer)}섬쯤 거둡니다.${g.idle >= 1 ? '' : ' 일할 사람도 있어야 하니 빈 집도 함께 늘리십시오.'}${lack}` };
+    // 쓸 수 있는 논밭이 하나도 없으면 「하나 더」가 아니다
+    return { act, text: `${pre}${where('farm')}${pp('논밭', '을/를')} ${farms.length || fs.length ? '하나 더 ' : ''}지으십시오(${costText(fc)}). 일꾼 셋이 하루 ${fmt(3 * ff.perFarmer)}섬쯤 거둡니다.${g.idle >= 1 ? '' : ' 일할 사람도 있어야 하니 빈 집도 함께 늘리십시오.'}${lack}` };
   }
   // 은자가 줄어들 때 할 일
   function silverPlan(g) {
@@ -645,11 +754,14 @@ const Advisor = (() => {
   // 문턱을 넘는 순간 바로 다시 셈하므로 권고가 지금 장부와 어긋나지 않는다
   let cache = null;
   function sig(g) {
-    let w = 0;
-    for (const b of S.buildings) w += (b.want || 0) + (b.active ? 0 : 50) + (b.done ? 100 : 0) + (b.ruined ? 1000 : 0);
+    let w = 0, empty = 0;
+    for (const b of S.buildings) {
+      w += (b.want || 0) + (b.active ? 0 : 50) + (b.done ? 100 : 0) + (b.ruined ? 1000 : 0);
+      if (BDEF[b.type].workers && !staffed(b)) empty++;   // 일꾼이 하나도 없는 일터 (「○○에 일꾼이 없습니다」)
+    }
     const cap = storageCap(), r = S.res;
     const full = ['food', 'wood', 'stone'].map(k => (r[k] >= cap * 0.97 ? 1 : 0)).join('');
-    return [Math.floor(S.time * 4), S.buildings.length, w, S.tax, S.rank, g.pop, g.arriving, g.idle, g.homeless, g.free, g.soon,
+    return [Math.floor(S.time * 4), S.buildings.length, w, empty, S.tax, S.rank, g.pop, g.arriving, g.idle, g.homeless, g.free, g.soon,
       +g.ok.food, +g.ok.happy, +g.ok.occ, +(g.target >= HAPPY_GATE + 0.5), +(g.happy > HAPPY_BONUS), ...(n => [+(n < 0), +(n < 2)])((silverInfo() || {}).net),
       Math.round(g.happy), Math.round(g.target * 2), full,
       Math.floor(r.food / 5), Math.floor(r.wood / 5), Math.floor(r.silver / 5), Math.floor(r.stone / 5), S.villagers.length, S.mods.length, petPending()].join('|');
@@ -671,12 +783,20 @@ const Advisor = (() => {
     return [
       { id: 'house', name: '빈 집', ok: g.ok.house, short: `${Math.max(0, g.free)}칸`, text: `집 ${g.H}칸 · 사람 ${g.pop}명${g.arriving ? ` (길 위 ${g.arriving}명)` : ''} → 빈 집 ${Math.max(0, g.free)}칸${!g.ok.house && g.soon ? ` · 짓는 중 +${g.soon}` : ''}` },
       { id: 'food', name: '식량 여유', ok: g.ok.food, short: `${fmt(g.food)}/${n1(g.need)}섬`, text: `${fmt(g.food)}섬 ${g.ok.food ? '>' : '≤'} ${n1(g.need)}섬(사람×1.2) · 하루 +${fmt(ff.prod)} −${fmt(ff.cons)}` },
-      { id: 'happy', name: '민심', ok: g.ok.happy, short: `${near(g.happy, HAPPY_GATE)}/42`, text: `${near(g.happy, HAPPY_GATE)} ${g.ok.happy ? '≥' : '<'} 42 · 흐름대로면 ${Math.round(g.target)}` },
+      { id: 'happy', name: '민심', ok: g.ok.happy, short: `${near(g.happy, HAPPY_GATE)}/42`, text: `${near(g.happy, HAPPY_GATE)} ${g.ok.happy ? '≥' : '<'} 42 · 흐름대로면 ${near(g.target, HAPPY_GATE)}` },
       { id: 'occ', name: '점령', ok: g.ok.occ, short: g.ok.occ ? '없음' : `${occDaysLeft()}일 남음`, text: g.ok.occ ? '없음' : `${F.name} 점령 중 · ${occDaysLeft()}일 남음` },
       { id: 'fame', name: '명성', short: `${fmt(S.fame)} → +${g.fameN}명`, text: `${fmt(S.fame)} → 한 번에 +${g.fameN}명 · 다음 ${(g.fameN + 1) * FAME_STEP}` },
       { id: 'bonus', name: '민심 70', short: g.happy > HAPPY_BONUS ? '넘음 +1명' : `${Math.round(g.happy)}/70`, text: g.happy > HAPPY_BONUS ? '넘음 → 한 번에 +1명' : `아직 (${Math.round(g.happy)}) · 넘으면 한 번에 +1명` },
     ];
   }
 
-  return { growth, gates, list, top: () => list()[0] || null, find: id => list().find(r => r.id === id) || null, blockText, foodFlow, remedies, invalidate, HAPPY_GATE, HAPPY_BONUS, FAME_STEP, FOOD_MUL };
+  // 위기 조언(식량)이 짚을 곳: 권고와 같은 길 (무너진 논밭을 다시 짓기, 멈춘 논밭, 짓는 논밭 기다리기…)
+  function foodAdvice() { const g = growth(); return foodPlan(g, foodFlow(g.pop)); }
+  // 「인구가 멈췄습니다」가 짚을 문: 지금 닫힌 문의 권고만 (열린 문의 권고 food_low·happy_fall 은 빼고)
+  const GATE_RECS = { occ: ['occ'], food: ['food'], house: ['house', 'house_wood', 'house_repair', 'house_wait'], happy: ['happy', 'happy_rise', 'happy_wait'] };
+  function gateRec(g = growth()) {
+    const closed = ['occ', 'food', 'house', 'happy'].filter(k => !g.ok[k]);
+    return list().find(r => closed.some(k => GATE_RECS[k].includes(r.id))) || null;
+  }
+  return { growth, gates, list, top: () => list()[0] || null, find: id => list().find(r => r.id === id) || null, gateRec, blockText, foodFlow, foodAdvice, remedies, invalidate, HAPPY_GATE, HAPPY_BONUS, FAME_STEP, FOOD_MUL };
 })();
