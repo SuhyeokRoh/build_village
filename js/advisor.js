@@ -125,10 +125,11 @@ const Advisor = (() => {
     if (c && c.k === key && c.S === S) return c.v;
     const m = getB(S.manorId);
     const cx = m ? m.x + 1 : World.center.x, cy = m ? m.y + 1 : World.center.y;
+    // 돌릴 수 있는 건물은 어느 방향으로든 들어가면 자리가 있다 (world.js §2.2 dirsOf·footOf)
+    const dirs = dirsOf(type);
     let v = false;
     for (let y = cy - 15; y <= cy + 15 && !v; y++) for (let x = cx - 15; x <= cx + 15 && !v; x++) {
-      const r = canPlace(type, x, y);
-      if (r.ok || r.poor) v = true;
+      for (const d of dirs) { const r = canPlace(type, x, y, d); if (r.ok || r.poor) { v = true; break; } }
     }
     siteMemo[type] = { k: key, S, v };
     return v;

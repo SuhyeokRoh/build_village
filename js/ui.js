@@ -318,8 +318,9 @@ const UI = {
     this.placeToolHint();
     // 좁은 화면·손가락 화면: 정보 창이 지도 가운데를 덮고 그 창의 [돌리기]는 놓인 건물을 돌리니, 건물을 들면 고른 것을 놓는다
     if (this.tool.kind === 'build' && this.sel && (narrowView() || coarsePointer())) this.select(null);
-    // 손가락 화면에는 커서가 없다: 돌릴 수 있는 건물을 들면 보이는 지도 가운데에 미리 보기를 띄운다 (누르는 곳에 짓는다)
-    if (this.tool.kind === 'build' && canRotate(k) && coarsePointer() && S) this.hover = this.viewCenterTile();
+    // 손가락 화면에는 커서가 없다: 돌릴 수 있는 건물을 들면 보이는 지도 가운데에 미리 보기를 띄운다 (누르는 곳에 짓는다).
+    // 총관의 안내·권고가 그 건물의 자리를 짚고 있고 그 자리가 보이면 미리 보기를 그 자리에 띄운다 (입구 화살도 거기서 보인다)
+    if (this.tool.kind === 'build' && canRotate(k) && coarsePointer() && S) this.hover = this.guideSpot(k) || this.viewCenterTile();
     Bus.emit('tool', k);
   },
   // 총관 카드(#steward)가 안내 띠를 덮으면 띠를 비킨다: 카드 오른쪽에 자리가 넉넉하면 그리로, 아니면 카드 바로 위로,
@@ -349,6 +350,37 @@ const UI = {
       }
     }
     for (const k in want) if (want[k]) st[k] = want[k];
+    // 손가락 화면에서 띠가 한쪽 귀퉁이에 붙을 때(가로로 누운 폰): 총관이 짚은 자리(G.markers)나 든 건물의 미리 보기가 띠 밑에 들면
+    // 띠를 왼쪽 귀퉁이로 옮긴다 (총관 카드와 겹치거나 거기서도 가리면 그대로 둔다). 커서가 있는 화면은 미리 보기가 커서를 따라
+    // 띠 밑으로 들어가므로 옮기지 않는다 ([돌리기]로 가는 커서를 띠가 피해 달아나지 않게)
+    if (!want.left && !want.bottom && coarsePointer() && typeof tileToScreen === 'function') {
+      const hr = hint.getBoundingClientRect();
+      if (hr.width && hr.width < window.innerWidth * 0.7 && this.hintCovers(hr)) {
+        st.left = 'max(10px, var(--safe-l))'; st.right = 'auto'; st.transform = 'none';
+        const lr = hint.getBoundingClientRect();
+        const hitCard = cr && cr.width && lr.left < cr.right && lr.right > cr.left && lr.top < cr.bottom && lr.bottom > cr.top;
+        if (hitCard || this.hintCovers(lr)) { st.left = ''; st.right = ''; st.transform = ''; }
+      }
+    }
+  },
+  // 안내 띠(rect)가 총관이 짚은 자리나 든 건물의 미리 보기 칸을 덮는가
+  hintCovers(rect) {
+    const pts = [];
+    for (const m of (typeof G !== 'undefined' && G.markers) || []) pts.push(tileToScreen(m.x, m.y));
+    if (this.tool && this.tool.kind === 'build' && this.hover) pts.push(tileToScreen(this.hover.x + 0.5, this.hover.y + 0.5));
+    return pts.some(p => p.x > rect.left - 12 && p.x < rect.right + 12 && p.y > rect.top - 12 && p.y < rect.bottom + 12);
+  },
+  // 총관이 짚는 그 건물의 자리(Story.guideSite)가 위 띠·메뉴와 건설 띠 사이에 보이면 그 칸, 아니면 null
+  guideSpot(k) {
+    const t = hook(Story, 'guideSite', k);
+    if (!t || typeof tileToScreen !== 'function') return null;
+    const p = tileToScreen(t.x + 0.5, t.y + 0.5);
+    const r = id => { const e = $(id); if (!e || e.hidden) return null; const q = e.getBoundingClientRect(); return q.width && q.height ? q : null; };
+    const tb = r('topbar'), mb = r('menubar'), bb = r('buildbar');
+    let top = tb ? tb.bottom : 0;
+    if (mb && mb.width > Cam.vw / 2) top = Math.max(top, mb.bottom);
+    const bottom = bb ? bb.top : Cam.vh;
+    return p.x > 16 && p.x < Cam.vw - 16 && p.y > top + 16 && p.y < bottom - 16 ? { x: t.x, y: t.y } : null;
   },
   // 위 띠·메뉴와 아래를 덮는 것(안내 띠·총관 카드·정보 창·건설 띠) 사이, 지도가 보이는 곳의 가운데 칸 (손가락 화면의 미리 보기 자리)
   viewCenterTile() {
@@ -946,6 +978,7 @@ const UI = {
         <li>흑풍채에 짓밟힌 마을을 다시 일으켜 <b>현성(인구 120)</b>으로 키우고, 제4장 갈림길에서 고른 길의 마지막 장을 마치면 강호에 이름을 떨친다. 길마다 결말이 다르다.</li>
         <li>왼쪽 위 <b>할 일 두루마리</b>에 지금 장(<span data-tip-title="章">章</span>)의 목표가 있다. 막히면 [힌트]나 [총관 부르기]를 누르자.</li>
         <li><b>총관</b> 윤서하가 곁에서 할 일과 까닭을 일러 준다. 화살표와 금빛 테두리가 누를 곳을 가리킨다.</li>
+        <li>안내가 끝나면 총관이 마을을 키울 일을 할 일 두루마리의 <b>권고</b>(<span data-tip-title="勸">勸</span>) 줄에 적고, 하루에 한 번쯤 먼저 아뢴다. 인구가 늘지 않으면 [총관] → [인구가 왜 늘지 않소?]를 고르자. 먼저 아뢰는 것이 번거로우면 [조언을 줄여 주시오].</li>
       </ul>
       <h3>다스리기</h3>
       <ul>
@@ -956,7 +989,7 @@ const UI = {
       </ul>
       <h3>마을 키우기</h3>
       <ul>
-        <li><b>집</b>이 비어 있고 <b>식량</b>이 넉넉하고 <b>민심</b>이 42 이상이면 사람들이 찾아온다.</li>
+        <li><b>집</b>이 비어 있고 <b>식량</b>이 사람 수의 1.2배보다 많고 <b>민심</b>이 42 이상이며 점령되지 않았으면, 하루 두 번(묘시·미시) 사람들이 찾아온다. 한 번에 오는 수는 명성 120마다, 민심이 70을 넘으면 하나씩 는다. 민심이 25 아래면 사람이 떠난다.</li>
         <li>일자리가 있는 건물을 지으면 놀고 있는 사람이 알아서 일하러 간다. 건물을 눌러 일꾼 수를 조절할 수 있다.</li>
         <li>건물을 들면 <b>입구</b>가 금빛 화살로 보인다. 발판이 길에 닿으면 문이 길 쪽으로 저절로 돌고, <b>R</b> 키나 안내 띠의 <b>[돌리기]</b>로 직접 돌리면 내려놓을 때까지 그 방향을 지킨다. 무관·표국은 마당이 있어 앞쪽 두 방향만 돈다. 건물이나 길을 든 동안에는 놓인 건물마다 입구가 작은 화살로 보인다. 어장은 문 쪽이 선창이라 물을 보게 놓는다. 놓인 건물도 눌러서 [돌리기]로 제자리에서 돌릴 수 있다(값 없음, 걸리는 방향은 건너뛴다).</li>
         <li>논밭은 계절을 탄다. 가을에 가장 많이 나고 겨울에는 거의 나지 않으니 미리 쌓아두자. 어장은 계절을 덜 탄다.</li>

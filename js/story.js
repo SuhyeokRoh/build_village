@@ -161,42 +161,47 @@ const Story = (() => {
   }
 
   // ── 지을 자리 찾기 ──────────────────────────
-  // 다른 건물과 한 칸 떨어지고(문을 막지 않게), 앞쪽이 걸을 수 있는 자리
-  function ringClear(def, x, y) {
-    for (let yy = y - 1; yy <= y + def.h; yy++) for (let xx = x - 1; xx <= x + def.w; xx++) {
-      if (xx >= x && xx < x + def.w && yy >= y && yy < y + def.h) continue;
+  // 다른 건물과 한 칸 떨어지고(문을 막지 않게), 문 쪽 면(dir, world.js §2.2)이 걸을 수 있는 자리.
+  // 발판은 방향을 따른다(footOf): 1·3 이면 가로세로가 바뀐다. dir 0 은 예전 그대로 앞(y + h) 줄을 본다
+  function ringClear(type, x, y, dir = 0) {
+    const f = footOf(type, dir);
+    for (let yy = y - 1; yy <= y + f.h; yy++) for (let xx = x - 1; xx <= x + f.w; xx++) {
+      if (xx >= x && xx < x + f.w && yy >= y && yy < y + f.h) continue;
       if (!World.inb(xx, yy)) return false;
       if (World.occ[yy * MW + xx]) return false;
     }
-    for (let xx = x; xx < x + def.w; xx++) if (walkable(xx, y + def.h)) return true;
+    if (dir & 1) { const cx = dir === 1 ? x + f.w : x - 1; for (let yy = y; yy < y + f.h; yy++) if (walkable(cx, yy)) return true; }
+    else { const ry = dir === 0 ? y + f.h : y - 1; for (let xx = x; xx < x + f.w; xx++) if (walkable(xx, ry)) return true; }
     return false;
   }
-  function siteValid(type, x, y) {
-    const r = canPlace(type, x, y);
-    return (r.ok || !!r.poor) && ringClear(BDEF[type], x, y);
+  function siteValid(type, x, y, dir = 0) {
+    const r = canPlace(type, x, y, dir);
+    return (r.ok || !!r.poor) && ringClear(type, x, y, dir);
   }
   function nearRoad(x, y, w, h, r) {
     for (let yy = y - r; yy < y + h + r; yy++) for (let xx = x - r; xx < x + w + r; xx++) if (World.isRoad(xx, yy)) return true;
     return false;
   }
-  function findSite(type, near) {
-    const def = BDEF[type];
+  // dir: 그 방향으로 놓을 자리 (영주가 든 건물을 손으로 돌렸으면 그 방향, 아니면 0. 누른 칸에서 길 쪽으로 저절로 도는 것은
+  // UI.autoFace 가 지을 수 있는 방향만 고르니 dir 0 자리를 짚어도 된다)
+  function findSite(type, near, dir = 0) {
+    const def = BDEF[type], f = footOf(type, dir);
     const c = near || manorCenter();
     let best = null, bs = Infinity;
     const R = 15;
     for (let y = Math.floor(c.y - R); y <= c.y + R; y++) for (let x = Math.floor(c.x - R); x <= c.x + R; x++) {
-      if (!siteValid(type, x, y)) continue;
-      let s = Math.hypot(x + def.w / 2 - c.x, y + def.h / 2 - c.y);
-      if (def.needs === 'forest') s -= Math.min(14, countTilesNear({ x, y, w: def.w, h: def.h }, T.FOREST, 4.5)) * 0.5;
+      if (!siteValid(type, x, y, dir)) continue;
+      let s = Math.hypot(x + f.w / 2 - c.x, y + f.h / 2 - c.y);
+      if (def.needs === 'forest') s -= Math.min(14, countTilesNear({ x, y, w: f.w, h: f.h }, T.FOREST, 4.5)) * 0.5;
       let trees = 0;
-      for (let yy = y; yy < y + def.h; yy++) for (let xx = x; xx < x + def.w; xx++) if (World.tile(xx, yy) === T.FOREST) trees++;
+      for (let yy = y; yy < y + f.h; yy++) for (let xx = x; xx < x + f.w; xx++) if (World.tile(xx, yy) === T.FOREST) trees++;
       s += trees * 1.2;
-      if (nearRoad(x, y, def.w, def.h, 2)) s -= 1.5;
+      if (nearRoad(x, y, f.w, f.h, 2)) s -= 1.5;
       if (s < bs) { bs = s; best = { x, y }; }
     }
     if (!best) return null;
-    // 건설 도구는 누른 칸을 가운데(짝수면 왼쪽 위)로 놓는다 → 그 칸의 가운데를 가리킨다
-    return { x: best.x, y: best.y, cx: best.x + Math.floor((def.w - 1) / 2) + 0.5, cy: best.y + Math.floor((def.h - 1) / 2) + 0.5 };
+    // 건설 도구는 누른 칸을 가운데(짝수면 왼쪽 위)로 놓는다(UI.buildPlan) → 그 칸의 가운데를 가리킨다
+    return { x: best.x, y: best.y, dir, cx: best.x + Math.floor((f.w - 1) / 2) + 0.5, cy: best.y + Math.floor((f.h - 1) / 2) + 0.5 };
   }
   // 북쪽 산길 위, 마을에서 k칸 올라간 곳 (흑풍채가 내려오는 길)
   function northPath(k) {
@@ -264,11 +269,21 @@ const Story = (() => {
   }
   function guideBuild(type, near) {
     const def = BDEF[type];
-    const site = M.site(type, near);
+    // 든 건물의 방향(손으로 돌렸거나 이번 판에 손으로 고른 방향, 아니면 0)의 발판이 들어갈 자리를 짚는다.
+    // 짚은 칸을 누르면 길에 닿는 곳에서는 UI.autoFace 가 지을 수 있는 방향만 고르고, 아니면 이 방향으로 짓는다
+    const held = UI.tool && UI.tool.key === type ? normDir(type, UI.toolDir) : normDir(type, (UI.dirMem && UI.dirMem[type]) || 0);
+    const site = M.site(type, near, held);
     const cat = def.cat;
     const catName = (BUILD_CATS.find(c => c.id === cat) || {}).name || '';
     const mk = site ? [{ x: site.cx, y: site.cy, text: `${def.name} 자리` }] : [];
     const focus = site ? { x: site.cx, y: site.cy } : null;
+    // 손가락 화면은 건물을 들면 미리 보기를 이 칸에 띄운다 (Story.guideSite)
+    const at = site ? { type, x: Math.floor(site.cx), y: Math.floor(site.cy) } : null;
+    const g = guideBuildText(type, def, site, mk, focus, cat, catName);
+    if (g && at && g.markers === mk) g.site = at;
+    return g;
+  }
+  function guideBuildText(type, def, site, mk, focus, cat, catName) {
     if (def.rank && S.rank < def.rank) return { sub: `${def.name}${pp(def.name, '은/는')} 마을이 ${rankName(def.rank)} 이상이 되어야 지을 수 있습니다.` };
     if (!canAfford(def.cost)) { const g = lackGuide(def.cost, mk, focus); if (g) return g; }
     if (UI.tool && UI.tool.key === type) {
@@ -2133,15 +2148,20 @@ const Story = (() => {
     },
 
     // ━━ 지을 자리 (단계마다 기억) ━━
-    site(type, near) {
-      const key = type + (near ? `@${Math.round(near.x)},${Math.round(near.y)}` : '');
+    site(type, near, dir = 0) {
+      const key = type + (near ? `@${Math.round(near.x)},${Math.round(near.y)}` : '') + (dir ? `^${dir}` : '');
       const c = this._sites[key];
       const now = performance.now();
-      if (c && c.s && siteValid(type, c.s.x, c.s.y)) return c.s;
+      if (c && c.s && siteValid(type, c.s.x, c.s.y, dir)) return c.s;
       if (c && !c.s && now - c.t < 2000) return null;
-      const s = findSite(type, near || (type === 'lumber' ? null : manorCenter()));
+      const s = findSite(type, near || (type === 'lumber' ? null : manorCenter()), dir);
       this._sites[key] = { s, t: now };
       return s;
+    },
+    // 지금 안내·권고가 짚는 그 건물의 자리 (칸 좌표) | null. ui.js 가 손가락 화면에서 건물을 들 때 미리 보기를 여기에 띄운다
+    guideSite(type) {
+      const g = this.guideNow;
+      return g && g.site && g.site.type === type ? { x: g.site.x, y: g.site.y } : null;
     },
     currentGuide(force) {
       const st = ST();
