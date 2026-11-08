@@ -69,6 +69,27 @@
 .stw-text.in { animation: stw-line 0.32s ease-out; }
 @keyframes stw-line { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 .stw-text em { font-style: normal; color: var(--cinnabar); font-weight: 700; }
+/* 「인구가 왜 늘지 않소?」: 새 식구가 오는 문을 한 줄씩 (✓ 열림 · ✗ 닫힘 · + 한 번에 오는 수) */
+.stw-gates { list-style: none; margin: 5px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; line-height: 1.45; }
+.stw-gates li { display: flex; align-items: baseline; gap: 6px; }
+.stw-gates i {
+  flex: none; width: 16px; height: 16px; align-self: center; display: grid; place-items: center; border-radius: 3px;
+  font-style: normal; font-family: var(--font-ui); font-size: 11px; font-weight: 700; line-height: 1; color: #fff;
+}
+.stw-gates li.ok i { background: #4f8a6c; }
+.stw-gates li.no i { background: var(--cinnabar); }
+.stw-gates li.rate i { background: #8a6a2e; }
+.stw-gates b { flex: none; min-width: 4.6em; font-weight: 700; color: #3a2a1c; }
+.stw-gates li.no b { color: var(--cinnabar); }
+.stw-gates span { flex: 1; min-width: 0; font-family: var(--font-ui); font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.stw-gates .g-short { display: none; }
+/* 키 낮은 화면: 두 줄 두 칸으로 줄여 적는다 */
+@media (max-height: 480px) {
+  .stw-gates { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; row-gap: 1px; font-size: 12.5px; line-height: 1.35; }
+  .stw-gates b { min-width: 0; }
+  .stw-gates .g-long { display: none; }
+  .stw-gates .g-short { display: inline; }
+}
 .stw-text b { color: #3a2a1c; }
 .stw-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .stw-page { font-family: var(--font-ui); font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: none; }
@@ -150,6 +171,24 @@
   margin: 9px 0 0; padding: 6px 9px; font-size: 13px; line-height: 1.5; color: #f6e6c2;
   background: rgba(214, 170, 82, 0.1); border-left: 2px solid var(--gold); border-radius: 0 4px 4px 0;
 }
+/* 총관의 권고 한 줄 (勸 · 권할 권): 누르면 총관이 까닭과 할 곳을 짚는다 */
+.trk-adv {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%; margin: 9px 0 0; padding: 6px 8px 6px 7px;
+  background: rgba(181, 51, 42, 0.13); border: 1px solid rgba(212, 72, 58, 0.45); border-radius: 5px;
+  text-align: left; color: var(--text); font-family: var(--font-body); font-size: 13px; line-height: 1.4;
+}
+.trk-adv:hover { background: rgba(181, 51, 42, 0.22); border-color: var(--cinnabar-2); }
+.trk-adv-seal, .trk-adv-dot {
+  flex: none; display: grid; place-items: center; background: var(--cinnabar); color: #fbe9d6;
+  font-family: var(--font-display); line-height: 1; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(255, 230, 200, 0.3);
+}
+.trk-adv-seal { width: 20px; height: 20px; font-size: 13px; margin-top: 1px; }
+.trk-adv-t { flex: 1; min-width: 0; }
+.trk-adv-t small { display: block; font-family: var(--font-ui); font-size: 10.5px; letter-spacing: 0.12em; color: #f08a7c; line-height: 1.3; }
+/* 접힌 두루마리 머리: 권할 일이 있다는 작은 도장 */
+.trk-adv-dot { width: 18px; height: 18px; font-size: 11.5px; margin-left: auto; }
+.trk-adv-dot + .trk-caret { margin-left: 6px; }
+#story-tracker.compact .trk-adv-dot { margin-left: 4px; }
 .trk-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .trk-acts button {
   background: var(--lacquer-3); border: 1px solid var(--lacquer-edge); border-radius: 5px;
@@ -248,6 +287,31 @@
   .stw-text { font-size: 14px; line-height: 1.6; max-height: 7.4em; min-height: 0; }
   .stw-choice { font-size: 14px; padding: 6px 10px; }
   .trk-step h4 { font-size: 17px; }
+  /* 문 넷의 표는 한 장에 다 보이게 (위쪽은 지도라 자리가 있다) */
+  .stw-text:has(.stw-gates) { max-height: 16em; }
+}
+/* 가로로 눕힌 폰처럼 키가 낮으면: 총관 카드의 [다음]·[확인]을 글 옆으로 비켜 글 줄을 더 남긴다 (선택지 카드는 그대로 아래에) */
+@media (max-height: 480px) {
+  #steward .stw-body { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; align-content: start; }
+  #steward .stw-who { grid-column: 1 / -1; }
+  #steward .stw-text { grid-column: 1; }
+  #steward .stw-foot { grid-column: 2; grid-row: 2; margin-top: 0; flex-direction: column-reverse; align-items: flex-end; justify-content: flex-start; gap: 4px; }
+  #steward .stw-foot .stw-btns { margin-left: 0; }
+  #steward .stw-body:has(.stw-btns.choices) .stw-foot { grid-column: 1 / -1; grid-row: auto; flex-direction: row; margin-top: 6px; }
+  #steward.mini .stw-text { max-height: 6.2em; }
+  /* 선택지가 길어도 묻는 말이 0줄로 눌리지 않게 (선택지는 몸통을 굴려 본다) */
+  #steward .stw-text, #steward.mini .stw-text { min-height: 2.9em; }
+}
+/* 가로로 눕힌 폰처럼 키가 낮으면: 펼친 두루마리는 머리와 겹치는 장 이름·까닭을 빼고, 권고 줄을 맨 위에 둔다 (나머지는 굴린다) */
+@media (max-height: 480px) {
+  #story-tracker.compact:not(.collapsed) .trk-body { display: flex; flex-direction: column; }
+  #story-tracker.compact .trk-adv { order: -1; flex: none; }
+  #story-tracker.compact .trk-chline, #story-tracker.compact .trk-step p { display: none; }
+  #story-tracker.compact .trk-step h4 { font-size: 15px; margin-top: 7px; }
+}
+/* 접힌 알약의 勸 도장은 손가락으로 누를 만하게 */
+@media (pointer: coarse) {
+  #story-tracker .trk-adv-dot { width: 24px; height: 24px; font-size: 13px; border-radius: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   #steward, .stw-text.in, #story-ring, #story-tag, #story-scrim { animation: none; }
